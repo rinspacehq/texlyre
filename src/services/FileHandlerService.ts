@@ -138,7 +138,7 @@ class FileHandlerService {
 
 	attachWorkspace(adapter: DirectoryTarget, projectId = fileStoreService.getCurrentProjectId()): void {
 		this.workspace = adapter;
-		this.workspaceProjectId = projectId;
+		this.workspaceProjectId = projectId || null;
 		this.resetWriteStatus();
 	}
 
@@ -264,7 +264,7 @@ class FileHandlerService {
 	}
 
 	getWriteStatus(): DiskWriteStatus {
-		const projectId = this.workspaceProjectId ?? fileStoreService.getCurrentProjectId();
+		const projectId = this.workspaceProjectId ?? this.getActiveProjectId();
 		if (this.writeStatusCache?.projectId === projectId && this.writeStatusCache.targetGeneration === this.targetGeneration) return this.writeStatusCache;
 		this.writeStatusCache = Object.freeze({
 			projectId,
@@ -405,7 +405,7 @@ class FileHandlerService {
 	async mirrorFiles(files: FileNode[]): Promise<DiskWriteReport> {
 		const sequence = ++this.writeSequence;
 		const generation = this.targetGeneration;
-		const storeProjectId = fileStoreService.getCurrentProjectId();
+		const storeProjectId = this.getActiveProjectId();
 		const projectId = storeProjectId || this.workspaceProjectId;
 		const adapter = this.workspace;
 		const pathCounts = new Map<string, number>();
@@ -437,7 +437,7 @@ class FileHandlerService {
 			for (const job of jobs) {
 				let result = job.initial;
 				if (result.outcome === 'writing') {
-					const activeProjectId = fileStoreService.getCurrentProjectId();
+					const activeProjectId = this.getActiveProjectId();
 					if (generation !== this.targetGeneration || projectId !== (this.workspaceProjectId ?? activeProjectId) || (activeProjectId && activeProjectId !== projectId)) {
 						result = Object.freeze({ ...job.entry, outcome: 'failed', reason: 'target-changed' });
 					} else {
@@ -450,7 +450,7 @@ class FileHandlerService {
 								let disk: number | null = null;
 								let baselineError: unknown;
 								try { disk = await job.target.stat(); } catch (error) { baselineError = error; }
-								if (generation === this.targetGeneration && (!fileStoreService.getCurrentProjectId() || fileStoreService.getCurrentProjectId() === projectId)) {
+								if (generation === this.targetGeneration && (!this.getActiveProjectId() || this.getActiveProjectId() === projectId)) {
 									if (disk !== null) this.baselines.set(job.file.id, { disk, local: job.file.lastModified });
 									this.linkedIds.add(job.file.id);
 								}
@@ -479,7 +479,7 @@ class FileHandlerService {
 	}
 
 	private recordWriteEntry(entry: DiskWriteEntry, generation: number, projectId: string | null): void {
-		if (generation !== this.targetGeneration || projectId !== (this.workspaceProjectId ?? fileStoreService.getCurrentProjectId())) return;
+		if (generation !== this.targetGeneration || projectId !== (this.workspaceProjectId ?? this.getActiveProjectId())) return;
 		if (entry.outcome === 'skipped') return;
 		const previous = this.writeEntries.get(entry.path);
 		// An older completion must not clear the dirty/pending state of newer input.
@@ -487,6 +487,11 @@ class FileHandlerService {
 			this.writeEntries.set(entry.path, entry);
 			this.writeStatusCache = null;
 		}
+	}
+
+	private getActiveProjectId(): string | null {
+		// FileStore uses an empty string before initialization; scope reports use null.
+		return fileStoreService.getCurrentProjectId() || null;
 	}
 
 	private resetWriteStatus(): void {

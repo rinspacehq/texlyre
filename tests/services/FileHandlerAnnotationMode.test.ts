@@ -4,6 +4,12 @@ jest.mock('../../src/services/FileStoreService', () => ({
 	},
 }));
 
+// This suite preserves the existing account-mode projection preference.
+// Persistent-local mode defaults to exact bytes in FileHandlerLocalWrites.
+jest.mock('../../src/workspace/RuntimeStartup', () => ({
+	getStartupIntent: () => ({ mode: 'local-unbound', persistentProfile: false }),
+}));
+
 import { fileHandlerService } from '../../src/services/FileHandlerService';
 import type { FileNode } from '../../src/types/files';
 

@@ -359,13 +359,15 @@ describe('FileHandlerService', () => {
 			const adapter = createAdapter();
 			module.fileHandlerService.attachWorkspace(adapter as never);
 
-			await module.fileHandlerService.mirrorFiles([
+			const report = await module.fileHandlerService.mirrorFiles([
 				{ ...workspaceFile(), content: 'body' },
 				{ ...workspaceFile(), id: 'ws-2', path: '/.texlyre/x', content: 'x' },
-				{ ...workspaceFile(), id: 'ws-3', content: undefined },
-				{ ...workspaceFile(), id: 'ws-4', content: 'gone', isDeleted: true },
+				{ ...workspaceFile(), id: 'ws-3', path: '/chapters/missing.tex', content: undefined },
+				{ ...workspaceFile(), id: 'ws-4', path: '/chapters/deleted.tex', content: 'gone', isDeleted: true },
 			]);
 
+			expect(report.entries.map((entry) => entry.outcome)).toEqual(['written', 'skipped', 'failed', 'skipped']);
+			expect(report.entries[2].reason).toBe('missing-content');
 			expect(adapter.writeFile).toHaveBeenCalledTimes(1);
 			expect(adapter.writeFile).toHaveBeenCalledWith(
 				'/chapters/intro.tex',

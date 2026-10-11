@@ -89,6 +89,15 @@ describe('persistent-local disk write results', () => {
 		await fileHandlerService.writeBack({ ...file('/main.tex'), launchHandle: handle }, annotation);
 		expect(disk.bytes.get('/main.tex')).toBe(annotation);
 	});
+	it('normalizes an uninitialized project scope without blocking directly launched files', async () => {
+		fileStoreService.setProjectId('');
+		const disk = directory();
+		const handle = await disk.root.getFileHandle('main.tex');
+		const result = await fileHandlerService.writeBackResult({ ...file('/main.tex'), launchHandle: handle }, annotation);
+		expect(result.outcome).toBe('written');
+		expect(disk.bytes.get('/main.tex')).toBe(annotation);
+		expect(fileHandlerService.getWriteStatus()).toMatchObject({ projectId: null, entries: [{ outcome: 'written' }] });
+	});
 	it('returns partial results and keeps the original close error instead of false success', async () => {
 		const failure = new DOMException('Synthetic disk full', 'QuotaExceededError');
 		const disk = directory(async (path) => { if (path === '/bad.typ') throw failure; });

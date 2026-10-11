@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" pnpm exec jest tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx --ci --runInBand
+          nice -n 15 taskset -c "$task_cpu" pnpm exec jest tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/services/FileHandlerService.test.ts tests/services/FileHandlerAnnotationMode.test.ts tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx --ci --runInBand
 
       - name: Run tests
         shell: bash
