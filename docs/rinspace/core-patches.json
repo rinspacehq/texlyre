@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "pnpm-types-and-model-identity",
+      "files": ["package.json", "pnpm-lock.yaml"],
+      "purpose": "Directly declare required types and align the already locked ProseMirror model patch version; preserve original upstream lock provenance separately.",
+      "tests": ["full application typecheck and upstream Jest suite in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream fixed pnpm lock and direct type dependencies pass the full application checks without these overrides.",
+      "integrationStatus": "dependency-repaired; full CI rerun pending"
+    },
+    {
       "id": "workspace-extension-contracts",
       "files": ["src/plugins/PluginInterface.ts", "src/plugins/PluginRegistry.ts", "src/types/texlyre.ts", "src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "texlyre.config.ts"],
       "purpose": "Optional build-time workspace plugin category and seven generic hooks. No Rinspace API or identity rule in core.",

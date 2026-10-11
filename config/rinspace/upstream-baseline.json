@@ -15,7 +15,8 @@
   "toolchain": {
     "node": "24.13.1",
     "packageManager": "pnpm@10.20.0",
-    "lockfile": "pnpm-lock.yaml"
+    "lockfile": "pnpm-lock.yaml",
+    "lockfileSha256": "8a6135d466d757ec910501a1a89fe558f808ae911b6f8b1a6e230114efb86112"
   },
   "stage": "source-development",
   "productionAccepted": false

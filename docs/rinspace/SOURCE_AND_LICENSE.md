@@ -30,7 +30,11 @@ fork does not introduce another publisher or per-user compilation service.
 ## Development checks
 
 Run `node scripts/rinspace/check-source.mjs` to check the fixed source baseline,
-license, lockfile and toolchain declaration. Run `node --test
+license, reviewed fork lockfile and toolchain declaration. The original upstream
+lock digest remains unchanged as provenance; reviewed fork dependency repairs
+have a separate digest and [change record](dependency-fixes.json). pnpm is the
+declared build/check input; the inherited npm lock is not a fork build input.
+Run `node --test
 --test-concurrency=1 scripts/rinspace/*.test.mjs` for foundation contracts.
 These checks do **not** certify assets, dependency notices, a full application
 build, browser compilation, actual authorization, or private integration.

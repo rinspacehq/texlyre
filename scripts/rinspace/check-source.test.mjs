@@ -14,6 +14,7 @@ for (const [label, change] of [
 	['personal namespace', (b) => { b.repository = 'lunifans/texlyre'; }],
 	['wrong upstream', (b) => { b.upstream.repository = 'another/texlyre'; }],
 	['missing license digest', (b) => { delete b.upstream.licenseSha256; }],
+	['missing reviewed fork lock', (b) => { delete b.toolchain.lockfileSha256; }],
 	['changed license', (b) => { b.license = 'MIT'; }],
 	['floating package manager', (b) => { b.toolchain.packageManager = 'pnpm@latest'; }],
 	['unreviewed Node version', (b) => { b.toolchain.node = '24.14.0'; }],

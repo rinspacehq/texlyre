@@ -28,6 +28,7 @@ export function validateDeclarations(baseline, pkg, nodeVersion) {
 	assert.equal(baseline.toolchain.packageManager, 'pnpm@10.20.0');
 	assert.equal(pkg.packageManager, baseline.toolchain.packageManager);
 	assert.equal(baseline.toolchain.lockfile, 'pnpm-lock.yaml');
+	assert.match(baseline.toolchain.lockfileSha256, digest, 'reviewed fork lock must be SHA-256');
 	assert.equal(pkg.repository.url, 'https://github.com/rinspacehq/texlyre.git');
 	assert.ok(!/(?:\blint:[\w:-]*fix\b|(?:^|\s)--fix(?:\s|$))/.test(pkg.scripts['build:prod']),
 		'production build must not run source fixers');
@@ -53,7 +54,8 @@ export function verifySource(root) {
 			stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, GIT_NO_LAZY_FETCH: '1' },
 		});
 		assert.equal(sha256(original), expected, `upstream ${file} hash mismatch`);
-		assert.equal(sha256(readFileSync(resolve(root, file))), expected, `working ${file} changed; re-review required`);
+		const reviewed = file === 'pnpm-lock.yaml' ? baseline.toolchain.lockfileSha256 : expected;
+		assert.equal(sha256(readFileSync(resolve(root, file))), reviewed, `working ${file} changed; re-review required`);
 	}
 	return { stage: baseline.stage, upstreamCommit: source.commit, upstreamTree: source.tree, license: baseline.license, productionAccepted: false };
 }
