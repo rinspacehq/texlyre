@@ -1,8 +1,9 @@
 // src/components/workspace/WorkspaceModal.tsx
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { t } from '@/i18n';
+import { useDiskWriteStatus } from '../../hooks/useDiskWriteStatus';
 import { fileHandlerService } from '../../services/FileHandlerService';
 import { fileStoreService } from '../../services/FileStoreService';
 import { gitFileSystemService } from '../../services/GitFileSystemService';
@@ -37,6 +38,15 @@ const getActivityTone = (type: string) => {
 	return 'success' as const;
 };
 
+const subscribeAnnotationPreference = (notify: () => void) => {
+	document.addEventListener('workspace-annotation-preference-changed', notify);
+	window.addEventListener('storage', notify);
+	return () => {
+		document.removeEventListener('workspace-annotation-preference-changed', notify);
+		window.removeEventListener('storage', notify);
+	};
+};
+
 const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 	isOpen,
 	onClose,
@@ -45,38 +55,27 @@ const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 	const [activity, setActivity] = useState<WorkspaceActivity[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
-	const [cleanAnnotations, setCleanAnnotations] = useState(true);
-	const [writes, setWrites] = useState(fileHandlerService.getWriteStatus());
+	const getAnnotationPreference = useCallback(() => fileHandlerService.getWorkspaceCleanAnnotations(status.projectId ?? undefined), [status.projectId]);
+	const cleanAnnotations = useSyncExternalStore(subscribeAnnotationPreference, getAnnotationPreference);
+	const writes = useDiskWriteStatus();
 	const activeWrites = writes.projectId === status.projectId ? writes.entries : [];
 	const pendingWrites = activeWrites.filter((entry) => entry.outcome === 'writing');
 	const failedWrites = activeWrites.filter((entry) => entry.outcome === 'failed');
 	const closedWrites = activeWrites.filter((entry) => entry.outcome === 'written');
 
 	useEffect(() => {
-		setWrites(fileHandlerService.getWriteStatus());
-		return fileHandlerService.addWriteStatusListener(setWrites);
-	}, []);
-
-	const loadActivity = useCallback(async () => {
-		if (!status.projectId) return;
-		setActivity(await workspaceActivityService.list(status.projectId));
-	}, [status.projectId]);
-
-	/* biome-ignore lint/correctness/useExhaustiveDependencies(isOpen): Opening the modal intentionally refreshes workspace settings that may have changed externally. */
-	useEffect(() => {
-		if (!status.projectId) return;
-		setCleanAnnotations(
-			fileHandlerService.getWorkspaceCleanAnnotations(status.projectId),
-		);
-	}, [isOpen, status.projectId]);
-
-	useEffect(() => {
-		if (!isOpen) return;
-		void loadActivity();
-		return workspaceActivityService.addListener(() => {
-			void loadActivity();
+		if (!isOpen || !status.projectId) return;
+		const projectId = status.projectId;
+		let cancelled = false;
+		const load = () => workspaceActivityService.list(projectId).then((items) => {
+			if (!cancelled) setActivity(items);
 		});
-	}, [isOpen, loadActivity]);
+		void load();
+		const unsubscribe = workspaceActivityService.addListener((changedProjectId) => {
+			if (changedProjectId === projectId) void load();
+		});
+		return () => { cancelled = true; unsubscribe(); };
+	}, [isOpen, status.projectId]);
 
 	const run = async (action: () => Promise<unknown>) => {
 		setError(null);
@@ -99,7 +98,6 @@ const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 		run(async () => {
 			if (!status.projectId) return;
 			fileHandlerService.setWorkspaceCleanAnnotations(status.projectId, clean);
-			setCleanAnnotations(clean);
 
 			const fileSystem = gitFileSystemService.get(status.projectId);
 			const gitSettings = fileSystem.getSettings();

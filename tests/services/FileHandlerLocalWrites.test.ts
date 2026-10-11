@@ -197,6 +197,15 @@ describe('persistent-local disk write results', () => {
 		const remove = fileHandlerService.addWriteListener(() => { throw new Error('Synthetic observer failure'); });
 		try { expect(await fileHandlerService.writeBack(file(), 'source')).toBe(true); } finally { remove(); }
 	});
+	it('returns referentially stable external-store snapshots until actual write state changes', async () => {
+		const disk = directory(); fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		const before = fileHandlerService.getWriteStatus();
+		expect(fileHandlerService.getWriteStatus()).toBe(before);
+		await fileHandlerService.writeBack(file(), 'source');
+		const after = fileHandlerService.getWriteStatus();
+		expect(after).not.toBe(before);
+		expect(fileHandlerService.getWriteStatus()).toBe(after);
+	});
 	it('keeps the actual FileStore transaction and raw binary available after a disk failure', async () => {
 		// The inherited global JSON structuredClone shim cannot preserve binary IDB rows.
 		jest.spyOn(globalThis, 'structuredClone').mockImplementation(<T,>(value: T): T => deserialize(serialize(value)));

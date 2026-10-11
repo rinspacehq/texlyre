@@ -1,30 +1,23 @@
 // src/components/common/WorkspaceStatusIndicator.tsx
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { t } from '@/i18n';
-import { fileHandlerService } from '../../services/FileHandlerService';
+import { useDiskWriteStatus } from '../../hooks/useDiskWriteStatus';
 import {
-	type WorkspaceStatus,
 	workspaceService,
 } from '../../services/WorkspaceService';
 import { FolderOpenIcon } from '../common/Icons';
 import GitRemoteStatusIndicator from '../history/GitRemoteStatusIndicator';
 import WorkspaceModal from './WorkspaceModal';
 
+const subscribeWorkspace = (notify: () => void) => workspaceService.addStatusListener(notify);
+const getWorkspaceSnapshot = () => workspaceService.getStatus();
+
 const WorkspaceStatusIndicator: React.FC = () => {
-	const [status, setStatus] = useState<WorkspaceStatus>(
-		workspaceService.getStatus(),
-	);
+	const status = useSyncExternalStore(subscribeWorkspace, getWorkspaceSnapshot);
 	const [showModal, setShowModal] = useState(false);
-	const [writes, setWrites] = useState(fileHandlerService.getWriteStatus());
-
-	useEffect(() => {
-		setStatus(workspaceService.getStatus());
-		return workspaceService.addStatusListener(setStatus);
-	}, []);
-
-	useEffect(() => fileHandlerService.addWriteStatusListener(setWrites), []);
+	const writes = useDiskWriteStatus();
 
 	useEffect(() => {
 		const handleShowModal = () => setShowModal(true);

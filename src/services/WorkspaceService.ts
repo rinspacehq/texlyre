@@ -88,13 +88,14 @@ class WorkspaceService {
 	private needsPermission = false;
 	private linkedCount = 0;
 	private lastSyncedAt: number | null = null;
+	private statusCache: WorkspaceStatus | null = null;
 
 	isSupported(): boolean {
 		return typeof window !== 'undefined' && getDirectoryPicker() !== null;
 	}
 
 	getStatus(): WorkspaceStatus {
-		return {
+		const status: WorkspaceStatus = {
 			isConnected: this.rootHandle !== null && !this.needsPermission,
 			needsPermission: this.needsPermission,
 			projectId: this.projectId,
@@ -102,6 +103,9 @@ class WorkspaceService {
 			fileCount: this.linkedCount,
 			lastSyncedAt: this.lastSyncedAt,
 		};
+		const keys: Array<keyof WorkspaceStatus> = ['isConnected', 'needsPermission', 'projectId', 'directoryName', 'fileCount', 'lastSyncedAt'];
+		if (!this.statusCache || keys.some((key) => this.statusCache?.[key] !== status[key])) this.statusCache = Object.freeze(status);
+		return this.statusCache;
 	}
 
 	async reconnect(): Promise<boolean> {

@@ -126,6 +126,7 @@ class FileHandlerService {
 	private writeSequence = 0;
 	private writeQueue: Promise<void> = Promise.resolve();
 	private writeEntries = new Map<string, DiskWriteEntry>();
+	private writeStatusCache: DiskWriteStatus | null = null;
 	private writeListeners = new Set<(report: DiskWriteReport) => void>();
 	private writeStatusListeners = new Set<(status: DiskWriteStatus) => void>();
 	private isMirroringSuppressed = false;
@@ -263,11 +264,14 @@ class FileHandlerService {
 	}
 
 	getWriteStatus(): DiskWriteStatus {
-		return Object.freeze({
-			projectId: this.workspaceProjectId ?? fileStoreService.getCurrentProjectId(),
+		const projectId = this.workspaceProjectId ?? fileStoreService.getCurrentProjectId();
+		if (this.writeStatusCache?.projectId === projectId && this.writeStatusCache.targetGeneration === this.targetGeneration) return this.writeStatusCache;
+		this.writeStatusCache = Object.freeze({
+			projectId,
 			targetGeneration: this.targetGeneration,
 			entries: Object.freeze([...this.writeEntries.values()]),
 		});
+		return this.writeStatusCache;
 	}
 
 	addWriteListener(listener: (report: DiskWriteReport) => void): () => void {
@@ -479,12 +483,16 @@ class FileHandlerService {
 		if (entry.outcome === 'skipped') return;
 		const previous = this.writeEntries.get(entry.path);
 		// An older completion must not clear the dirty/pending state of newer input.
-		if (!previous || previous.sequence <= entry.sequence) this.writeEntries.set(entry.path, entry);
+		if (!previous || previous.sequence <= entry.sequence) {
+			this.writeEntries.set(entry.path, entry);
+			this.writeStatusCache = null;
+		}
 	}
 
 	private resetWriteStatus(): void {
 		this.targetGeneration++;
 		this.writeEntries.clear();
+		this.writeStatusCache = null;
 		this.notifyWriteStatus();
 	}
 
@@ -536,6 +544,7 @@ class FileHandlerService {
 				`${WORKSPACE_CLEAN_PREFIX}${projectId}`,
 				String(clean),
 			);
+			document.dispatchEvent(new Event('workspace-annotation-preference-changed'));
 		}
 	}
 

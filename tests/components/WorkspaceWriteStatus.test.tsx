@@ -36,12 +36,13 @@ describe('folder write state in existing workspace controls', () => {
 	});
 	it('marks failed writes as danger and reacts to newer pending input', () => {
 		render(<WorkspaceStatusIndicator />);
-		const listener = jest.mocked(fileHandlerService.addWriteStatusListener).mock.calls[0][0];
-		act(() => listener(writes([entry('failed')])));
+		jest.mocked(fileHandlerService.getWriteStatus).mockReturnValue(writes([entry('failed')]));
+		act(() => { for (const [notify] of jest.mocked(fileHandlerService.addWriteStatusListener).mock.calls) notify(fileHandlerService.getWriteStatus()); });
 		const badge = screen.getByRole('button', { name: '中文项目' });
 		expect(badge).toHaveAttribute('data-tone', 'danger');
 		expect(badge).toHaveAttribute('title', '1 folder writes failed. Click to review.');
-		act(() => listener(writes([entry('writing')])));
+		jest.mocked(fileHandlerService.getWriteStatus).mockReturnValue(writes([entry('writing')]));
+		act(() => { for (const [notify] of jest.mocked(fileHandlerService.addWriteStatusListener).mock.calls) notify(fileHandlerService.getWriteStatus()); });
 		expect(badge).toHaveAttribute('title', 'Writing 1 paths to the folder');
 	});
 	it('lists partial failures separately from completed writes without claiming a project-wide save', async () => {
@@ -56,5 +57,14 @@ describe('folder write state in existing workspace controls', () => {
 		jest.mocked(fileHandlerService.getWriteStatus).mockReturnValue(writes([entry('failed')], 'other-project'));
 		render(<WorkspaceStatusIndicator />);
 		expect(screen.getByRole('button', { name: '中文项目' })).not.toHaveAttribute('data-tone', 'danger');
+	});
+	it('updates the existing annotation preference from its external store without an effect rehydration', async () => {
+		render(<WorkspaceModal isOpen status={status} onClose={jest.fn()} />);
+		expect(screen.getByRole('checkbox')).not.toBeChecked();
+		jest.mocked(fileHandlerService.getWorkspaceCleanAnnotations).mockReturnValue(true);
+		act(() => document.dispatchEvent(new Event('workspace-annotation-preference-changed')));
+		expect(screen.getByRole('checkbox')).toBeChecked();
+		await waitFor(() => expect(screen.getByText('No activity recorded yet')).toBeInTheDocument());
+		jest.mocked(fileHandlerService.getWorkspaceCleanAnnotations).mockReturnValue(false);
 	});
 });

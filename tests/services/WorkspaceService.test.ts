@@ -69,6 +69,11 @@ describe('WorkspaceService', () => {
 
 		expect(workspaceService.isSupported()).toBe(false);
 	});
+	it('keeps external-store status snapshots stable until the folder state changes', () => {
+		const status = workspaceService.getStatus();
+		expect(workspaceService.getStatus()).toBe(status);
+		expect(Object.isFrozen(status)).toBe(true);
+	});
 
 	it('should link a folder without importing before the project opens', async () => {
 		await workspaceService.link('project-9', rootHandle);
