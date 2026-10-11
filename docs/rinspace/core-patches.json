@@ -22,7 +22,7 @@
     },
     {
       "id": "local-disk-write-results",
-      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/FileHandlerService.ts", "src/services/WorkspaceService.ts", "src/hooks/useDiskFiles.ts", "src/hooks/useDiskWriteStatus.ts", "src/components/workspace/WorkspaceModal.tsx", "src/components/workspace/WorkspaceStatusIndicator.tsx"],
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WorkspaceService.ts", "src/hooks/useDiskFiles.ts", "src/hooks/useDiskWriteStatus.ts", "src/hooks/editor/useEditorView.ts", "src/components/editor/Editor.tsx", "src/components/workspace/WorkspaceModal.tsx", "src/components/workspace/WorkspaceStatusIndicator.tsx"],
       "purpose": "Propagate per-path write/close outcomes through real FileStore mirroring to existing folder controls; preserve source annotations by default in persistent-local mode. Copy queued bytes and targets, serialize writes, reject protected/traversing/duplicate paths, and prevent stale directory/project completions from clearing newer pending input. Count only actually completed writes in folder export activity.",
       "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/FileHandlerLocalWrites.test.ts", "tests/components/WorkspaceWriteStatus.test.tsx", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/FileHandlerService.test.ts", "tests/services/WorkspaceService.test.ts"],
       "upstreamIssue": null,

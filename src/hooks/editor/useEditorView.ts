@@ -39,6 +39,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type * as Y from 'yjs';
 import { UndoManager } from 'yjs';
 
+import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import { createLanguageExtension } from '../../extensions/codemirror/LanguageExtension';
 import { resolveHighlightTheme } from '../../extensions/codemirror/HighlightThemeExtension';
@@ -226,6 +227,7 @@ export const useEditorView = (
 					currentFileId,
 					contentBuffer,
 				);
+				if (!file) throw new Error(t('The file was not saved in browser storage'));
 
 				if (fileName && isBibFile(fileName) && viewRef.current) {
 					refreshBibliographyCache(viewRef.current);

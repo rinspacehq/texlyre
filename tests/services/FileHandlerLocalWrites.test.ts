@@ -224,4 +224,31 @@ describe('persistent-local disk write results', () => {
 			expect(notifications).toEqual(['/asset.dat']);
 		} finally { remove(); }
 	});
+	it('aborts all queued browser changes after a synchronous second-file clone failure, without writing disk', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		await fileStoreService.db?.put('files', file('/existing.typ', 'retained'));
+		const disk = directory(); fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		const put = IDBObjectStore.prototype.put;
+		jest.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+			if (value && typeof value === 'object' && 'path' in value && value.path === '/failure.typ') throw new DOMException('Synthetic clone failure', 'DataCloneError');
+			return put.call(this, value, key);
+		});
+		await expect(fileStoreService.batchStoreFiles([file('/first.typ'), file('/failure.typ')], { showConflictDialog: false })).rejects.toMatchObject({ name: 'DataCloneError' });
+		expect((await fileStoreService.getAllFiles()).map((entry) => entry.path)).toEqual(['/existing.typ']);
+		expect(disk.bytes.size).toBe(0);
+		expect(fileHandlerService.getWriteStatus().entries).toEqual([]);
+	});
+	it('does not mirror or acknowledge a browser transaction aborted after requests were queued', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory(); fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		const put = IDBObjectStore.prototype.put;
+		jest.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+			const request = put.call(this, value, key);
+			if (value && typeof value === 'object' && 'path' in value && value.path === '/failure.typ') this.transaction.abort();
+			return request;
+		});
+		await expect(fileStoreService.batchStoreFiles([file('/first.typ'), file('/failure.typ')], { showConflictDialog: false })).rejects.toMatchObject({ name: 'AbortError' });
+		expect(await fileStoreService.getAllFiles()).toEqual([]);
+		expect(disk.bytes.size).toBe(0);
+	});
 });

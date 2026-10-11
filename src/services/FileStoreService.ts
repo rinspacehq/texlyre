@@ -633,13 +633,18 @@ class FileStoreService {
 			await this.guardWrite(async () => {
 				const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
 				const store = tx.objectStore(this.FILES_STORE);
-
-				for (const file of filesToStore) {
-					await store.put(file);
-					storedIds.push(file.id);
+				const requests: Array<Promise<IDBValidKey>> = [];
+				try {
+					// Queue the complete batch in the active transaction before yielding.
+					for (const file of filesToStore) requests.push(store.put(file));
+					await Promise.all([...requests, tx.done]);
+					storedIds.push(...filesToStore.map((file) => file.id));
+				} catch (error) {
+					// A synchronous cloning failure must not commit already queued files.
+					try { tx.abort(); } catch { /* Transaction may already have aborted. */ }
+					await Promise.allSettled([...requests, tx.done]);
+					throw error;
 				}
-
-				await tx.done;
 			});
 			await fileHandlerService.mirrorFiles(filesToStore);
 

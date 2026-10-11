@@ -965,7 +965,7 @@ const EditorContent: React.FC<{
 							data-density='compact'
 						>
 							<span>
-								{isViewOnly ? t('Cannot Save Read-Only') : t('Saved')}
+								{isViewOnly ? t('Cannot Save Read-Only') : t('Saved in this browser')}
 							</span>
 						</div>
 					)}
