@@ -42,6 +42,7 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" corepack enable pnpm
           taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
           taskset -c "$task_cpu" pnpm install --frozen-lockfile
 
