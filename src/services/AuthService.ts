@@ -584,6 +584,7 @@ export class AuthService {
 		projectDescription = '',
 		projectType: ProjectType = 'latex',
 		projectGroup: ProjectGroup = 'tex',
+		entry: Pick<Project, 'compilerId' | 'mainFile'> = {},
 	): Promise<string> {
 		try {
 			const dbName = `texlyre-project-${projectId}`;
@@ -604,6 +605,8 @@ export class AuthService {
 					description: projectDescription,
 					type: projectType,
 					group: projectGroup,
+					...(entry.compilerId ? { compilerId: entry.compilerId } : {}),
+					...(entry.mainFile ? { mainFile: entry.mainFile } : {}),
 				});
 			});
 
@@ -651,6 +654,7 @@ export class AuthService {
 				project.description,
 				project.type,
 				project.group,
+				project,
 			));
 
 		const now = Date.now();

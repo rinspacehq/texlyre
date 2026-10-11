@@ -5,7 +5,7 @@ import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import type { FileNode } from '../types/files';
 import { stripAnnotations } from '../utils/fileCommentUtils';
-import { getMimeType, isBinaryFile, isTemporaryFile } from '../utils/fileUtils';
+import { getMimeType, isBinaryFile } from '../utils/fileUtils';
 import { fileHandlerService } from './FileHandlerService';
 import { fileStoreService } from './FileStoreService';
 import {
@@ -17,6 +17,14 @@ import { DiskHandleStore, ensurePermission } from './DiskHandleStore';
 import { workspaceActivityService } from './WorkspaceActivityService';
 import { authService } from './AuthService';
 import { DirectoryTarget } from './WriteTargetService';
+import {
+	discoverLocalProject,
+	isIgnoredLocalEntry,
+	isIgnoredLocalPath,
+	type LocalProjectDiscovery,
+	type LocalProjectKind,
+	selectLocalProject,
+} from '../workspace/LocalProjectDiscovery';
 
 const moduleLog = createNamedLogger('WorkspaceService');
 
@@ -33,12 +41,6 @@ const getDirectoryPicker = (): DirectoryPicker | null => {
 	const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
 	return typeof picker === 'function' ? picker.bind(window) : null;
 };
-const IGNORED_DIRECTORIES = new Set([
-	'.git',
-	'.svn',
-	'node_modules',
-	'.texlyre',
-]);
 
 export interface DiskSnapshotEntry {
 	lastModified: number;
@@ -194,6 +196,51 @@ class WorkspaceService {
 		await this.setDiskLinkedFlag(projectId, true);
 	}
 
+	async inspectFolder(
+		handle: FileSystemDirectoryHandle,
+		signal?: AbortSignal,
+	): Promise<LocalProjectDiscovery> {
+		if (!(await ensurePermission(handle, 'read', false))) {
+			throw new Error(t('Read access to the folder was not granted'));
+		}
+		return discoverLocalProject(async function* (path) {
+			let directory = handle;
+			for (const name of path.split('/').filter(Boolean)) {
+				signal?.throwIfAborted();
+				directory = await directory.getDirectoryHandle(name);
+			}
+			// The browser API has async entries; TypeScript's DOM declarations omit it.
+			const iterable = directory as FileSystemDirectoryHandle & {
+				entries(): AsyncIterable<[string, FileSystemHandle]>;
+			};
+			for await (const [name, child] of iterable.entries()) {
+				yield { name, isDirectory: child.kind === 'directory' };
+			}
+		}, { signal });
+	}
+
+	async validateFolderSelection(
+		handle: FileSystemDirectoryHandle,
+		discovery: LocalProjectDiscovery,
+		kind: LocalProjectKind,
+		mainFile?: string,
+	): Promise<ReturnType<typeof selectLocalProject>> {
+		const selection = selectLocalProject(discovery, kind, mainFile);
+		if (!(await ensurePermission(handle, 'readwrite'))) {
+			throw new Error(t('Write access to the folder was not granted'));
+		}
+		if (selection.mainFile) {
+			const parts = selection.mainFile.slice(1).split('/');
+			const fileName = parts.pop();
+			if (!fileName) throw new Error(t('Entry file is no longer available'));
+			let directory = handle;
+			for (const name of parts) directory = await directory.getDirectoryHandle(name);
+			// Recheck that the selected file still exists, without reading its source.
+			await directory.getFileHandle(fileName);
+		}
+		return selection;
+	}
+
 	async connect(projectId: string): Promise<boolean> {
 		const handle = await this.pickFolder();
 		if (!handle) return false;
@@ -226,7 +273,7 @@ class WorkspaceService {
 		const stored = await fileStoreService.getAllFiles(false, false, true);
 		const tracked = new Map(
 			stored
-				.filter((file) => !isTemporaryFile(file.path))
+				.filter((file) => !isIgnoredLocalPath(file.path))
 				.map((file) => [file.path, file]),
 		);
 
@@ -279,7 +326,7 @@ class WorkspaceService {
 		const projectOnly = stored.filter(
 			(file) =>
 				file.type === 'file' &&
-				!isTemporaryFile(file.path) &&
+				!isIgnoredLocalPath(file.path) &&
 				!files.some((incoming) => incoming.path === file.path),
 		);
 		const projectOnlyPaths = projectOnly.map((file) => file.path);
@@ -483,7 +530,7 @@ class WorkspaceService {
 		const adapter = new DirectoryTarget(this.rootHandle);
 		const directories: FileNode[] = [];
 		const files: FileNode[] = [];
-		await this.walk(adapter, '', directories, files);
+		await this.walk(adapter, '', directories, files, true);
 
 		if (directories.length > 0 || files.length > 0) {
 			await fileHandlerService.withoutMirroring(() =>
@@ -503,7 +550,7 @@ class WorkspaceService {
 
 		const stored = await fileStoreService.getAllFiles(false, false, false);
 		const linked = stored
-			.filter((file) => file.type === 'file' && !isTemporaryFile(file.path))
+			.filter((file) => file.type === 'file' && !isIgnoredLocalPath(file.path))
 			.map((file) => file.id);
 
 		fileHandlerService.resetLinks(linked);
@@ -535,7 +582,7 @@ class WorkspaceService {
 		this.snapshot = disk;
 
 		const stored = await fileStoreService.getAllFiles(false, false, true);
-		const tracked = stored.filter((file) => !isTemporaryFile(file.path));
+		const tracked = stored.filter((file) => !isIgnoredLocalPath(file.path));
 		const trackedPaths = new Map(tracked.map((file) => [file.path, file]));
 
 		const addedPaths = [...disk.keys()].filter(
@@ -617,7 +664,7 @@ class WorkspaceService {
 			toStore.length > 0 || toDelete.length > 0
 				? await fileStoreService.getAllFiles(false, false, true)
 				: tracked
-		).filter((file) => file.type === 'file' && !isTemporaryFile(file.path));
+		).filter((file) => file.type === 'file' && !isIgnoredLocalPath(file.path));
 
 		fileHandlerService.resetLinks(files.map((file) => file.id));
 		this.linkedCount = files.length;
@@ -747,11 +794,10 @@ class WorkspaceService {
 		}
 
 		for (const entry of entries) {
+			if (isIgnoredLocalEntry(entry.name)) continue;
 			const entryPath = `${path}/${entry.name}`;
 
 			if (entry.isDirectory) {
-				if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-				if (isTemporaryFile(entryPath)) continue;
 				into.set(entryPath, {
 					lastModified: 0,
 					size: 0,
@@ -761,7 +807,6 @@ class WorkspaceService {
 				continue;
 			}
 
-			if (isTemporaryFile(entryPath)) continue;
 			const stats = await adapter.stat(entryPath);
 			if (stats) into.set(entryPath, stats);
 		}
@@ -796,20 +841,22 @@ class WorkspaceService {
 		path: string,
 		directories: FileNode[],
 		files: FileNode[],
+		strict = false,
 	): Promise<void> {
 		let entries: Array<{ name: string; isDirectory: boolean }>;
 		try {
 			entries = await adapter.listEntries(path);
 		} catch (error) {
+			if (strict) throw new Error(t('Local folder could not be read completely'), { cause: error });
 			moduleLog.error(`Failed to list ${path || '/'}:`, error);
 			return;
 		}
 
 		for (const entry of entries) {
+			if (isIgnoredLocalEntry(entry.name)) continue;
 			const entryPath = `${path}/${entry.name}`;
 
 			if (entry.isDirectory) {
-				if (IGNORED_DIRECTORIES.has(entry.name)) continue;
 				directories.push({
 					id: nanoid(),
 					name: entry.name,
@@ -817,12 +864,9 @@ class WorkspaceService {
 					type: 'directory',
 					lastModified: Date.now(),
 				});
-				await this.walk(adapter, entryPath, directories, files);
+				await this.walk(adapter, entryPath, directories, files, strict);
 				continue;
 			}
-
-			if (isTemporaryFile(entryPath)) continue;
-
 			try {
 				const stats = await adapter.stat(entryPath);
 				const content = await adapter.readFile(entryPath);
@@ -838,6 +882,7 @@ class WorkspaceService {
 					isBinary: isBinaryFile(entryPath),
 				});
 			} catch (error) {
+				if (strict) throw new Error(t('Local file could not be read completely'), { cause: error });
 				moduleLog.error(`Failed to read ${entryPath}:`, error);
 			}
 		}

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { deleteDB, unwrap } from 'idb';
+import * as Y from 'yjs';
+import { IndexeddbPersistence } from 'y-indexeddb';
 import { AuthService } from '@src/services/AuthService';
 import type { User } from '@src/types/auth';
 import type { Project } from '@src/types/projects';
@@ -131,5 +133,29 @@ describe('persistent browser-local profile', () => {
 		await service.createProject({ name: 'Synthetic local', description: '', type: 'latex',
 			docUrl: 'yjs:synthetic-local', tags: [], isFavorite: false });
 		expect(diskBackupService.synchronize).not.toHaveBeenCalled();
+	});
+	it.each(['latex', 'typst', 'markdown'] as const)('persists a selected local %s entry in the project row and reopened Yjs metadata', async (type) => {
+		await service.initialize();
+		const mainFile = `/章节/正文.${type === 'latex' ? 'tex' : type === 'typst' ? 'typ' : 'md'}`;
+		const compilerId = type === 'markdown' ? undefined : `internal:${type}`;
+		const created = await service.createProject({
+			name: 'Synthetic folder', description: '', type, mainFile, compilerId,
+			group: type === 'latex' ? 'tex' : type, tags: [], isFavorite: false,
+		});
+		expect((await service.getProjectById(created.id))?.mainFile).toBe(mainFile);
+		const collection = `texlyre-project-${created.id}-yjs_metadata`;
+		const reopened = new Y.Doc();
+		const persistence = new IndexeddbPersistence(collection, reopened);
+		try {
+			await persistence.whenSynced;
+			expect(reopened.getMap('data').get('projectMetadata')).toEqual({
+				name: 'Synthetic folder', description: '', type, group: type === 'latex' ? 'tex' : type,
+				mainFile, ...(compilerId ? { compilerId } : {}),
+			});
+		} finally {
+			await persistence.destroy();
+			reopened.destroy();
+			await deleteDB(collection);
+		}
 	});
 });

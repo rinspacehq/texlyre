@@ -115,6 +115,35 @@ describe('WorkspaceService', () => {
 		]);
 	});
 
+	it('preserves attributes and prefix-named folders but excludes Git pointer files', async () => {
+		setDirectory({
+			'': [
+				{ name: '.git', isDirectory: false },
+				{ name: '.gitignore', isDirectory: false },
+				{ name: '.gitattributes', isDirectory: false },
+				{ name: 'node_modules-not-dependencies', isDirectory: true },
+			],
+			'/node_modules-not-dependencies': [{ name: 'notes.md', isDirectory: false }],
+		});
+		await workspaceService.link('local-path-protection', rootHandle);
+		await workspaceService.restore('local-path-protection');
+		const stored = jest.mocked(fileStoreService.batchStoreFiles).mock.calls[0][0];
+		expect(stored.map((file) => file.path).sort()).toEqual([
+			'/.gitattributes', '/.gitignore', '/node_modules-not-dependencies', '/node_modules-not-dependencies/notes.md',
+		]);
+	});
+
+	it('retains pending import and does not store a partial folder when reading fails', async () => {
+		setDirectory({ '': [{ name: 'main.tex', isDirectory: false }, { name: 'asset.dat', isDirectory: false }] });
+		mockAdapter.readFile.mockResolvedValueOnce('source').mockRejectedValueOnce(new Error('Disk read failed'));
+		await workspaceService.link('local-partial-import', rootHandle);
+		await expect(workspaceService.restore('local-partial-import')).rejects.toThrow('could not be read completely');
+		expect(fileStoreService.batchStoreFiles).not.toHaveBeenCalled();
+		mockAdapter.readFile.mockResolvedValue('source');
+		await workspaceService.restore('local-partial-import');
+		expect(fileStoreService.batchStoreFiles).toHaveBeenCalledTimes(1);
+	});
+
 	it('should preserve disk timestamps on import', async () => {
 		setDirectory({ '': [{ name: 'main.tex', isDirectory: false }] });
 

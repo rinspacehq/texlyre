@@ -9,6 +9,8 @@ export interface Project {
 	type: ProjectType;
 	group?: ProjectGroup;
 	compilerId?: string;
+	/** Virtual path relative to the authorized project root, not an OS path. */
+	mainFile?: string;
 	docUrl: string;
 	createdAt: number;
 	updatedAt: number;

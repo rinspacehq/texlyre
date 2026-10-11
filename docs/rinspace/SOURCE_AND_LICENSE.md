@@ -53,6 +53,25 @@ recovery after 24 hours, compile output, offline operation or a delivered route.
 
 ## Development checks
 
+Local folder import now reviews filenames before creating a project. A single
+recognized format is suggested; mixed projects require a choice, and unknown
+or empty folders remain files-only. Entry paths are relative to the selected
+root. No manifest, source-content scan, compiler job or remote binding is needed
+for the review. Discovery is serial, limited to 10,000 entries / 64 levels, and
+yields to input every 128 entries; exceeding a limit fails instead of silently
+truncating. Cancellation leaves projects untouched. Confirmation rechecks write
+permission and entry existence. If linking fails after project creation, that
+browser project is kept for recovery and retries do not create duplicates.
+
+Folder import/protection uses whole path segments: Git metadata (including
+worktree pointer files), dependencies and application metadata are excluded;
+`.gitignore`, `.gitattributes` and unrelated prefix-named folders are preserved.
+Initial directory read failures retain the pending import rather than recording
+a partial read as complete. These changes do not certify transaction durability,
+binary recovery, native browser permission behavior, compilation or original
+directory saving. Unsupported browsers receive an explicit warning that archive
+imports/downloads are copies, not a write-back to the original folder.
+
 Run `node scripts/rinspace/check-source.mjs` to check the fixed source baseline,
 license, reviewed fork lockfile and toolchain declaration. The original upstream
 lock digest remains unchanged as provenance; reviewed fork dependency repairs

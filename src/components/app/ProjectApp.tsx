@@ -696,6 +696,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 				isOpen={showImportModal}
 				onClose={() => setShowImportModal(false)}
 				onProjectsImported={handleProjectsImported}
+				onOpenProject={onOpenProject}
 			/>
 
 			{/* Guest users cannot access backup features */}

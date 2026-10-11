@@ -9,7 +9,16 @@
       "tests": ["scripts/rinspace/local-startup.test.mjs", "tests/services/AuthServiceLocalProfile.test.ts", "tests/components/AuthLocalStartup.test.tsx"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies persistent anonymous local profiles, safe pre-cleanup migration and explicit no-upload startup policy with equivalent regressions.",
-      "integrationStatus": "pure helpers and workspace types checked locally; application/IDB regressions pending CI. Real browser profile migration, filesystem writing and explicit optional connection UI remain pending."
+      "integrationStatus": "45 foundation cases, 13 focused cases, application types/lint and 1043 full regressions passed exact source 52f2fa0 run 38136349644. Real browser profile migration, filesystem writing and explicit optional connection UI remain pending."
+    },
+    {
+      "id": "local-folder-entry-review",
+      "files": ["src/workspace/LocalProjectDiscovery.ts", "src/services/WorkspaceService.ts", "src/services/AuthService.ts", "src/types/projects.ts", "src/components/project/ProjectImportModal.tsx", "src/components/app/ProjectApp.tsx"],
+      "purpose": "Filename-only bounded serial review of an authorized local folder; choose LaTeX/Typst/Markdown or files-only and a relative entry before creating a project. Recheck permission and entry existence, preserve recoverable project on link failure, skip protected path segments without dropping .gitattributes. No platform binding, source upload or compile trigger in discovery.",
+      "tests": ["scripts/rinspace/local-project-discovery.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supports generic local folder format/entry review, safe permission/cancellation handling and equivalent project metadata persistence.",
+      "integrationStatus": "implementation connected to existing import/navigation; local helper/type and full application CI checks in progress. Native browser directory import, complete binary recovery and disk write acknowledgments are not accepted yet."
     },
     {
       "id": "pnpm-types-and-model-identity",
