@@ -18,7 +18,7 @@ import { WORK_TYPES } from './OpenAlexAPIService';
 import type { OpenAlexFilters } from './OpenAlexAPIService';
 import OpenAlexConnectionModal from './OpenAlexConnectionModal';
 
-const OpenAlexPanel: React.FC<BibliographyPanelProps> = ({
+const OpenAlexPanel: React.FC<BibliographyPanelProps<OpenAlexFilters>> = ({
 	className = '',
 	onFiltersChange,
 }) => {

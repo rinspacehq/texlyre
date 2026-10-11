@@ -151,13 +151,13 @@ export interface BibliographyPlugin extends Plugin {
 	updateServerUrl?(url: string): void;
 }
 
-export interface BibliographyPanelProps {
+export interface BibliographyPanelProps<Filters extends object = Record<string, unknown>> {
 	className?: string;
-	onItemSelect?: (item: any) => void;
+	onItemSelect?: (item: BibEntry) => void;
 	searchQuery?: string;
 	onSearchChange?: (query: string) => void;
 	pluginInstance?: BibliographyPlugin;
-	onFiltersChange?: (filters: Record<string, any>) => void;
+	onFiltersChange?: (filters: Filters) => void;
 }
 
 // Language Server Protocol (LSP) Support
@@ -183,7 +183,7 @@ export interface LSPPlugin extends Plugin {
 
 export interface LSPPanelProps {
 	className?: string;
-	onItemSelect?: (item: any) => void;
+	onItemSelect?: (item: unknown) => void;
 	searchQuery?: string;
 	onSearchChange?: (query: string) => void;
 	pluginInstance?: LSPPlugin;

@@ -13,12 +13,21 @@
     },
     {
       "id": "workspace-extension-contracts",
-      "files": ["src/plugins/PluginInterface.ts", "src/plugins/PluginRegistry.ts", "src/types/texlyre.ts", "src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "texlyre.config.ts"],
+      "files": [".gitignore", "src/plugins/PluginInterface.ts", "src/plugins/PluginRegistry.ts", "src/types/texlyre.ts", "src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "texlyre.config.ts"],
       "purpose": "Optional build-time workspace plugin category and seven generic hooks. No Rinspace API or identity rule in core.",
       "tests": ["scripts/rinspace/workspace-contracts.test.mjs", "tsconfig.workspace.json"],
       "upstreamIssue": null,
       "removalCondition": "Upstream provides compatible versioned host/workspace extension registration.",
       "integrationStatus": "registry-integrated; consumers and full upstream application regression pending"
+    },
+    {
+      "id": "typed-plugin-panel-callbacks",
+      "files": ["src/plugins/PluginInterface.ts", "extras/bibliography/openalex/OpenAlexPanel.tsx"],
+      "purpose": "Typed bibliography selection, generic provider-specific filters and unknown LSP payload instead of existing any callbacks in the touched interface.",
+      "tests": ["full application typecheck, core lint and upstream Jest suite in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream offers equivalent precise panel callback types.",
+      "integrationStatus": "type-check rerun pending"
     },
     {
       "id": "immutable-source-snapshot",

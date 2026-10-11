@@ -3,9 +3,14 @@
   "reason": "Frozen pnpm full application typecheck exposed missing direct types and incompatible ProseMirror model identities; fix actual dependencies without suppressing diagnostics.",
   "failureRun": 38129628643,
   "originalUpstreamLockSha256": "e5c7ff8d23347657db1055ffe6ab49d1e8d8badc715fac1ad361f9e9732edd5e",
-  "reviewedForkLockSha256": "8a6135d466d757ec910501a1a89fe558f808ae911b6f8b1a6e230114efb86112",
+  "firstTypeRepairLockSha256": "8a6135d466d757ec910501a1a89fe558f808ae911b6f8b1a6e230114efb86112",
+  "reviewedForkLockSha256": "1a67e700a5bea7fea4f48021b65f2a952e86e7d79dfab071e6b3cc2d7fbabafb",
+  "typeRepairPassedRun": 38130248201,
+  "nextFailure": "Full types passed; ESLint configuration imports undeclared @eslint/js and @eslint/compat. Declare these directly and retain the lint gate.",
   "generation": { "node": "24.13.1", "pnpm": "10.20.0", "lockfileOnly": true, "installScripts": false },
   "changes": [
+    { "package": "@eslint/js", "version": "10.0.1", "license": "MIT", "change": "Directly declare the package imported by eslint.config.js; exact metadata integrity is locked." },
+    { "package": "@eslint/compat", "version": "2.0.2", "license": "Apache-2.0", "change": "Directly declare the package imported by eslint.config.js; exact metadata integrity is locked." },
     { "package": "@types/lodash", "version": "4.17.24", "license": "MIT", "change": "Declare existing locked transitive type package as a direct dev dependency." },
     { "package": "@types/mdast", "version": "4.0.4", "license": "MIT", "change": "Declare existing locked transitive type package as a direct dev dependency." },
     { "package": "prosemirror-model", "version": "1.25.12", "license": "MIT", "change": "Use the already locked view-compatible patch version consistently instead of two model identities." }

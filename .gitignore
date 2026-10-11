@@ -32,7 +32,7 @@ public/assets/math-fonts/
 
 public/userdata*.json
 
-src/plugins/
+src/plugins/*
 !src/plugins/PluginRegistry.ts
 !src/plugins/PluginInterface.ts
 
