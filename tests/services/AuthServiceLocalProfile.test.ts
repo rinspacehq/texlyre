@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { deleteDB } from 'idb';
+import { deleteDB, unwrap } from 'idb';
 import { AuthService } from '@src/services/AuthService';
 import type { User } from '@src/types/auth';
 import type { Project } from '@src/types/projects';
@@ -106,11 +106,12 @@ describe('persistent browser-local profile', () => {
 		localStorage.setItem('texlyre-current-user', 'guest-owner');
 		const database = service.db;
 		if (!database) throw new Error('Database missing');
-		const original = database.transaction.bind(database);
-		jest.spyOn(database, 'transaction').mockImplementationOnce((...args) => {
+		// idb wraps methods in a Proxy; spy on the real backing transaction method.
+		const rawDatabase = unwrap(database);
+		const original = rawDatabase.transaction.bind(rawDatabase);
+		jest.spyOn(rawDatabase, 'transaction').mockImplementationOnce((...args) => {
 			const tx = original(...args);
 			tx.abort();
-			void tx.done.catch(() => {});
 			return tx;
 		});
 		await expect(service.initialize({ persistentLocalProfile: true })).rejects.toThrow();
