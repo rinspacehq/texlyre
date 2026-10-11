@@ -3,6 +3,7 @@ import type React from 'react';
 import { type ReactNode, createContext, useEffect, useState } from 'react';
 
 import { authService } from '../services/AuthService';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
 import type { AuthContextType, User } from '../types/auth';
 import type {
 	Project,
@@ -85,15 +86,29 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 	const [user, setUser] = useState<User | null>(null);
 	const [isInitializing, setIsInitializing] = useState(true);
+	const [initializationError, setInitializationError] = useState<string | null>(null);
 
 	useEffect(() => {
+		let active = true;
 		const initAuth = async () => {
-			await authService.initialize();
-			setUser(authService.getCurrentUser());
-			setIsInitializing(false);
+			try {
+				const intent = getStartupIntent();
+				if (intent.mode !== 'local-unbound') {
+					throw new Error(intent.mode === 'managed'
+						? 'Managed workspace requires a verified host adapter; local fallback is disabled.'
+						: 'Invalid workspace mode.');
+				}
+				await authService.initialize({ persistentLocalProfile: intent.persistentProfile });
+				if (active) setUser(authService.getCurrentUser());
+			} catch (error) {
+				if (active) setInitializationError(error instanceof Error ? error.message : 'Local workspace initialization failed.');
+			} finally {
+				if (active) setIsInitializing(false);
+			}
 		};
 
-		initAuth();
+		void initAuth();
+		return () => { active = false; };
 	}, []);
 
 	const login = async (username: string, password: string): Promise<User> => {
@@ -224,6 +239,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 	const cleanupExpiredGuests = async (): Promise<void> => {
 		return authService.cleanupExpiredGuests();
 	};
+
+	if (initializationError) return <p role='alert'>{initializationError}</p>;
 
 	return (
 		<AuthContext.Provider

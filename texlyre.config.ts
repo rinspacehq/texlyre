@@ -10,6 +10,8 @@ const config: TexlyreConfig = {
     projectName: 'texlyre',
     favicon: '/favicon.ico',
 
+    startup: { profile: 'persistent-local' },
+
 
     airgap: {
         allowedDomains: [

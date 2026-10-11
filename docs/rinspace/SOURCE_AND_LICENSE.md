@@ -24,8 +24,32 @@ from labels such as "plugin", "API" or "separate process".
 No Rinspace version has been released or deployed from this fork yet.
 No private product history, secrets, operational configuration, user repositories
 or drafts are included. Product/backend contracts and exact artifact acceptance
-remain with Rinspace. Gitea remains authoritative for committed content; this
+remain with Rinspace. Gitea remains authoritative for managed committed content;
+independent local projects need neither a repository nor platform identity. This
 fork does not introduce another publisher or per-user compilation service.
+
+## Local bootstrap development
+
+The fork enables `startup.profile: 'persistent-local'` in `texlyre.config.ts`.
+On the direct route it reuses or creates a browser-local owner automatically,
+without a password, platform account or expiring guest session. Existing guests
+are preserved in a single users-store transaction **before** expiry cleanup;
+their owner IDs, project databases and preference keys are unchanged. Existing
+non-guest profiles are not rewritten. An aborted migration is not acknowledged
+as successful. Browser clearing, eviction and private-mode limits still apply.
+
+An explicit `?mode=managed` is not silently opened as local; it fails closed
+until a verified host adapter is implemented. Unknown or duplicate mode values
+also fail closed. Omitting this optional configuration or selecting `'account'`
+preserves the upstream account/guest bootstrap for an upstream-style build.
+
+Local bootstrap blocks automatic collaboration, account synchronization and
+peer-file synchronization even if old settings or room keys are present. This
+is not the completed network privacy audit: plugin/network entry points and
+explicit optional-tool consent still require implementation and real-browser
+verification. Public asset/package acquisition is not document synchronization.
+The local-owner and startup tests do not certify directory writes, browser
+recovery after 24 hours, compile output, offline operation or a delivered route.
 
 ## Development checks
 

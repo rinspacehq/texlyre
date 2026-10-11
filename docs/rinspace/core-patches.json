@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "persistent-local-bootstrap",
+      "files": ["texlyre.config.ts", "src/types/texlyre.ts", "src/types/auth.ts", "src/workspace/LocalProfile.ts", "src/workspace/StartupPolicy.ts", "src/workspace/RuntimeStartup.ts", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx", "src/services/CollabService.ts", "src/contexts/ChelysContext.tsx", "src/contexts/PeerFileSyncContext.tsx"],
+      "purpose": "Optional no-login persistent browser profile; preserve guest owner IDs before expiry cleanup. Explicit managed/invalid intents fail closed, and restored connection settings do not auto-join document, account or file-sync rooms. No platform identity is synthesized.",
+      "tests": ["scripts/rinspace/local-startup.test.mjs", "tests/services/AuthServiceLocalProfile.test.ts", "tests/components/AuthLocalStartup.test.tsx"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies persistent anonymous local profiles, safe pre-cleanup migration and explicit no-upload startup policy with equivalent regressions.",
+      "integrationStatus": "pure helpers and workspace types checked locally; application/IDB regressions pending CI. Real browser profile migration, filesystem writing and explicit optional connection UI remain pending."
+    },
+    {
       "id": "pnpm-types-and-model-identity",
       "files": ["package.json", "pnpm-lock.yaml"],
       "purpose": "Directly declare required types and align the already locked ProseMirror model patch version; preserve original upstream lock provenance separately.",

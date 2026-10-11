@@ -8,6 +8,8 @@ import { chelysAccountSyncService } from '../services/ChelysAccountSyncService';
 import { chelysService } from '../services/ChelysService';
 import { useAuth } from '../hooks/useAuth';
 import { getTempPrf, clearTempPrf } from '../utils/chelysWebauthn';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
+import { allowsAutomaticConnections } from '../workspace/StartupPolicy';
 
 interface ChelysContextType {
 	isEnrolled: boolean;
@@ -114,7 +116,7 @@ export const ChelysProvider: React.FC<ChelysProviderProps> = ({ children }) => {
 	}, [user]);
 
 	useEffect(() => {
-		if (!user || isGuestUser(user)) {
+		if (!allowsAutomaticConnections(getStartupIntent()) || !user || isGuestUser(user)) {
 			chelysAccountSyncService.stop();
 			setIsLoggedIn(false);
 			return;

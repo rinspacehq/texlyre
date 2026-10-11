@@ -39,6 +39,11 @@ export interface TexlyreConfig {
 
 	favicon: string;
 
+	/** Optional generic bootstrap; omitted preserves upstream account/guest behavior. */
+	startup?: {
+		profile: 'account' | 'persistent-local';
+	};
+
 	airgap?: {
 		allowedDomains?: string[];
 		allowedProtocols?: string[];

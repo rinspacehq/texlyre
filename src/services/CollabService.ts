@@ -16,6 +16,8 @@ import type {
 import type { YjsDocUrl } from '../types/yjs';
 import { parseUrlFragments } from '../utils/urlUtils';
 import { offlineService } from './OfflineService';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
+import { allowsAutomaticConnections } from '../workspace/StartupPolicy';
 
 const moduleLog = createNamedLogger('CollabService');
 
@@ -118,7 +120,7 @@ class CollabService {
 			`Creating new connection for: ${containerId} (offline: ${this.isOfflineMode()})`,
 		);
 
-		if (this.forceLocalConnections || this.isOfflineMode()) {
+		if (!allowsAutomaticConnections(getStartupIntent()) || this.forceLocalConnections || this.isOfflineMode()) {
 			return this.createOfflineConnection(docId, collectionName, containerId);
 		}
 		return this.createOnlineConnection(

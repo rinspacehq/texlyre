@@ -35,51 +35,51 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
-          taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
+          nice -n 15 taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
 
       - name: Install dependencies
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" corepack enable pnpm
-          taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
-          taskset -c "$task_cpu" pnpm install --frozen-lockfile
+          nice -n 15 taskset -c "$task_cpu" corepack enable pnpm
+          nice -n 15 taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
+          nice -n 15 taskset -c "$task_cpu" pnpm install --frozen-lockfile
 
       - name: Generate plugins
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm generate:plugins
+          nice -n 15 taskset -c "$task_cpu" pnpm generate:plugins
 
       - name: Check hook and application types
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm exec tsc --project tsconfig.workspace.json
-          taskset -c "$task_cpu" pnpm exec tsc --noEmit
+          nice -n 15 taskset -c "$task_cpu" pnpm exec tsc --project tsconfig.workspace.json
+          nice -n 15 taskset -c "$task_cpu" pnpm exec tsc --noEmit
 
       - name: Lint changed core integration
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm exec eslint src/workspace src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts texlyre.config.ts extras/bibliography/openalex/OpenAlexPanel.tsx --max-warnings 0
+          nice -n 15 taskset -c "$task_cpu" pnpm exec eslint src/workspace src/services/AuthService.ts tests/services/AuthServiceLocalProfile.test.ts tests/components/AuthLocalStartup.test.tsx src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts texlyre.config.ts extras/bibliography/openalex/OpenAlexPanel.tsx --max-warnings 0
 
       - name: Run tests
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm test:ci
+          nice -n 15 taskset -c "$task_cpu" pnpm test:ci
 
       - name: Verify cold and warm package assets
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm check:package-assets
+          nice -n 15 taskset -c "$task_cpu" pnpm check:package-assets
           git diff --exit-code
 
       - name: Review upstream external archive bytes
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" node scripts/rinspace/review-external-assets.mjs
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/review-external-assets.mjs
