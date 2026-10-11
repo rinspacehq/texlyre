@@ -3,6 +3,8 @@ import { createNamedLogger } from '@/logging';
 import plugins from './index';
 import type { Setting } from '../contexts/SettingsContext';
 import type { GitRemoteProvider } from '../types/gitRemote';
+import { WorkspaceExtensionRegistry } from '../workspace/ExtensionRegistry';
+import type { WorkspaceExtensions } from '../workspace/contracts';
 import type {
 	BackupPlugin,
 	CollaborativeViewerPlugin,
@@ -14,6 +16,7 @@ import type {
 	RendererPlugin,
 	ThemePlugin,
 	ViewerPlugin,
+	WorkspacePlugin,
 } from './PluginInterface';
 
 const moduleLog = createNamedLogger('PluginRegistry');
@@ -21,6 +24,7 @@ const moduleLog = createNamedLogger('PluginRegistry');
 export const pluginSettings: Setting[] = [];
 
 class PluginRegistryManager {
+	private readonly workspaceExtensions = new WorkspaceExtensionRegistry();
 	private registry: PluginRegistry = {
 		viewers: [],
 		collaborativeViewers: [],
@@ -30,6 +34,7 @@ class PluginRegistryManager {
 		bibliography: [],
 		backup: [],
 		themes: [],
+		workspace: [],
 	};
 
 	constructor() {
@@ -47,6 +52,7 @@ class PluginRegistryManager {
 				['LSP plugins', plugins.lsp],
 				['backup plugins', plugins.backup],
 				['themes', plugins.themes],
+				['workspace extensions', plugins.workspace],
 			] as const;
 
 			for (const [label, group] of groups) {
@@ -98,6 +104,10 @@ class PluginRegistryManager {
 				break;
 			case 'theme':
 				this.registry.themes.push(plugin as ThemePlugin);
+				break;
+			case 'workspace':
+				this.workspaceExtensions.register(plugin as WorkspacePlugin);
+				this.registry.workspace.push(plugin as WorkspacePlugin);
 				break;
 			default:
 				moduleLog.warn(`Unsupported plugin type: ${plugin.type}`);
@@ -238,6 +248,10 @@ class PluginRegistryManager {
 
 	getThemes(): ThemePlugin[] {
 		return this.registry.themes;
+	}
+
+	getWorkspaceExtensions(): WorkspaceExtensions {
+		return this.workspaceExtensions.getExtensions();
 	}
 
 	getThemeById(id: string): ThemePlugin | null {

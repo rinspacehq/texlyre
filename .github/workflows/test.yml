@@ -7,31 +7,65 @@ on:
   pull_request:
     branches: ['**']
 
+permissions:
+  contents: read
+
+concurrency:
+  group: texlyre-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.13.1
-          cache: 'npm'
+
+      - name: Check source foundation
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
+          taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
+          taskset -c "$task_cpu" pnpm install --frozen-lockfile
 
       - name: Generate plugins
-        run: npm run generate:plugins
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" pnpm generate:plugins
+
+      - name: Check hook and application types
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" pnpm exec tsc --project tsconfig.workspace.json
+          taskset -c "$task_cpu" pnpm exec tsc --noEmit
+
+      - name: Lint changed core integration
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" pnpm exec eslint src/workspace src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts --max-warnings 0
 
       - name: Run tests
-        run: npm run test:ci
-
-      - name: Upload coverage
-        if: always()
-        uses: codecov/codecov-action@v7
-        with:
-          files: ./coverage/lcov.info
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" pnpm test:ci

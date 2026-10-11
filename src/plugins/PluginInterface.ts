@@ -6,6 +6,7 @@ import type { BackupStatus } from '../types/backup';
 import type { BibEntry } from '../types/bibliography';
 import type { GitRemoteProvider } from '../types/gitRemote';
 import type { SourceMapHighlight } from '../types/sourceMap';
+import type { WorkspaceExtensionPlugin } from '../workspace/contracts';
 
 export interface Plugin {
 	id: string;
@@ -14,6 +15,8 @@ export interface Plugin {
 	type: string;
 	settings?: Setting[];
 }
+
+export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin;
 
 export interface SupportedExtension {
 	extension: string;
@@ -269,4 +272,5 @@ export type PluginRegistry = {
 	bibliography: BibliographyPlugin[];
 	backup: BackupPlugin[];
 	themes: ThemePlugin[];
+	workspace: WorkspacePlugin[];
 };

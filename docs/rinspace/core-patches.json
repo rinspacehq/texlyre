@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
+  "patches": [
+    {
+      "id": "workspace-extension-contracts",
+      "files": ["src/plugins/PluginInterface.ts", "src/plugins/PluginRegistry.ts", "src/types/texlyre.ts", "src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "texlyre.config.ts"],
+      "purpose": "Optional build-time workspace plugin category and seven generic hooks. No Rinspace API or identity rule in core.",
+      "tests": ["scripts/rinspace/workspace-contracts.test.mjs", "tsconfig.workspace.json"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides compatible versioned host/workspace extension registration.",
+      "integrationStatus": "registry-integrated; consumers and full upstream application regression pending"
+    },
+    {
+      "id": "immutable-source-snapshot",
+      "files": ["src/workspace/SourceSnapshot.ts"],
+      "purpose": "Copy all source bytes before awaits; content-hashed, immutable metadata and defensive reads. No live Yjs reads, automatic Push or persistence claims.",
+      "tests": ["scripts/rinspace/workspace-contracts.test.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies an equivalent immutable multi-file byte snapshot API.",
+      "integrationStatus": "utility-tested; CRDT cut, durable capture and Git/compiler consumers pending"
+    },
+    {
+      "id": "non-mutating-production-build",
+      "files": ["package.json"],
+      "purpose": "Do not run source fixers after production artifacts have been built.",
+      "tests": ["scripts/rinspace/check-source.test.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream separates formatting from artifact generation and verifies clean source after build.",
+      "integrationStatus": "declaration-tested; complete isolated build pending"
+    }
+  ]
+}

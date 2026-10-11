@@ -72,6 +72,7 @@ export interface TexlyreConfig {
 		lsp: string[];
 		backup: string[];
 		themes: string[];
+		workspace?: string[];
 	};
 
 	userdata: {

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "repository": "rinspacehq/texlyre",
+  "upstream": {
+    "repository": "TeXlyre/texlyre",
+    "commit": "d10e020a7c6452c83dedebf943615dcecfe65919",
+    "tree": "fa793072be2e4b193f1777dd37e72d95f02e45ae",
+    "release": "v0.13.0",
+    "releaseCommit": "0b5ebfd3dbcd2d3647dc777e8de9cbe0692b7950",
+    "commitsAhead": 4,
+    "licenseSha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+    "lockfileSha256": "e5c7ff8d23347657db1055ffe6ab49d1e8d8badc715fac1ad361f9e9732edd5e"
+  },
+  "license": "AGPL-3.0-or-later",
+  "toolchain": {
+    "node": "24.13.1",
+    "packageManager": "pnpm@10.20.0",
+    "lockfile": "pnpm-lock.yaml"
+  },
+  "stage": "source-development",
+  "productionAccepted": false
+}

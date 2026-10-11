@@ -7,7 +7,7 @@
 	"license": "AGPL-3.0-or-later",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/texlyre/texlyre.git"
+		"url": "https://github.com/rinspacehq/texlyre.git"
 	},
 	"type": "module",
 	"packageManager": "pnpm@10.20.0",
@@ -21,7 +21,9 @@
 		"dev": "node scripts/pm.cjs vite",
 		"dev:https": "node scripts/pm.cjs cross-env VITE_USE_HTTPS=true vite --host",
 		"build": "node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build",
-		"build:prod": "node scripts/pm.cjs run generate:userdata-interfaces && node scripts/pm.cjs run generate:configs && node scripts/pm.cjs run i18n:coverage && node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/pm.cjs run lint:imports:fix && node scripts/pm.cjs run lint:biome:fix",
+		"build:prod": "node scripts/pm.cjs run generate:userdata-interfaces && node scripts/pm.cjs run generate:configs && node scripts/pm.cjs run i18n:coverage && node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build",
+		"check:fork-source": "node scripts/rinspace/check-source.mjs",
+		"test:fork-foundation": "node --test --test-concurrency=1 scripts/rinspace/*.test.mjs",
 		"build:local": "node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build",
 		"preview": "node scripts/pm.cjs vite preview",
 		"clean:cache": "node scripts/clean-cache.cjs",
@@ -45,7 +47,7 @@
 		"test:integration": "node scripts/pm.cjs jest tests/integration",
 		"test:components": "node scripts/pm.cjs jest tests/components",
 		"test:services": "node scripts/pm.cjs jest tests/services",
-		"test:ci": "node scripts/pm.cjs jest --ci --coverage --maxWorkers=2",
+		"test:ci": "node scripts/pm.cjs jest --ci --coverage --maxWorkers=1",
 		"i18n:validate": "node scripts/i18n/validate-json.cjs",
 		"i18n:validate:config": "node scripts/i18n/validate-json.cjs translations/locales.config.json",
 		"i18n:validate:file": "node scripts/i18n/validate-json.cjs",
