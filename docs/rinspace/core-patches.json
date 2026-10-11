@@ -9,7 +9,7 @@
       "tests": ["full application typecheck and upstream Jest suite in .github/workflows/test.yml"],
       "upstreamIssue": null,
       "removalCondition": "Upstream fixed pnpm lock and direct type dependencies pass the full application checks without these overrides.",
-      "integrationStatus": "dependency-repaired; full CI rerun pending"
+      "integrationStatus": "full application types, changed-file lint and original upstream Jest suite passed run 38131323129; no runtime compilation claim"
     },
     {
       "id": "workspace-extension-contracts",
@@ -27,7 +27,7 @@
       "tests": ["full application typecheck, core lint and upstream Jest suite in .github/workflows/test.yml"],
       "upstreamIssue": null,
       "removalCondition": "Upstream offers equivalent precise panel callback types.",
-      "integrationStatus": "type-check rerun pending"
+      "integrationStatus": "full application types and lint passed run 38131323129"
     },
     {
       "id": "immutable-source-snapshot",
@@ -37,6 +37,15 @@
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies an equivalent immutable multi-file byte snapshot API.",
       "integrationStatus": "utility-tested; CRDT cut, durable capture and Git/compiler consumers pending"
+    },
+    {
+      "id": "verified-package-asset-cache",
+      "files": ["scripts/rinspace/asset-integrity.cjs", "scripts/rinspace/check-package-assets.cjs", "scripts/copy-pdf-cmaps.cjs", "scripts/copy-mathlive-fonts.cjs", "scripts/copy-detypify-assets.cjs", "scripts/copy-typst-assets.cjs", "scripts/copy-oniguruma-wasm.cjs", "scripts/copy-wasm-latex-tools-assets.cjs"],
+      "purpose": "Hash every installed package asset and verify warm copies, rejecting incomplete, polluted, symlinked or extra cache files rather than trusting nonempty directories. Generate a content inventory from the frozen dependency input.",
+      "tests": ["scripts/rinspace/asset-integrity.test.mjs", "cold and warm installed-package asset checks in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream validates asset contents against trusted fixed inputs and publishes a complete checked inventory.",
+      "integrationStatus": "7 filesystem cases passed; real package cold/warm CI pending; external archives and complete notice audit remain pending"
     },
     {
       "id": "non-mutating-production-build",

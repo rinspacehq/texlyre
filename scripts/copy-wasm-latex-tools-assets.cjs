@@ -1,6 +1,6 @@
 // scripts/copy-wasm-latex-tools-assets.cjs
-const fs = require('fs-extra');
 const path = require('node:path');
+const { copyVerifiedAssetTree } = require('./rinspace/asset-integrity.cjs');
 
 const webperlSource = path.resolve(
 	__dirname,
@@ -16,36 +16,10 @@ const perlDestination = path.resolve(__dirname, '../public/core/perl');
 
 async function copyWasmLatexToolsAssets() {
 	try {
-		let webperlExists = false;
-		let perlExists = false;
-
-		if (await fs.pathExists(webperlDestination)) {
-			const files = await fs.readdir(webperlDestination);
-			if (files.length > 0) {
-				console.log('✓ WebPerl assets already exist, skipping copy');
-				webperlExists = true;
-			}
-		}
-
-		if (await fs.pathExists(perlDestination)) {
-			const files = await fs.readdir(perlDestination);
-			if (files.length > 0) {
-				console.log('✓ Perl assets already exist, skipping copy');
-				perlExists = true;
-			}
-		}
-
-		if (!webperlExists) {
-			await fs.ensureDir(webperlDestination);
-			await fs.copy(webperlSource, webperlDestination);
-			console.log('✓ WebPerl assets copied to public/core/webperl');
-		}
-
-		if (!perlExists) {
-			await fs.ensureDir(perlDestination);
-			await fs.copy(perlSource, perlDestination);
-			console.log('✓ Perl assets copied to public/core/perl');
-		}
+		const webperl = await copyVerifiedAssetTree(webperlSource, webperlDestination);
+		console.log(`✓ WebPerl assets ${webperl.status}`);
+		const perl = await copyVerifiedAssetTree(perlSource, perlDestination);
+		console.log(`✓ Perl assets ${perl.status}`);
 	} catch (err) {
 		console.error('❌ Error copying wasm-latex-tools assets:', err);
 		throw err;

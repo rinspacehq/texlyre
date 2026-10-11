@@ -70,3 +70,10 @@ jobs:
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           taskset -c "$task_cpu" pnpm test:ci
+
+      - name: Verify cold and warm package assets
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" pnpm check:package-assets
+          git diff --exit-code

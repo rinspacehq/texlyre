@@ -31,6 +31,7 @@ public/assets/fonts/
 public/assets/math-fonts/
 
 public/userdata*.json
+public/rinspace-package-assets.json
 
 src/plugins/*
 !src/plugins/PluginRegistry.ts

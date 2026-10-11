@@ -1,6 +1,6 @@
 // scripts/copy-oniguruma-wasm.cjs
-const fs = require('fs-extra');
 const path = require('node:path');
+const { copyVerifiedAssetFiles } = require('./rinspace/asset-integrity.cjs');
 
 const wasmSource = path.resolve(
 	__dirname,
@@ -13,14 +13,10 @@ const wasmDestination = path.resolve(
 
 async function copyOnigurumaWasm() {
 	try {
-		if (await fs.pathExists(wasmDestination)) {
-			console.log('✓ Oniguruma WASM already exists, skipping copy');
-			return;
-		}
-
-		await fs.ensureDir(path.dirname(wasmDestination));
-		await fs.copy(wasmSource, wasmDestination);
-		console.log('✓ Oniguruma WASM copied to public/core/oniguruma');
+		const result = await copyVerifiedAssetFiles([
+			{ source: wasmSource, path: path.basename(wasmDestination) },
+		], path.dirname(wasmDestination));
+		console.log(`✓ Oniguruma WASM ${result.status}`);
 	} catch (err) {
 		console.error('❌ Error copying Oniguruma WASM:', err);
 		throw err;
