@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { deleteDB, unwrap } from 'idb';
+import { deserialize, serialize } from 'node:v8';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { AuthService } from '@src/services/AuthService';
@@ -135,6 +136,9 @@ describe('persistent browser-local profile', () => {
 		expect(diskBackupService.synchronize).not.toHaveBeenCalled();
 	});
 	it.each(['latex', 'typst', 'markdown'] as const)('persists a selected local %s entry in the project row and reopened Yjs metadata', async (type) => {
+		// The inherited JSON-only clone drops Uint8Array updates used by y-indexeddb.
+		// Use a byte-preserving clone for this real y-indexeddb / fake IDB fixture.
+		jest.spyOn(globalThis, 'structuredClone').mockImplementation(<T,>(value: T): T => deserialize(serialize(value)) as T);
 		await service.initialize();
 		const mainFile = `/章节/正文.${type === 'latex' ? 'tex' : type === 'typst' ? 'typ' : 'md'}`;
 		const compilerId = type === 'markdown' ? undefined : `internal:${type}`;

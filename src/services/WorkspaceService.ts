@@ -597,8 +597,6 @@ class WorkspaceService {
 
 		const renamed = this.pairRenames(addedPaths, removedFiles, disk);
 		const toStore: FileNode[] = [];
-		const toExport: FileNode[] = [];
-		const mergedBack: FileNode[] = [];
 		const toDelete: string[] = [];
 		const addedActivityPaths: string[] = [];
 		const removedActivityPaths: string[] = [];
