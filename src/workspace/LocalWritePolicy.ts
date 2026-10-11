@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { isIgnoredLocalPath } from './LocalProjectDiscovery.ts';
+import { isIgnoredLocalPath } from './LocalProjectDiscovery';
 
 export type LocalWritePathIssue = 'invalid-path' | 'protected-path';
 

@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
-import { copyLocalWriteContent, getLocalWritePathIssue } from '../../src/workspace/LocalWritePolicy.ts';
+
+// Native Node tests resolve this one extensionless bundler import without changing
+// application source or weakening the inherited Jest TypeScript configuration.
+const resolution = registerHooks({
+	resolve(specifier, context, nextResolve) {
+		if (specifier === './LocalProjectDiscovery' && context.parentURL === new URL('../../src/workspace/LocalWritePolicy.ts', import.meta.url).href) {
+			return nextResolve(new URL('./LocalProjectDiscovery.ts', context.parentURL).href, context);
+		}
+		return nextResolve(specifier, context);
+	},
+});
+const { copyLocalWriteContent, getLocalWritePathIssue } = await import('../../src/workspace/LocalWritePolicy.ts');
+resolution.deregister();
 
 test('writes reject malformed, traversing and OS paths before accessing a handle', () => {
 	for (const path of ['', '/', '//main.tex', '/./main.tex', '/../main.tex', '/a/../main.tex', 'C:/main.tex', '/C:/main.tex', '/a\\b.tex', '/a\0.tex', '/a//b.tex', '/a/']) {
