@@ -215,6 +215,7 @@ export class AuthService {
 				t(
 					'Failed to create guest session. Please refresh the page and try again',
 				),
+				{ cause: error },
 			);
 		}
 	}
@@ -625,7 +626,7 @@ export class AuthService {
 			return `yjs:${projectId}`;
 		} catch (error) {
 			moduleLog.error('Error creating new document:', error);
-			throw new Error(t('Failed to create document for project'));
+			throw new Error(t('Failed to create document for project'), { cause: error });
 		}
 	}
 

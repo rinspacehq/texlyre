@@ -80,7 +80,7 @@ describe('persistent browser-local profile', () => {
 		await service.initialize({ persistentLocalProfile: true });
 		expect(service.getCurrentUser()).toEqual(account);
 		expect(await service.db?.get('users', account.id)).toEqual(account);
-		expect((await service.db?.get('users', 'guest-owner')).isLocalProfile).toBe(true);
+		expect((await service.db?.get('users', 'guest-owner'))?.isLocalProfile).toBe(true);
 	});
 	it('serializes concurrent startup without generating duplicate owners', async () => {
 		const second = new AuthService(); peers.push(second);
