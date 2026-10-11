@@ -46,6 +46,16 @@ const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 	const [error, setError] = useState<string | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
 	const [cleanAnnotations, setCleanAnnotations] = useState(true);
+	const [writes, setWrites] = useState(fileHandlerService.getWriteStatus());
+	const activeWrites = writes.projectId === status.projectId ? writes.entries : [];
+	const pendingWrites = activeWrites.filter((entry) => entry.outcome === 'writing');
+	const failedWrites = activeWrites.filter((entry) => entry.outcome === 'failed');
+	const closedWrites = activeWrites.filter((entry) => entry.outcome === 'written');
+
+	useEffect(() => {
+		setWrites(fileHandlerService.getWriteStatus());
+		return fileHandlerService.addWriteStatusListener(setWrites);
+	}, []);
 
 	const loadActivity = useCallback(async () => {
 		if (!status.projectId) return;
@@ -215,6 +225,18 @@ const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 								{t('Last synced {date}', {
 									date: formatDate(status.lastSyncedAt),
 								})}
+							</div>
+						) : null}
+						{pendingWrites.length > 0 ? (
+							<p role='status'>{t('Writing {count} paths to the folder', { count: pendingWrites.length })}</p>
+						) : null}
+						{closedWrites.length > 0 ? (
+							<p className='ui-note'>{t('Completed {count} individual folder writes; this is not a project-wide save confirmation.', { count: closedWrites.length })}</p>
+						) : null}
+						{failedWrites.length > 0 ? (
+							<div role='alert' className='ui-message' data-tone='error'>
+								<p>{t('Some paths were not written. Browser recovery and folder writes are separate.')}</p>
+								<ul>{failedWrites.map((entry) => <li key={entry.path}>{entry.reason === 'invalid-path' ? t('Invalid relative path') : entry.path}</li>)}</ul>
 							</div>
 						) : null}
 						{error ? (

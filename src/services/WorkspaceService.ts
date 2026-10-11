@@ -17,6 +17,7 @@ import { DiskHandleStore, ensurePermission } from './DiskHandleStore';
 import { workspaceActivityService } from './WorkspaceActivityService';
 import { authService } from './AuthService';
 import { DirectoryTarget } from './WriteTargetService';
+import type { DiskWriteReport } from '../workspace/DiskWriteResults';
 import {
 	discoverLocalProject,
 	isIgnoredLocalEntry,
@@ -53,6 +54,7 @@ export interface WorkspaceMergeResult {
 	exported: number;
 	merged: number;
 	skipped: number;
+	writes?: DiskWriteReport;
 }
 
 export interface ReconcileResult {
@@ -148,13 +150,14 @@ class WorkspaceService {
 
 		const files = await fileStoreService.getAllFiles(false, false, true);
 		const mirroredFiles = files.filter((file) => file.type === 'file');
-		await fileHandlerService.mirrorFiles(mirroredFiles);
+		const writes = await fileHandlerService.mirrorFiles(mirroredFiles);
+		const writtenPaths = writes.entries.filter((entry) => entry.outcome === 'written').map((entry) => entry.path);
 		await this.refreshLinks();
-		if (mirroredFiles.length > 0) {
+		if (writtenPaths.length > 0) {
 			await workspaceActivityService.record(projectId, {
 				type: 'exported',
 				message: t('Wrote project files to folder: {files}', {
-					files: mirroredFiles.map((file) => file.path).join(', '),
+					files: writtenPaths.join(', '),
 				}),
 			});
 		}
@@ -162,6 +165,9 @@ class WorkspaceService {
 			type: 'folder-changed',
 			message: t('Changed folder to: {folder}', { folder: handle.name }),
 		});
+		if (writes.entries.some((entry) => entry.outcome === 'failed')) {
+			throw new Error(t('Some files were not written to the folder. Browser data has not been rolled back.'));
+		}
 		return true;
 	}
 
@@ -331,9 +337,13 @@ class WorkspaceService {
 		);
 		const projectOnlyPaths = projectOnly.map((file) => file.path);
 		const outgoing = [...projectOnly, ...toExport, ...mergedBack];
+		const writtenPaths = new Set<string>();
 		if (outgoing.length > 0) {
-			await fileHandlerService.mirrorFiles(outgoing);
-			summary.exported = outgoing.length;
+			summary.writes = await fileHandlerService.mirrorFiles(outgoing);
+			for (const entry of summary.writes.entries) {
+				if (entry.outcome === 'written') writtenPaths.add(entry.path);
+			}
+			summary.exported = writtenPaths.size;
 		}
 
 		await this.refreshLinks();
@@ -354,19 +364,21 @@ class WorkspaceService {
 					}),
 				});
 			}
-			if (keptProjectPaths.length > 0) {
+			const keptWritten = keptProjectPaths.filter((path) => writtenPaths.has(path));
+			if (keptWritten.length > 0) {
 				await workspaceActivityService.record(this.projectId, {
 					type: 'exported',
 					message: t('Kept TeXlyre version on disk: {files}', {
-						files: keptProjectPaths.join(', '),
+						files: keptWritten.join(', '),
 					}),
 				});
 			}
-			if (projectOnlyPaths.length > 0) {
+			const projectWritten = projectOnlyPaths.filter((path) => writtenPaths.has(path));
+			if (projectWritten.length > 0) {
 				await workspaceActivityService.record(this.projectId, {
 					type: 'exported',
 					message: t('Wrote project files to folder: {files}', {
-						files: projectOnlyPaths.join(', '),
+						files: projectWritten.join(', '),
 					}),
 				});
 			}
@@ -830,7 +842,7 @@ class WorkspaceService {
 		this.rootHandle = handle;
 		this.projectId = projectId;
 		this.needsPermission = false;
-		fileHandlerService.attachWorkspace(new DirectoryTarget(handle));
+		fileHandlerService.attachWorkspace(new DirectoryTarget(handle), projectId);
 		this.notify();
 	}
 

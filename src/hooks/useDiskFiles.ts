@@ -45,6 +45,20 @@ export const useDiskFiles = (docUrl: string | null) => {
 	}, [recordsContext]);
 
 	useEffect(() => {
+		if (!docUrl) return;
+		const projectId = docUrl.replace(/^yjs:/, '');
+		return fileHandlerService.addWriteListener((report) => {
+			if (report.projectId !== projectId || report.targetGeneration !== fileHandlerService.getWriteStatus().targetGeneration) return;
+			const failed = report.entries.filter((entry) => entry.outcome === 'failed');
+			if (failed.length === 0) return;
+			notificationService.showError(t(
+				'Folder write failed for {count} paths. Browser data has not been rolled back; review folder access or export a copy.',
+				{ count: failed.length },
+			));
+		});
+	}, [docUrl]);
+
+	useEffect(() => {
 		fileHandlerService.initialize();
 		return fileHandlerService.addLaunchListener((files) => {
 			setLaunchedFiles(

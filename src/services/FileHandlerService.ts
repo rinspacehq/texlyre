@@ -5,7 +5,10 @@ import type { FileNode } from '../types/files';
 import { mergeAnnotatedSources } from '../utils/annotationMergeUtils';
 import { stripAnnotationTagsWithSpans } from '../utils/annotationTagUtils';
 import { stripAnnotations, hasAnnotations } from '../utils/fileCommentUtils';
-import { isBinaryFile, isTemporaryFile } from '../utils/fileUtils';
+import { isBinaryFile } from '../utils/fileUtils';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
+import { copyLocalWriteContent, getLocalWritePathIssue } from '../workspace/LocalWritePolicy';
+import type { DiskWriteEntry, DiskWriteReason, DiskWriteReport, DiskWriteStatus } from '../workspace/DiskWriteResults';
 import { mergeResolutionService } from './MergeResolutionService';
 import { ensurePermission } from './DiskHandleStore';
 import { fileStoreService } from './FileStoreService';
@@ -81,8 +84,14 @@ const handleTarget = (handle: FileSystemFileHandle): DiskTarget => ({
 			throw new Error('Write permission was not granted');
 		}
 		const writable = await handle.createWritable();
-		await writable.write(content);
-		await writable.close();
+		try {
+			await writable.write(content);
+			await writable.close();
+		} catch (error) {
+			// Abort is best-effort cleanup; never replace the original write/close failure.
+			await writable.abort().catch(() => undefined);
+			throw error;
+		}
 	},
 });
 
@@ -112,6 +121,13 @@ class FileHandlerService {
 	private linkedIds = new Set<string>();
 	private launchLinkedIds = new Set<string>();
 	private workspace: DirectoryTarget | null = null;
+	private workspaceProjectId: string | null = null;
+	private targetGeneration = 0;
+	private writeSequence = 0;
+	private writeQueue: Promise<void> = Promise.resolve();
+	private writeEntries = new Map<string, DiskWriteEntry>();
+	private writeListeners = new Set<(report: DiskWriteReport) => void>();
+	private writeStatusListeners = new Set<(status: DiskWriteStatus) => void>();
 	private isMirroringSuppressed = false;
 	private isInitialized = false;
 
@@ -119,12 +135,16 @@ class FileHandlerService {
 		return typeof window !== 'undefined' && 'launchQueue' in window;
 	}
 
-	attachWorkspace(adapter: DirectoryTarget): void {
+	attachWorkspace(adapter: DirectoryTarget, projectId = fileStoreService.getCurrentProjectId()): void {
 		this.workspace = adapter;
+		this.workspaceProjectId = projectId;
+		this.resetWriteStatus();
 	}
 
 	detachWorkspace(): void {
 		this.workspace = null;
+		this.workspaceProjectId = null;
+		this.resetWriteStatus();
 		this.baselines.clear();
 		this.linkedIds.clear();
 		this.launchLinkedIds.clear();
@@ -234,27 +254,30 @@ class FileHandlerService {
 		file: FileNode,
 		content: string | ArrayBuffer,
 	): Promise<boolean> {
-		const target = this.resolveTarget(file);
-		if (!target || this.suppressed.has(file.id)) return false;
-		if (this.isMirroringSuppressed) return false;
+		return (await this.writeBackResult(file, content)).outcome === 'written';
+	}
 
-		try {
-			const shouldClean = this.shouldCleanTarget(file);
-			await target.write(shouldClean ? stripAnnotations(content) : content);
+	async writeBackResult(file: FileNode, content: string | ArrayBuffer): Promise<DiskWriteEntry> {
+		const report = await this.mirrorFiles([{ ...file, content }]);
+		return report.entries[0];
+	}
 
-			const lastModified = await target.stat();
-			if (lastModified !== null) {
-				this.baselines.set(file.id, {
-					disk: lastModified,
-					local: file.lastModified,
-				});
-			}
-			this.linkedIds.add(file.id);
-			return true;
-		} catch (error) {
-			moduleLog.error(`Failed to write ${file.path} back to disk:`, error);
-			return false;
-		}
+	getWriteStatus(): DiskWriteStatus {
+		return Object.freeze({
+			projectId: this.workspaceProjectId ?? fileStoreService.getCurrentProjectId(),
+			targetGeneration: this.targetGeneration,
+			entries: Object.freeze([...this.writeEntries.values()]),
+		});
+	}
+
+	addWriteListener(listener: (report: DiskWriteReport) => void): () => void {
+		this.writeListeners.add(listener);
+		return () => { this.writeListeners.delete(listener); };
+	}
+
+	addWriteStatusListener(listener: (status: DiskWriteStatus) => void): () => void {
+		this.writeStatusListeners.add(listener);
+		return () => { this.writeStatusListeners.delete(listener); };
 	}
 
 	async pullIfChanged(
@@ -375,26 +398,100 @@ class FileHandlerService {
 		return summary;
 	}
 
-	async mirrorFiles(files: FileNode[]): Promise<void> {
-		if (this.isMirroringSuppressed) return;
+	async mirrorFiles(files: FileNode[]): Promise<DiskWriteReport> {
+		const sequence = ++this.writeSequence;
+		const generation = this.targetGeneration;
+		const storeProjectId = fileStoreService.getCurrentProjectId();
+		const projectId = storeProjectId || this.workspaceProjectId;
+		const adapter = this.workspace;
+		const pathCounts = new Map<string, number>();
+		for (const file of files) pathCounts.set(file.path, (pathCounts.get(file.path) ?? 0) + 1);
+		// Capture every path, target and byte buffer before the first await.
+		const jobs = files.map((source) => {
+			const file = { ...source, content: source.content === undefined ? undefined : copyLocalWriteContent(source.content) };
+			const entry = { fileId: file.id, path: file.path, type: file.type, lastModified: file.lastModified, sequence };
+			const pathIssue = getLocalWritePathIssue(file.path);
+			let reason: DiskWriteReason | undefined = pathIssue ?? undefined;
+			if (!reason && (pathCounts.get(file.path) ?? 0) > 1) reason = 'duplicate-path';
+			if (!reason && adapter && storeProjectId && this.workspaceProjectId !== storeProjectId) reason = 'target-changed';
+			if (!reason && file.isDeleted) reason = 'deleted';
+			if (!reason && (this.isMirroringSuppressed || this.suppressed.has(file.id))) reason = 'suppressed';
+			const target = !reason && file.type === 'file' ? this.resolveTarget(file) : null;
+			if (!reason && !(file.type === 'directory' ? adapter : target)) reason = 'not-linked';
+			if (!reason && file.type === 'file' && file.content === undefined) reason = 'missing-content';
+			const content = file.content === undefined ? undefined : this.shouldCleanTarget(file)
+				? stripAnnotations(file.content) : file.content;
+			const outcome = reason === 'invalid-path' || reason === 'duplicate-path' || reason === 'target-changed' || reason === 'missing-content' ? 'failed' : reason ? 'skipped' : 'writing';
+			const initial: DiskWriteEntry = Object.freeze({ ...entry, outcome, ...(reason ? { reason } : {}) });
+			return { file, entry, target, content, initial };
+		});
+		for (const job of jobs) this.recordWriteEntry(job.initial, generation, projectId);
+		this.notifyWriteStatus();
 
-		for (const file of files) {
-			if (file.type === 'directory') {
-				await this.ensureDirectory(file);
-				continue;
+		const action = async (): Promise<DiskWriteReport> => {
+			const entries: DiskWriteEntry[] = [];
+			for (const job of jobs) {
+				let result = job.initial;
+				if (result.outcome === 'writing') {
+					const activeProjectId = fileStoreService.getCurrentProjectId();
+					if (generation !== this.targetGeneration || projectId !== (this.workspaceProjectId ?? activeProjectId) || (activeProjectId && activeProjectId !== projectId)) {
+						result = Object.freeze({ ...job.entry, outcome: 'failed', reason: 'target-changed' });
+					} else {
+						try {
+							if (job.file.type === 'directory' && adapter) {
+								await adapter.createDirectory(job.file.path);
+							} else if (job.target && job.content !== undefined) {
+								await job.target.write(job.content);
+								// Metadata failure after close is not a failed write, nor a verified baseline.
+								let disk: number | null = null;
+								let baselineError: unknown;
+								try { disk = await job.target.stat(); } catch (error) { baselineError = error; }
+								if (generation === this.targetGeneration && (!fileStoreService.getCurrentProjectId() || fileStoreService.getCurrentProjectId() === projectId)) {
+									if (disk !== null) this.baselines.set(job.file.id, { disk, local: job.file.lastModified });
+									this.linkedIds.add(job.file.id);
+								}
+								result = Object.freeze({ ...job.entry, outcome: 'written', baselineAvailable: disk !== null, ...(baselineError ? { baselineError } : {}) });
+							}
+							if (job.file.type === 'directory') result = Object.freeze({ ...job.entry, outcome: 'written' });
+						} catch (error) {
+							result = Object.freeze({ ...job.entry, outcome: 'failed', reason: 'write-failed', error });
+							moduleLog.error('Disk write failed; the operation result retains the cause');
+						}
+						this.recordWriteEntry(result, generation, projectId);
+						this.notifyWriteStatus();
+					}
+				}
+				entries.push(result);
 			}
-			if (!this.shouldMirror(file)) continue;
-			await this.writeBack(file, file.content as string | ArrayBuffer);
-		}
+			const report: DiskWriteReport = Object.freeze({ projectId, targetGeneration: generation, sequence, entries: Object.freeze(entries) });
+			for (const listener of this.writeListeners) {
+				try { listener(report); } catch { moduleLog.warn('Disk write observer failed'); }
+			}
+			return report;
+		};
+		const pending = this.writeQueue.then(action, action);
+		this.writeQueue = pending.then(() => undefined, () => undefined);
+		return pending;
 	}
 
-	private async ensureDirectory(file: FileNode): Promise<void> {
-		if (!this.workspace || file.isDeleted || isTemporaryFile(file.path)) return;
+	private recordWriteEntry(entry: DiskWriteEntry, generation: number, projectId: string | null): void {
+		if (generation !== this.targetGeneration || projectId !== (this.workspaceProjectId ?? fileStoreService.getCurrentProjectId())) return;
+		if (entry.outcome === 'skipped') return;
+		const previous = this.writeEntries.get(entry.path);
+		// An older completion must not clear the dirty/pending state of newer input.
+		if (!previous || previous.sequence <= entry.sequence) this.writeEntries.set(entry.path, entry);
+	}
 
-		try {
-			await this.workspace.createDirectory(file.path);
-		} catch (error) {
-			moduleLog.error(`Failed to create ${file.path} on disk:`, error);
+	private resetWriteStatus(): void {
+		this.targetGeneration++;
+		this.writeEntries.clear();
+		this.notifyWriteStatus();
+	}
+
+	private notifyWriteStatus(): void {
+		const status = this.getWriteStatus();
+		for (const listener of this.writeStatusListeners) {
+			try { listener(status); } catch { moduleLog.warn('Disk write status observer failed'); }
 		}
 	}
 
@@ -426,10 +523,11 @@ class FileHandlerService {
 	getWorkspaceCleanAnnotations(
 		projectId = fileStoreService.getCurrentProjectId(),
 	): boolean {
-		if (!projectId || typeof localStorage === 'undefined') return true;
-		return (
-			localStorage.getItem(`${WORKSPACE_CLEAN_PREFIX}${projectId}`) !== 'false'
-		);
+		const intent = getStartupIntent();
+		const defaultClean = !(intent.mode === 'local-unbound' && intent.persistentProfile);
+		if (!projectId || typeof localStorage === 'undefined') return defaultClean;
+		const preference = localStorage.getItem(`${WORKSPACE_CLEAN_PREFIX}${projectId}`);
+		return preference === 'true' || (preference !== 'false' && defaultClean);
 	}
 
 	setWorkspaceCleanAnnotations(projectId: string, clean: boolean): void {
@@ -442,20 +540,25 @@ class FileHandlerService {
 	}
 
 	private shouldCleanTarget(file: FileNode): boolean {
-		if (file.launchHandle || !this.workspace) return true;
+		if (file.launchHandle || !this.workspace) {
+			const intent = getStartupIntent();
+			return !(intent.mode === 'local-unbound' && intent.persistentProfile);
+		}
 		return this.getWorkspaceCleanAnnotations();
 	}
 
 	shouldMirror(file: FileNode): boolean {
 		if (file.type !== 'file' || file.content === undefined) return false;
 		if (file.isDeleted) return false;
-		if (this.workspace) return !isTemporaryFile(file.path);
+		if (getLocalWritePathIssue(file.path)) return false;
+		if (this.workspace) return true;
 		return Boolean(file.launchHandle);
 	}
 
 	private resolveTarget(file: FileNode): DiskTarget | null {
+		if (getLocalWritePathIssue(file.path)) return null;
 		if (file.launchHandle) return handleTarget(file.launchHandle);
-		if (this.workspace && !isTemporaryFile(file.path)) {
+		if (this.workspace) {
 			return workspaceTarget(this.workspace, file.path);
 		}
 		return null;

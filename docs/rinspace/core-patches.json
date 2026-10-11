@@ -18,7 +18,16 @@
       "tests": ["scripts/rinspace/local-project-discovery.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supports generic local folder format/entry review, safe permission/cancellation handling and equivalent project metadata persistence.",
-      "integrationStatus": "implementation connected to existing import/navigation; local helper/type and full application CI checks in progress. Native browser directory import, complete binary recovery and disk write acknowledgments are not accepted yet."
+      "integrationStatus": "55 foundation cases, 31 focused cases, application types/lint and 1063 full regressions passed exact source 95d6287 run 38138088522. Native browser directory import, complete binary recovery and disk write acknowledgments remain pending."
+    },
+    {
+      "id": "local-disk-write-results",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/FileHandlerService.ts", "src/services/WorkspaceService.ts", "src/hooks/useDiskFiles.ts", "src/components/workspace/WorkspaceModal.tsx", "src/components/workspace/WorkspaceStatusIndicator.tsx"],
+      "purpose": "Propagate per-path write/close outcomes through real FileStore mirroring to existing folder controls; preserve source annotations by default in persistent-local mode. Copy queued bytes and targets, serialize writes, reject protected/traversing/duplicate paths, and prevent stale directory/project completions from clearing newer pending input. Count only actually completed writes in folder export activity.",
+      "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/FileHandlerLocalWrites.test.ts", "tests/components/WorkspaceWriteStatus.test.tsx", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/FileHandlerService.test.ts", "tests/services/WorkspaceService.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides equivalent structured disk-write results, safe queue/target scoping and distinct local-source preservation defaults, with actual caller/UI regressions.",
+      "integrationStatus": "Connected implementation; application checks in progress. Results are in-memory operation reports, not durable project revisions, snapshot/hash journals or native filesystem read-back certification. External edit/multi-tab protection and recoverable rename/delete remain pending."
     },
     {
       "id": "pnpm-types-and-model-identity",

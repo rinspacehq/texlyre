@@ -6,6 +6,11 @@ import { authService } from '@src/services/AuthService';
 import { workspaceService } from '@src/services/WorkspaceService';
 import type { FileNode } from '@src/types/files';
 
+// Existing projection/merge cases explicitly exercise upstream account-mode defaults.
+jest.mock('@src/workspace/RuntimeStartup', () => ({
+	getStartupIntent: () => ({ mode: 'local-unbound', persistentProfile: false }),
+}));
+
 jest.mock('@src/services/DiskHandleStore', () => ({
 	...jest.requireActual('@src/services/DiskHandleStore'),
 	ensurePermission: jest.fn().mockResolvedValue(true),
@@ -204,7 +209,10 @@ describe('WorkspaceService', () => {
 			"intro\n`<### comment id: c1, user: a, time: 1, content64: 'aGk=', responses: [], resolved: false ###>`flagged`</### comment id: c1 ###>`\ntail";
 
 		beforeEach(() => {
-			jest.spyOn(fileHandlerService, 'mirrorFiles').mockResolvedValue();
+			jest.spyOn(fileHandlerService, 'mirrorFiles').mockImplementation(async (files) => ({
+				projectId: 'project-1', targetGeneration: 1, sequence: 1,
+				entries: files.map((file) => ({ fileId: file.id, path: file.path, type: file.type, lastModified: file.lastModified, sequence: 1, outcome: 'written' as const })),
+			}));
 			jest
 				.spyOn(fileConflictPromptService, 'resolveConflict')
 				.mockResolvedValue('overwrite');
