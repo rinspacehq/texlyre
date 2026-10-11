@@ -16,7 +16,8 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 function validatePath(path: string): void {
-	if (!path || /[\\\u0000-\u001f]/.test(path) || path.startsWith('/') || /^[A-Za-z]:/.test(path)
+	const hasControlCharacter = Array.from(path).some((character) => character.charCodeAt(0) <= 0x1f);
+	if (!path || path.includes('\\') || hasControlCharacter || path.startsWith('/') || /^[A-Za-z]:/.test(path)
 		|| path.split('/').some((part) => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) {
 		throw new Error('Snapshot path must be a safe repository-relative path');
 	}

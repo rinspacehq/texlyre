@@ -63,7 +63,7 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          taskset -c "$task_cpu" pnpm exec eslint src/workspace src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts --max-warnings 0
+          taskset -c "$task_cpu" pnpm exec eslint src/workspace src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts texlyre.config.ts extras/bibliography/openalex/OpenAlexPanel.tsx --max-warnings 0
 
       - name: Run tests
         shell: bash

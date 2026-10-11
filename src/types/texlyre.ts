@@ -27,6 +27,8 @@ export type PwaColor =
 			fallback?: string;
 	  };
 
+type BuiltinPluginGroup = 'collaborative_viewers' | 'viewers' | 'renderers' | 'loggers' | 'bibliography' | 'lsp' | 'backup' | 'themes';
+
 export interface TexlyreConfig {
 	title: string;
 	tagline: string;
@@ -63,15 +65,7 @@ export interface TexlyreConfig {
 		}>;
 	};
 
-	plugins: {
-		collaborative_viewers: string[];
-		viewers: string[];
-		renderers: string[];
-		loggers: string[];
-		bibliography: string[];
-		lsp: string[];
-		backup: string[];
-		themes: string[];
+	plugins: Record<BuiltinPluginGroup, string[]> & {
 		workspace?: string[];
 	};
 
