@@ -32,6 +32,8 @@ export function validateDeclarations(baseline, pkg, nodeVersion) {
 	assert.equal(pkg.repository.url, 'https://github.com/rinspacehq/texlyre.git');
 	assert.ok(!/(?:\blint:[\w:-]*fix\b|(?:^|\s)--fix(?:\s|$))/.test(pkg.scripts['build:prod']),
 		'production build must not run source fixers');
+	assert.ok(!/\b(?:prepare:source|generate:configs|generate:userdata-interfaces|i18n:coverage|update-sw-version)\b/.test(pkg.scripts['build:prod']),
+		'production build must not regenerate reviewed authoring inputs');
 	assert.equal(baseline.stage, 'source-development');
 	assert.equal(baseline.productionAccepted, false, 'source check is not production acceptance');
 }

@@ -77,3 +77,9 @@ jobs:
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           taskset -c "$task_cpu" pnpm check:package-assets
           git diff --exit-code
+
+      - name: Review upstream external archive bytes
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          taskset -c "$task_cpu" node scripts/rinspace/review-external-assets.mjs

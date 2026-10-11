@@ -37,3 +37,9 @@ test('build source fixers are rejected', () => {
 		assert.throws(() => validate(baseline, { ...pkg, scripts: { ...pkg.scripts, 'build:prod': command } }));
 	}
 });
+test('reviewed source generation cannot run inside the production build', () => {
+	for (const command of ['pnpm prepare:source', 'pnpm generate:configs', 'pnpm generate:userdata-interfaces',
+		'pnpm i18n:coverage', 'tsx scripts/update-sw-version.js']) {
+		assert.throws(() => validate(baseline, { ...pkg, scripts: { ...pkg.scripts, 'build:prod': command } }));
+	}
+});

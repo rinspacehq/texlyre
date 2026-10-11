@@ -17,6 +17,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Retain the upstream workflow without granting this source-stage fork a
+    # release/deployment path. Rinspace delivery requires a separate decision.
+    if: github.repository == 'TeXlyre/texlyre'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

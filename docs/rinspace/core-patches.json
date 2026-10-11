@@ -45,12 +45,12 @@
       "tests": ["scripts/rinspace/asset-integrity.test.mjs", "cold and warm installed-package asset checks in .github/workflows/test.yml"],
       "upstreamIssue": null,
       "removalCondition": "Upstream validates asset contents against trusted fixed inputs and publishes a complete checked inventory.",
-      "integrationStatus": "7 filesystem cases passed; real package cold/warm CI pending; external archives and complete notice audit remain pending"
+      "integrationStatus": "7 filesystem cases and real installed-package cold/warm verification passed run 38131778638; external archives and complete notice audit remain pending"
     },
     {
       "id": "non-mutating-production-build",
-      "files": ["package.json"],
-      "purpose": "Do not run source fixers after production artifacts have been built.",
+      "files": ["package.json", "scripts/rinspace/check-source.mjs", ".github/workflows/deploy.yml"],
+      "purpose": "Separate reviewed source preparation from artifact construction; no source fixers or authoring generators in production build. Restrict inherited Pages deployment to upstream, not this source-stage fork.",
       "tests": ["scripts/rinspace/check-source.test.mjs"],
       "upstreamIssue": null,
       "removalCondition": "Upstream separates formatting from artifact generation and verifies clean source after build.",

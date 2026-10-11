@@ -39,3 +39,32 @@ Run `node --test
 These checks do **not** certify assets, dependency notices, a full application
 build, browser compilation, actual authorization, or private integration.
 Those gates remain pending and must pass before any immutable release is accepted.
+
+## Source preparation versus artifact construction
+
+When intentionally changing source configuration, run `pnpm prepare:source`
+in the authoring worktree before source review. Inspect and commit the generated
+configuration, HTML, userdata declarations and service-worker constants with
+their source change. This is not a production build or a release step.
+
+`pnpm build:prod` consumes those reviewed files without rewriting them or
+running formatters. Generated plugin copies and public asset inventories are
+build outputs, not independent editable sources. The complete artifact build
+and unchanged-source verification remain pending; passing foundation or package
+asset tests alone is not equivalent to a successful browser build.
+
+`pnpm check:package-assets` installs/verifies npm-provided static asset copies
+against the frozen installed package bytes and produces
+`public/rinspace-package-assets.json`. A polluted or incomplete existing cache
+is rejected and preserved for review, not silently repaired. The inventory
+records package license declarations, not an embedded-asset notice certification.
+
+`scripts/rinspace/review-external-assets.mjs` only measures the approved public
+upstream archives and checks their known metadata digests. Its acquisition-only
+review file is not a release lock: extracted inventories, two measured source
+archive digests and all embedded notices still require review. It does not
+extract, execute, publish or install these archives into the product.
+
+The inherited GitHub Pages job is restricted to `TeXlyre/texlyre`; it cannot
+deploy this source-stage Rinspace fork on a main merge or a manual dispatch.
+No fork release or product deployment path is enabled by ordinary source checks.
