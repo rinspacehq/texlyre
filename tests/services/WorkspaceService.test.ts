@@ -299,6 +299,41 @@ describe('WorkspaceService', () => {
 			expect(stored[0]).toMatchObject({ id: 'a', content: 'a different body' });
 		});
 
+		it.each([
+			{ name: 'different bytes with the same binary length', local: [0, 255, 128, 13, 10], disk: [0, 254, 128, 13, 10], conflict: true },
+			{ name: 'identical binary bytes', local: [0, 255, 128, 13, 10], disk: [0, 255, 128, 13, 10], conflict: false },
+			{ name: 'two empty binary files', local: [], disk: [], conflict: false },
+			{ name: 'different binary lengths', local: [0, 255], disk: [0, 255, 128], conflict: true },
+		])('compares actual bytes for $name', async ({ local, disk, conflict }) => {
+			const localContent = Uint8Array.from(local).buffer;
+			const diskContent = Uint8Array.from(disk).buffer;
+			const existing: FileNode = {
+				id: 'binary-file', name: '资源.png', path: '/资源.png', type: 'file',
+				content: localContent, isBinary: true, size: local.length, lastModified: 500,
+			};
+			setDirectory({ '': [{ name: existing.name, isDirectory: false }] });
+			mockAdapter.stat.mockResolvedValue({ lastModified: 500, size: disk.length });
+			mockAdapter.readFile.mockResolvedValue(diskContent);
+			jest.mocked(fileStoreService.getAllFiles).mockResolvedValue([existing]);
+
+			await workspaceService.connect('project-1');
+
+			if (conflict) {
+				expect(fileConflictPromptService.resolveConflict).toHaveBeenCalledTimes(1);
+				expect(fileConflictPromptService.resolveConflict).toHaveBeenCalledWith(
+					existing, expect.objectContaining({ path: existing.path, content: diskContent }),
+				);
+				const stored = jest.mocked(fileStoreService.batchStoreFiles).mock.calls[0][0];
+				expect(stored[0].id).toBe(existing.id);
+				expect(new Uint8Array(stored[0].content as ArrayBuffer)).toEqual(Uint8Array.from(disk));
+			} else {
+				expect(fileConflictPromptService.resolveConflict).not.toHaveBeenCalled();
+				expect(fileStoreService.batchStoreFiles).not.toHaveBeenCalled();
+				expect(fileHandlerService.mirrorFiles).not.toHaveBeenCalled();
+			}
+			expect(new Uint8Array(existing.content as ArrayBuffer)).toEqual(Uint8Array.from(local));
+		});
+
 		it('should push the project version to disk when the user keeps it', async () => {
 			(fileConflictPromptService.resolveConflict as jest.Mock).mockResolvedValue(
 				'cancel',

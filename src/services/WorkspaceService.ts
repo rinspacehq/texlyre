@@ -390,10 +390,16 @@ class WorkspaceService {
 			}
 		} else if (
 			existing.content instanceof ArrayBuffer &&
-			incoming.content instanceof ArrayBuffer &&
-			existing.content.byteLength === incoming.content.byteLength
+			incoming.content instanceof ArrayBuffer
 		) {
-			return 'identical';
+			const existingBytes = new Uint8Array(existing.content);
+			const incomingBytes = new Uint8Array(incoming.content);
+			if (
+				existingBytes.length === incomingBytes.length &&
+				existingBytes.every((byte, index) => byte === incomingBytes[index])
+			) {
+				return 'identical';
+			}
 		}
 
 		let resolution: ConflictResolution;
