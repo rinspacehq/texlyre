@@ -493,8 +493,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 					if (file.type === 'directory') {
 						const linkedFilesInDirectory = allFiles.filter(
 							(f) =>
-								f.path.startsWith(file.path) &&
-								f.path !== file.path &&
+								f.path.startsWith(`${file.path}/`) &&
 								f.documentId,
 						);
 
@@ -507,7 +506,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 						}
 
 						const childrenToDelete = allFiles.filter(
-							(f) => f.path.startsWith(file.path) && f.path !== file.path,
+							(f) => f.path.startsWith(`${file.path}/`),
 						);
 						allFilesToDelete.push(...childrenToDelete.map((c) => c.id));
 					}

@@ -30,6 +30,15 @@
       "integrationStatus": "Connected implementation; application checks in progress. Results are in-memory operation reports, not durable project revisions, snapshot/hash journals or native filesystem read-back certification. External edit/multi-tab protection and recoverable rename/delete remain pending."
     },
     {
+      "id": "bounded-local-folder-deletion",
+      "files": ["src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WriteTargetService.ts", "src/contexts/FileTreeContext.tsx", "scripts/rinspace/check-deletion-lint.mjs", ".github/workflows/test.yml"],
+      "purpose": "Remove only selected, known files and empty directories, deepest first, without recursively deleting ignored or newly added disk data. Match directory boundaries rather than prefix siblings. Capture deletion targets and guard folder/project changes; propagate actual failures before clearing browser copies. Queue the full IDB deletion batch and abort on request failure. Preserve inherited lint warnings by exact baseline source context while rejecting every current error or new warning; existing zero-warning CI remains unchanged.",
+      "tests": ["tests/services/FileHandlerLocalDeletion.test.ts", "tests/components/FileTreeLocalDeletion.test.tsx", "tests/services/FileHandlerLocalWrites.test.ts", "tests/services/FileHandlerService.test.ts", "tests/services/WorkspaceService.test.ts", "scripts/rinspace/check-deletion-lint.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides equivalent non-recursive known-entry removal, failed-delete draft retention, target scoping and segment-boundary selection with regressions.",
+      "integrationStatus": "Reviewed local candidate: application types, strict changed-code lint, zero-new-diagnostic legacy gate (26 inherited warnings) and 6 suites / 120 focused cases passed in isolated one-CPU checks. This includes 13 new deletion cases. Complete public CI and native application directory deletion acceptance remain pending; no directory atomicity or cross-program lock is claimed."
+    },
+    {
       "id": "pnpm-types-and-model-identity",
       "files": ["package.json", "pnpm-lock.yaml"],
       "purpose": "Directly declare required types and align the already locked ProseMirror model patch version; preserve original upstream lock provenance separately.",

@@ -510,17 +510,46 @@ class FileHandlerService {
 
 	async removeFromDisk(files: FileNode[]): Promise<void> {
 		if (this.isMirroringSuppressed) return;
+		const generation = this.targetGeneration;
+		const projectId = this.getActiveProjectId() || this.workspaceProjectId;
+		// Bind paths and targets before awaiting; a later folder switch must not
+		// redirect an already requested removal into a different directory.
+		const jobs = files.map((file) => ({
+			id: file.id,
+			path: file.path,
+			target: this.resolveTarget(file),
+		})).sort((left, right) => right.path.split('/').length - left.path.split('/').length);
+		const failures: Error[] = [];
 
-		for (const file of files) {
-			const target = this.resolveTarget(file);
-			if (!target?.remove) continue;
+		for (const job of jobs) {
+			if (!job.target?.remove) continue;
+			const activeProjectId = this.getActiveProjectId();
+			if (generation !== this.targetGeneration ||
+				projectId !== (this.workspaceProjectId ?? activeProjectId) ||
+				(activeProjectId && activeProjectId !== projectId)) {
+				failures.push(new Error(t('Folder or project changed before removing {path}', { path: job.path })));
+				continue;
+			}
 
 			try {
-				await target.remove();
-				this.unregisterLink(file.id);
+				await job.target.remove();
 			} catch (error) {
-				moduleLog.error(`Failed to remove ${file.path} from disk:`, error);
+				if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+					failures.push(new Error(t('Could not remove {path} from the folder', { path: job.path }), { cause: error }));
+					continue;
+				}
 			}
+			if (generation !== this.targetGeneration) {
+				failures.push(new Error(t('Folder changed while removing {path}. The browser copy has been retained.', { path: job.path })));
+				continue;
+			}
+			if (generation === this.targetGeneration &&
+				(!this.getActiveProjectId() || this.getActiveProjectId() === projectId)) {
+				this.unregisterLink(job.id);
+			}
+		}
+		if (failures.length > 0) {
+			throw new AggregateError(failures, t('Deletion could not be completed safely. Some disk entries may already have been removed; browser copies have been retained.'));
 		}
 	}
 

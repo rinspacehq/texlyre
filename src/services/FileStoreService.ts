@@ -76,6 +76,12 @@ class FileStoreService {
 		return this.db;
 	}
 
+	private assertDeletionScope(db: IDBPDatabase, projectId: string): void {
+		if (this.db !== db || this.projectId !== projectId) {
+			throw new Error(t('Project changed during deletion. Browser copies have been retained.'));
+		}
+	}
+
 	setProjectId(projectId: string): void {
 		this.projectId = projectId;
 	}
@@ -143,7 +149,7 @@ class FileStoreService {
 		} catch (error) {
 			if (isQuotaExceededError(error)) {
 				quotaService.markStale();
-				throw new Error(t('Not enough browser storage to save these files'));
+				throw new Error(t('Not enough browser storage to save these files'), { cause: error });
 			}
 			throw error;
 		}
@@ -697,6 +703,8 @@ class FileStoreService {
 		},
 	): Promise<void> {
 		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
 
 		const showDialog = options?.showDeleteDialog ?? true;
 		const hardDelete = options?.hardDelete ?? false;
@@ -707,6 +715,7 @@ class FileStoreService {
 
 		for (const id of fileIds) {
 			const file = await this.getFile(id);
+			this.assertDeletionScope(db, projectId);
 			if (!file || file.isDeleted) continue;
 
 			if (file.documentId && !allowLinkedFileDelete) {
@@ -734,35 +743,33 @@ class FileStoreService {
 			}
 		}
 
-		if (hardDelete) {
-			const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
-			const store = tx.objectStore(this.FILES_STORE);
+		this.assertDeletionScope(db, projectId);
+		await fileHandlerService.removeFromDisk(filesToDelete);
+		this.assertDeletionScope(db, projectId);
 
+		const tx = db.transaction(this.FILES_STORE, 'readwrite');
+		const store = tx.objectStore(this.FILES_STORE);
+		const requests: Array<Promise<unknown>> = [];
+		try {
+			// As in batchStoreFiles, queue every request before yielding so a
+			// partial or inactive transaction cannot erase only some drafts.
 			for (const file of filesToDelete) {
-				await store.delete(file.id);
+				requests.push(hardDelete ? store.delete(file.id) : store.put({
+					...file,
+					isDeleted: true,
+					content: undefined,
+					lastModified: Date.now(),
+					size: 0,
+					documentId: allowLinkedFileDelete ? file.documentId : undefined,
+				}));
 			}
-
-			await tx.done;
-		} else {
-			const filesToUpdate = filesToDelete.map((file) => ({
-				...file,
-				isDeleted: true,
-				content: undefined,
-				lastModified: Date.now(),
-				size: 0,
-				documentId: allowLinkedFileDelete ? file.documentId : undefined,
-			}));
-
-			const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
-			const store = tx.objectStore(this.FILES_STORE);
-			for (const file of filesToUpdate) {
-				await store.put(file);
-			}
-
-			await tx.done;
+			await Promise.all([...requests, tx.done]);
+		} catch (error) {
+			try { tx.abort(); } catch { /* Transaction may already have aborted. */ }
+			await Promise.allSettled([...requests, tx.done]);
+			throw error;
 		}
 
-		await fileHandlerService.removeFromDisk(filesToDelete);
 		fileStorageEventEmitter.emitChange();
 	}
 
@@ -1141,7 +1148,7 @@ class FileStoreService {
 
 		if (!includeContent) {
 			filteredFiles = filteredFiles.map(
-				({ content, ...rest }) => rest as FileNode,
+				({ content: _content, ...rest }) => rest as FileNode,
 			);
 		}
 
@@ -1237,12 +1244,15 @@ class FileStoreService {
 		},
 	): Promise<void> {
 		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
 
 		const showDialog = options?.showDeleteDialog ?? true;
 		const hardDelete = options?.hardDelete ?? false;
 		const allowLinkedFileDelete = options?.allowLinkedFileDelete ?? false;
 
 		const file = await this.getFile(id);
+		this.assertDeletionScope(db, projectId);
 		if (!file) return;
 
 		if (file.documentId && !allowLinkedFileDelete) {
@@ -1256,8 +1266,12 @@ class FileStoreService {
 			}
 		}
 
+		this.assertDeletionScope(db, projectId);
+		await fileHandlerService.removeFromDisk([file]);
+		this.assertDeletionScope(db, projectId);
+
 		if (hardDelete) {
-			await this.db?.delete(this.FILES_STORE, id);
+			await db.delete(this.FILES_STORE, id);
 		} else {
 			file.isDeleted = true;
 			file.content = undefined;
@@ -1267,9 +1281,8 @@ class FileStoreService {
 			}
 			file.lastModified = Date.now();
 			file.size = 0;
-			await this.db?.put(this.FILES_STORE, file);
+			await db.put(this.FILES_STORE, file);
 		}
-		await fileHandlerService.removeFromDisk([file]);
 		fileStorageEventEmitter.emitChange();
 	}
 

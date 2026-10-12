@@ -116,7 +116,9 @@ export class DirectoryTarget implements WriteTarget {
 	async deleteEntry(path: string): Promise<void> {
 		const { dir, fileName } = this.parsePath(path);
 		const dirHandle = await this.getDirectory(dir);
-		await dirHandle.removeEntry(fileName, { recursive: true });
+		// An imported tree does not contain ignored or newly added disk entries.
+		// Never let deleting a visible parent also delete those unseen children.
+		await dirHandle.removeEntry(fileName, { recursive: false });
 	}
 
 	private parsePath(path: string): { dir: string; fileName: string } {
@@ -474,7 +476,9 @@ export class WriteTargetService {
 				if (contents.some((name) => name.endsWith('.yjs'))) {
 					return path;
 				}
-			} catch {}
+			} catch {
+				// Optional legacy document layouts are probed independently.
+			}
 		}
 
 		return null;
