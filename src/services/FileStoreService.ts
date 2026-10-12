@@ -1204,6 +1204,7 @@ class FileStoreService {
 			await this.db?.put(this.FILES_STORE, file);
 		});
 		const expectedDiskContent = wasDeleted ? null : previousContent;
+		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
 		await fileHandlerService.mirrorFiles([file], expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]));
 
 		fileStorageEventEmitter.emitChange(

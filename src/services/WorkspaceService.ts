@@ -456,6 +456,7 @@ class WorkspaceService {
 		if (!handle) {
 			this.projectId = projectId;
 			this.needsPermission = true;
+			fileHandlerService.markWorkspacePermissionPending(projectId);
 			this.notify();
 			return true;
 		}
@@ -464,6 +465,7 @@ class WorkspaceService {
 			this.projectId = projectId;
 			this.rootHandle = handle;
 			this.needsPermission = true;
+			fileHandlerService.markWorkspacePermissionPending(projectId);
 			this.notify();
 			await workspaceActivityService.record(projectId, {
 				type: 'permission-lost',

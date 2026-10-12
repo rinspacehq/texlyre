@@ -133,6 +133,38 @@ describe('persistent-local disk write results', () => {
 		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
 		expect(disk.bytes.get('/main.typ')).toBe('外改甲');
 	});
+	it('writes a permission-pending browser draft after reconnection when disk still matches its first offline version', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileStoreService.updateFileContent(original.id, '断权后的草稿一');
+		await fileStoreService.updateFileContent(original.id, '断权后的草稿二');
+		expect(disk.bytes.get('/main.typ')).toBe('原稿');
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await fileStoreService.updateFileContent(original.id, '断权后的草稿二\n重连保存');
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'written' });
+		expect(await disk.adapter.readFile('/main.typ')).toBe('断权后的草稿二\n重连保存');
+	});
+	it('does not overwrite an external edit made while folder permission was absent', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileStoreService.updateFileContent(original.id, '浏览器草稿');
+		disk.bytes.set('/main.typ', '外部程序的新版本');
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await fileStoreService.updateFileContent(original.id, '浏览器草稿续写');
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
+		expect(disk.bytes.get('/main.typ')).toBe('外部程序的新版本');
+		expect((await fileStoreService.getFile(original.id))?.content).toBe('浏览器草稿续写');
+	});
 	it('aborts when a second external write happens while the browser stream is open', async () => {
 		const disk = directory(undefined, (path) => disk.bytes.set(path, '另一个程序的新内容'));
 		await disk.root.getFileHandle('main.typ', { create: true });

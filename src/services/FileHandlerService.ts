@@ -127,6 +127,8 @@ class FileHandlerService {
 	private pending: LaunchedFile[] = [];
 	private baselines = new Map<string, SyncBaseline>();
 	private diskContents = new Map<string, { path: string; content: string | ArrayBuffer | null }>();
+	private permissionPendingProjectId: string | null = null;
+	private permissionPendingContents = new Map<string, { path: string; content: string | ArrayBuffer | null }>();
 	private suppressed = new Set<string>();
 	private linkedIds = new Set<string>();
 	private launchLinkedIds = new Set<string>();
@@ -150,7 +152,30 @@ class FileHandlerService {
 		this.workspace = adapter;
 		this.workspaceProjectId = projectId || null;
 		this.diskContents.clear();
+		if (this.permissionPendingProjectId === this.workspaceProjectId) {
+			this.diskContents = this.permissionPendingContents;
+		}
+		this.permissionPendingProjectId = null;
+		this.permissionPendingContents = new Map();
 		this.resetWriteStatus();
+	}
+
+	/** Retain the first browser version edited while folder permission is absent. */
+	markWorkspacePermissionPending(projectId: string): void {
+		if (this.permissionPendingProjectId === projectId) return;
+		this.permissionPendingProjectId = projectId;
+		this.permissionPendingContents.clear();
+	}
+
+	rememberPermissionPendingOriginal(file: Pick<FileNode, 'id' | 'path'>, content: string | ArrayBuffer | null | undefined): void {
+		const intent = getStartupIntent();
+		if (intent.mode !== 'local-unbound' || !intent.persistentProfile ||
+			this.permissionPendingProjectId !== fileStoreService.getCurrentProjectId() ||
+			this.permissionPendingContents.has(file.id) || content === undefined) return;
+		this.permissionPendingContents.set(file.id, {
+			path: file.path,
+			content: content === null ? null : copyLocalWriteContent(content),
+		});
 	}
 
 	detachWorkspace(): void {
@@ -159,6 +184,8 @@ class FileHandlerService {
 		this.resetWriteStatus();
 		this.baselines.clear();
 		this.diskContents.clear();
+		this.permissionPendingProjectId = null;
+		this.permissionPendingContents.clear();
 		this.linkedIds.clear();
 		this.launchLinkedIds.clear();
 	}
