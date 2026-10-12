@@ -4,14 +4,11 @@ import userEvent from '@testing-library/user-event';
 import ProjectImportModal from '@src/components/project/ProjectImportModal';
 import { authService } from '@src/services/AuthService';
 import { workspaceService } from '@src/services/WorkspaceService';
-import type { LocalProjectDiscovery } from '@src/workspace/LocalProjectDiscovery';
-import { selectLocalProject } from '@src/workspace/LocalProjectDiscovery';
 
 jest.mock('@src/i18n', () => ({ t: (key: string) => key }));
 jest.mock('@src/services/AuthService', () => ({ authService: { createProject: jest.fn() } }));
 jest.mock('@src/services/WorkspaceService', () => ({ workspaceService: {
-	isSupported: jest.fn(), pickFolder: jest.fn(), inspectFolder: jest.fn(),
-	validateFolderSelection: jest.fn(), link: jest.fn(),
+	isSupported: jest.fn(), pickFolder: jest.fn(), checkFolderAccess: jest.fn(), link: jest.fn(),
 } }));
 jest.mock('@src/services/ProjectImportService', () => ({ projectImportService: {} }));
 jest.mock('@src/components/project/TemplateImportModal', () => ({ __esModule: true, default: () => null }));
@@ -19,112 +16,135 @@ jest.mock('@src/components/project/UrlImportModal', () => ({ __esModule: true, d
 jest.mock('@src/components/project/YjsLinkImportModal', () => ({ __esModule: true, default: () => null }));
 
 const handle = { name: '中文项目' } as FileSystemDirectoryHandle;
-const discovery: LocalProjectDiscovery = {
-	fileCount: 4, suggestedKind: null,
-	entryPoints: { latex: ['/main.tex', '/章节/内容.tex'], typst: ['/main.typ'], markdown: ['/README.md'] },
-};
 const docUrl = 'yjs:12345678-1234-4234-9234-123456789abc';
 
-describe('local folder import component', () => {
+describe('direct local folder import', () => {
 	const callbacks = { onClose: jest.fn(), onProjectsImported: jest.fn(), onOpenProject: jest.fn() };
 	beforeEach(() => {
 		jest.clearAllMocks();
 		jest.mocked(workspaceService.isSupported).mockReturnValue(true);
 		jest.mocked(workspaceService.pickFolder).mockResolvedValue(handle);
-		jest.mocked(workspaceService.inspectFolder).mockResolvedValue(discovery);
-		jest.mocked(workspaceService.validateFolderSelection).mockImplementation(async (_handle, found, kind, mainFile) =>
-			selectLocalProject(found, kind, mainFile));
+		jest.mocked(workspaceService.checkFolderAccess).mockResolvedValue(undefined);
 		jest.mocked(authService.createProject).mockImplementation(async (input) => ({
 			...input, id: docUrl.slice(4), docUrl, ownerId: 'local-fixture', createdAt: 1, updatedAt: 1,
 		}));
 		jest.mocked(workspaceService.link).mockResolvedValue(undefined);
 	});
-	const startReview = async () => {
+	const startOpen = async () => {
 		const user = userEvent.setup();
 		render(<ProjectImportModal isOpen {...callbacks} />);
 		await user.click(screen.getByRole('button', { name: /From a Folder on This Device/ }));
-		await screen.findByLabelText('Local project format');
 		return user;
 	};
-	it('does not create or link a project before the mixed-format review is confirmed', async () => {
-		await startReview();
-		expect(authService.createProject).not.toHaveBeenCalled();
-		expect(workspaceService.link).not.toHaveBeenCalled();
-		expect(screen.getByRole('button', { name: 'Open Local Folder' })).toBeDisabled();
-	});
-	it.each(['latex', 'typst', 'markdown'] as const)('opens the selected %s entry through the host callback without adding a compile trigger', async (kind) => {
-		const user = await startReview();
-		await user.selectOptions(screen.getByLabelText('Local project format'), kind);
-		const entry = kind === 'latex' ? '/章节/内容.tex' : discovery.entryPoints[kind][0];
-		await user.selectOptions(screen.getByLabelText('Entry file'), entry);
-		await user.click(screen.getByRole('button', { name: 'Open Local Folder' }));
-		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledWith(`${docUrl}&file:${encodeURIComponent(entry)}`));
+	it('opens the authorized directory immediately, without format, entry, scan or compile parameters', async () => {
+		await startOpen();
+		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledWith(docUrl));
+		expect(workspaceService.checkFolderAccess).toHaveBeenCalledWith(handle, expect.any(AbortSignal));
+		expect(workspaceService.link).toHaveBeenCalledWith(docUrl.slice(4), handle);
 		expect(authService.createProject).toHaveBeenCalledWith(expect.objectContaining({
-			type: kind, mainFile: entry, lastOpenedFilePath: entry,
+			name: handle.name, type: 'files', group: 'files',
 		}));
 		const input = jest.mocked(authService.createProject).mock.calls[0][0];
-		expect(input.compilerId).toBe(kind === 'markdown' ? undefined : `internal:${kind}`);
+		expect(input.mainFile).toBeUndefined();
+		expect(input.compilerId).toBeUndefined();
+		expect(input.lastOpenedFilePath).toBeUndefined();
+		expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Local project format')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Entry file')).not.toBeInTheDocument();
+		expect(callbacks.onProjectsImported).toHaveBeenCalledTimes(1);
 		expect(callbacks.onClose).toHaveBeenCalledTimes(1);
 	});
-	it('keeps an unknown folder files-only without requiring a manifest or compiler', async () => {
-		jest.mocked(workspaceService.inspectFolder).mockResolvedValue({
-			fileCount: 1, suggestedKind: 'files', entryPoints: { latex: [], typst: [], markdown: [] },
-		});
-		const user = await startReview();
-		await user.click(screen.getByRole('button', { name: 'Open Local Folder' }));
-		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledWith(docUrl));
-		expect(jest.mocked(authService.createProject).mock.calls[0][0].type).toBe('files');
-	});
-	it('cancels the folder review without creating or linking anything', async () => {
-		const user = await startReview();
-		await user.click(screen.getByRole('button', { name: 'Close modal' }));
-		expect(callbacks.onClose).toHaveBeenCalledTimes(1);
-		expect(authService.createProject).not.toHaveBeenCalled();
-		expect(workspaceService.link).not.toHaveBeenCalled();
-	});
+	it.each(['mixed LaTeX Typst Markdown', 'empty folder', 'images and bibliography only'])(
+		'does not inspect or require a compile target for %s', async (name) => {
+			const selected = { name, kind: 'directory' } as FileSystemDirectoryHandle;
+			jest.mocked(workspaceService.pickFolder).mockResolvedValue(selected);
+			await startOpen();
+			await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledWith(docUrl));
+			expect(workspaceService.link).toHaveBeenCalledWith(docUrl.slice(4), selected);
+			expect(jest.mocked(authService.createProject).mock.calls[0][0].mainFile).toBeUndefined();
+		},
+	);
 	it('does not treat a cancelled picker as an error or create a project', async () => {
 		jest.mocked(workspaceService.pickFolder).mockRejectedValue(new DOMException('Cancelled', 'AbortError'));
-		const user = userEvent.setup();
-		render(<ProjectImportModal isOpen {...callbacks} />);
-		await user.click(screen.getByRole('button', { name: /From a Folder on This Device/ }));
+		await startOpen();
 		await waitFor(() => expect(screen.queryByText('Scanning for projects...')).not.toBeInTheDocument());
 		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 		expect(authService.createProject).not.toHaveBeenCalled();
+		expect(workspaceService.checkFolderAccess).not.toHaveBeenCalled();
 	});
-	it('shows denied permission before creation and preserves the selected review for retry', async () => {
-		jest.mocked(workspaceService.validateFolderSelection).mockRejectedValue(new Error('Write access denied'));
-		const user = await startReview();
-		await user.selectOptions(screen.getByLabelText('Local project format'), 'typst');
-		await user.click(screen.getByRole('button', { name: 'Open Local Folder' }));
+	it('accepts a null picker result without affecting the current project', async () => {
+		jest.mocked(workspaceService.pickFolder).mockResolvedValue(null);
+		await startOpen();
+		await waitFor(() => expect(screen.queryByText('Scanning for projects...')).not.toBeInTheDocument());
+		expect(authService.createProject).not.toHaveBeenCalled();
+		expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+	});
+	it('checks permission before creation and retries the same handle without a language review', async () => {
+		jest.mocked(workspaceService.checkFolderAccess).mockRejectedValueOnce(new Error('Write access denied'));
+		const user = await startOpen();
 		expect(await screen.findByRole('alert')).toHaveTextContent('Write access denied');
 		expect(authService.createProject).not.toHaveBeenCalled();
-		expect(screen.getByLabelText('Entry file')).toHaveValue('/main.typ');
+		expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Retry Opening Folder' }));
+		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledWith(docUrl));
+		expect(workspaceService.pickFolder).toHaveBeenCalledTimes(1);
+		expect(authService.createProject).toHaveBeenCalledTimes(1);
 	});
 	it('reuses the recovery project when linking fails instead of creating duplicates on retry', async () => {
 		jest.mocked(workspaceService.link).mockRejectedValueOnce(new Error('Handle store failed'));
-		const user = await startReview();
-		await user.selectOptions(screen.getByLabelText('Local project format'), 'typst');
-		await user.click(screen.getByRole('button', { name: 'Open Local Folder' }));
+		const user = await startOpen();
 		expect(await screen.findByRole('alert')).toHaveTextContent('Handle store failed');
 		expect(callbacks.onOpenProject).not.toHaveBeenCalled();
-		expect(screen.getByLabelText('Local project format')).toBeDisabled();
-		await user.click(screen.getByRole('button', { name: 'Open Local Folder' }));
+		expect(screen.getByText(/The browser project was created/)).toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Retry Opening Folder' }));
 		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledTimes(1));
 		expect(authService.createProject).toHaveBeenCalledTimes(1);
+		expect(callbacks.onProjectsImported).toHaveBeenCalledTimes(1);
+		expect(workspaceService.link).toHaveBeenCalledTimes(2);
 	});
-	it('aborts a pending scan on close and ignores its late result', async () => {
-		let resolveScan: ((value: LocalProjectDiscovery) => void) | undefined;
-		jest.mocked(workspaceService.inspectFolder).mockImplementation(() => new Promise((resolve) => { resolveScan = resolve; }));
+	it('does not hide an aborted storage transaction as a cancelled picker', async () => {
+		jest.mocked(workspaceService.link).mockRejectedValueOnce(new DOMException('Storage transaction aborted', 'AbortError'));
+		await startOpen();
+		expect(await screen.findByRole('alert')).toHaveTextContent('Storage transaction aborted');
+		expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+		expect(screen.getByText(/The browser project was created/)).toBeInTheDocument();
+	});
+	it('ignores a late picker after the modal is closed', async () => {
+		let resolvePicker: ((value: FileSystemDirectoryHandle) => void) | undefined;
+		jest.mocked(workspaceService.pickFolder).mockImplementation(() => new Promise((resolve) => { resolvePicker = resolve; }));
+		const user = await startOpen();
+		await user.click(screen.getByRole('button', { name: 'Close modal' }));
+		await act(async () => resolvePicker?.(handle));
+		expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+		expect(workspaceService.checkFolderAccess).not.toHaveBeenCalled();
+		expect(authService.createProject).not.toHaveBeenCalled();
+		expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+	});
+	it('aborts pending permission on unmount and ignores its late result', async () => {
+		let resolvePermission: (() => void) | undefined;
+		jest.mocked(workspaceService.checkFolderAccess).mockImplementation(() => new Promise((resolve) => { resolvePermission = resolve; }));
+		const user = userEvent.setup();
+		const view = render(<ProjectImportModal isOpen {...callbacks} />);
+		await user.click(screen.getByRole('button', { name: /From a Folder on This Device/ }));
+		await waitFor(() => expect(workspaceService.checkFolderAccess).toHaveBeenCalled());
+		const signal = jest.mocked(workspaceService.checkFolderAccess).mock.calls[0][1];
+		view.unmount();
+		expect(signal?.aborted).toBe(true);
+		await act(async () => resolvePermission?.());
+		expect(authService.createProject).not.toHaveBeenCalled();
+		expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+	});
+	it('does not open two projects on repeated clicks while permission is pending', async () => {
+		let resolvePermission: (() => void) | undefined;
+		jest.mocked(workspaceService.checkFolderAccess).mockImplementation(() => new Promise((resolve) => { resolvePermission = resolve; }));
 		const user = userEvent.setup();
 		render(<ProjectImportModal isOpen {...callbacks} />);
-		await user.click(screen.getByRole('button', { name: /From a Folder on This Device/ }));
-		await waitFor(() => expect(workspaceService.inspectFolder).toHaveBeenCalled());
-		const signal = jest.mocked(workspaceService.inspectFolder).mock.calls[0][1];
-		await user.click(screen.getByRole('button', { name: 'Close modal' }));
-		expect(signal?.aborted).toBe(true);
-		await act(async () => resolveScan?.(discovery));
-		expect(screen.queryByLabelText('Local project format')).not.toBeInTheDocument();
-		expect(authService.createProject).not.toHaveBeenCalled();
+		await user.dblClick(screen.getByRole('button', { name: /From a Folder on This Device/ }));
+		await waitFor(() => expect(workspaceService.checkFolderAccess).toHaveBeenCalledTimes(1));
+		await act(async () => resolvePermission?.());
+		await waitFor(() => expect(callbacks.onOpenProject).toHaveBeenCalledTimes(1));
+		expect(authService.createProject).toHaveBeenCalledTimes(1);
+		expect(workspaceService.pickFolder).toHaveBeenCalledTimes(1);
 	});
 	it('explains the unsupported API without claiming downloads save back to the original folder', () => {
 		jest.mocked(workspaceService.isSupported).mockReturnValue(false);

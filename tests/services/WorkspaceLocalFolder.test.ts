@@ -10,76 +10,46 @@ jest.mock('@src/services/DiskHandleStore', () => ({
 	ensurePermission: jest.fn().mockResolvedValue(true),
 }));
 
-interface DirectoryFixture extends FileSystemDirectoryHandle {
-	entries(): AsyncIterable<[string, FileSystemHandle]>;
-}
+const folder = {
+	name: '中文混合目录', kind: 'directory',
+	getDirectoryHandle: jest.fn(), getFileHandle: jest.fn(),
+	entries: jest.fn(), removeEntry: jest.fn(),
+} as unknown as FileSystemDirectoryHandle;
 
-function folder(name: string, children: FileSystemHandle[]): DirectoryFixture {
-	return {
-		name, kind: 'directory',
-		entries: async function* () { for (const child of children) yield [child.name, child]; },
-		getDirectoryHandle: jest.fn(async (childName: string) => {
-			const child = children.find((entry) => entry.name === childName && entry.kind === 'directory');
-			if (!child) throw new DOMException('Missing directory', 'NotFoundError');
-			return child;
-		}),
-		getFileHandle: jest.fn(async (childName: string) => {
-			const child = children.find((entry) => entry.name === childName && entry.kind === 'file');
-			if (!child) throw new DOMException('Missing entry', 'NotFoundError');
-			return child;
-		}),
-	} as unknown as DirectoryFixture;
-}
-function file(name: string): FileSystemFileHandle {
-	return { name, kind: 'file', getFile: jest.fn(), createWritable: jest.fn() } as unknown as FileSystemFileHandle;
-}
-
-describe('filename-only local folder review', () => {
+describe('local folder permission without language discovery', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
 		jest.mocked(ensurePermission).mockResolvedValue(true);
 	});
 	afterEach(() => jest.restoreAllMocks());
-	it('uses relative paths, skips protected folders and never reads source or creates projects', async () => {
-		const entry = file('文档.typ');
-		const chapter = folder('章节', [entry]);
-		const git = folder('.git', [file('secret.tex')]);
-		const root = folder('中文文件夹', [chapter, git, file('image.png')]);
+	it('checks permission without scanning filenames, reading source, writing or creating a project', async () => {
 		const create = jest.spyOn(authService, 'createProject');
 		const store = jest.spyOn(fileStoreService, 'batchStoreFiles');
-		const discovery = await workspaceService.inspectFolder(root);
-		expect(discovery.entryPoints.typst).toEqual(['/章节/文档.typ']);
-		expect(discovery.fileCount).toBe(2);
-		expect(ensurePermission).toHaveBeenCalledWith(root, 'read', false);
-		expect(root.getDirectoryHandle).not.toHaveBeenCalledWith('.git');
-		expect(entry.getFile).not.toHaveBeenCalled();
-		expect(entry.createWritable).not.toHaveBeenCalled();
+		await workspaceService.checkFolderAccess(folder);
+		expect(ensurePermission).toHaveBeenCalledWith(folder, 'readwrite');
+		expect(folder.getDirectoryHandle).not.toHaveBeenCalled();
+		expect(folder.getFileHandle).not.toHaveBeenCalled();
+		expect(folder.removeEntry).not.toHaveBeenCalled();
 		expect(create).not.toHaveBeenCalled();
 		expect(store).not.toHaveBeenCalled();
-		const selection = await workspaceService.validateFolderSelection(root, discovery, 'typst', '/章节/文档.typ');
-		expect(selection.compilerId).toBe('internal:typst');
-		expect(chapter.getFileHandle).toHaveBeenCalledWith('文档.typ');
-		expect(entry.getFile).not.toHaveBeenCalled();
 	});
-	it('rejects denied read/write permission without constructing a project', async () => {
-		const root = folder('paper', [file('main.tex')]);
+	it('rejects denied permission before project creation', async () => {
 		jest.mocked(ensurePermission).mockResolvedValueOnce(false);
-		await expect(workspaceService.inspectFolder(root)).rejects.toThrow('Read access');
-		const discovery = await workspaceService.inspectFolder(root);
-		jest.mocked(ensurePermission).mockResolvedValueOnce(false);
-		await expect(workspaceService.validateFolderSelection(root, discovery, 'latex', '/main.tex')).rejects.toThrow('Write access');
-		expect(root.getFileHandle).not.toHaveBeenCalled();
+		await expect(workspaceService.checkFolderAccess(folder)).rejects.toThrow('Write access');
+		expect(folder.getFileHandle).not.toHaveBeenCalled();
 	});
-	it('checks entry existence again before project creation and does not hide stale handles', async () => {
-		const children = [file('main.tex')];
-		const root = folder('paper', children);
-		const discovery = await workspaceService.inspectFolder(root);
-		children.splice(0);
-		await expect(workspaceService.validateFolderSelection(root, discovery, 'latex', '/main.tex')).rejects.toMatchObject({ name: 'NotFoundError' });
+	it('rejects cancellation before requesting permission', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		await expect(workspaceService.checkFolderAccess(folder, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+		expect(ensurePermission).not.toHaveBeenCalled();
 	});
-	it('fails an aborted discovery rather than returning partial candidates', async () => {
-		const root = folder('paper', [file('main.tex')]);
-		const controller = new AbortController(); controller.abort();
-		await expect(workspaceService.inspectFolder(root, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+	it('rejects a late permission result after cancellation', async () => {
+		const controller = new AbortController();
+		jest.mocked(ensurePermission).mockImplementationOnce(async () => {
+			controller.abort();
+			return true;
+		});
+		await expect(workspaceService.checkFolderAccess(folder, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
 	});
 });

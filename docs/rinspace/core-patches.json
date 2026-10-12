@@ -12,13 +12,13 @@
       "integrationStatus": "45 foundation cases, 13 focused cases, application types/lint and 1043 full regressions passed exact source 52f2fa0 run 38136349644. Real browser profile migration, filesystem writing and explicit optional connection UI remain pending."
     },
     {
-      "id": "local-folder-entry-review",
-      "files": ["src/workspace/LocalProjectDiscovery.ts", "src/services/WorkspaceService.ts", "src/services/AuthService.ts", "src/types/projects.ts", "src/components/project/ProjectImportModal.tsx", "src/components/app/ProjectApp.tsx"],
-      "purpose": "Filename-only bounded serial review of an authorized local folder; choose LaTeX/Typst/Markdown or files-only and a relative entry before creating a project. Recheck permission and entry existence, preserve recoverable project on link failure, skip protected path segments without dropping .gitattributes. No platform binding, source upload or compile trigger in discovery.",
-      "tests": ["scripts/rinspace/local-project-discovery.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
+      "id": "direct-local-folder-open",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/services/WorkspaceService.ts", "src/services/AuthService.ts", "src/types/projects.ts", "src/components/project/ProjectImportModal.tsx", "src/components/app/ProjectApp.tsx"],
+      "purpose": "Open an authorized folder directly through the existing project/link flow; no language, entry selection or preliminary inventory. Keep neutral compatibility metadata, permission/cancellation checks and recovery-project reuse on link failure. Shared path protection retains .gitignore/.gitattributes without traversing Git or dependency directories. No platform binding or compile trigger is added.",
+      "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
       "upstreamIssue": null,
-      "removalCondition": "Upstream supports generic local folder format/entry review, safe permission/cancellation handling and equivalent project metadata persistence.",
-      "integrationStatus": "55 foundation cases, 31 focused cases, application types/lint and 1063 full regressions passed exact source 95d6287 run 38138088522. Native browser directory import, complete binary recovery and disk write acknowledgments remain pending."
+      "removalCondition": "Upstream opens generic local folders directly with equivalent permission/cancellation handling, protected paths and recovery-project reuse.",
+      "integrationStatus": "N01 local changes withdraw the former local-folder-entry-review and its selection-specific tests. Existing write protections remain tested; new full application and native browser checks are pending. Generic project preview integration follows existing providers; no compiler scheduling change. The previous 95d6287 CI result remains historical, not verification of these changes."
     },
     {
       "id": "local-disk-write-results",
@@ -45,7 +45,7 @@
       "tests": ["scripts/rinspace/workspace-contracts.test.mjs", "tsconfig.workspace.json"],
       "upstreamIssue": null,
       "removalCondition": "Upstream provides compatible versioned host/workspace extension registration.",
-      "integrationStatus": "registry-integrated; consumers and full upstream application regression pending"
+      "integrationStatus": "Legacy candidate interfaces with no live Rinspace plugin consumers. They are not an implementation prerequisite; retain only a concrete minimal plugin connection when implementing N03, not a seven-hook SDK."
     },
     {
       "id": "typed-plugin-panel-callbacks",
@@ -63,7 +63,7 @@
       "tests": ["scripts/rinspace/workspace-contracts.test.mjs"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies an equivalent immutable multi-file byte snapshot API.",
-      "integrationStatus": "utility-tested; CRDT cut, durable capture and Git/compiler consumers pending"
+      "integrationStatus": "Legacy isolated utility with no Git/compiler/CRDT consumers. It is not a required common foundation or a durable-save claim; use existing operation paths rather than wiring a universal snapshot protocol."
     },
     {
       "id": "verified-package-asset-cache",

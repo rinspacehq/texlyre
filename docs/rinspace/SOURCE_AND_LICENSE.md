@@ -53,15 +53,16 @@ recovery after 24 hours, compile output, offline operation or a delivered route.
 
 ## Development checks
 
-Local folder import now reviews filenames before creating a project. A single
-recognized format is suggested; mixed projects require a choice, and unknown
-or empty folders remain files-only. Entry paths are relative to the selected
-root. No manifest, source-content scan, compiler job or remote binding is needed
-for the review. Discovery is serial, limited to 10,000 entries / 64 levels, and
-yields to input every 128 entries; exceeding a limit fails instead of silently
-truncating. Cancellation leaves projects untouched. Confirmation rechecks write
-permission and entry existence. If linking fails after project creation, that
-browser project is kept for recovery and retries do not create duplicates.
+Local folder import opens the selected directory directly. It does not inspect
+filenames to require a project language, format or compilation entry before
+opening: mixed, resource-only and empty directories remain editable. The neutral
+`files` project metadata is only an upstream compatibility value; existing
+file-based preview and main-file/compiler actions remain responsible for output.
+The former format/entry discovery step has been withdrawn, not hidden behind a
+default choice. No manifest, compiler job or remote binding is added by opening.
+Permission is checked before creating the project, cancellation or a late result
+does not open a different project, and failed linking keeps the created browser
+project for recovery. Retrying that operation reuses the same project and handle.
 
 Folder import/protection uses whole path segments: Git metadata (including
 worktree pointer files), dependencies and application metadata are excluded;
@@ -71,6 +72,17 @@ a partial read as complete. These changes do not certify transaction durability,
 binary recovery, native browser permission behavior, compilation or original
 directory saving. Unsupported browsers receive an explicit warning that archive
 imports/downloads are copies, not a write-back to the original folder.
+
+Directory pickers require a secure context and a user action. Stored handles are
+not unconditional or permanent permission; restoring an existing project queries
+the current grant and offers reconnection when necessary rather than silently
+requesting permission during startup. User revocation and browser/administrator
+restrictions remain effective. Browser storage and original-directory writes are
+different save destinations. The write flow must complete each write and close
+before acknowledging disk success; there is no atomic transaction for a whole
+directory. Availability is detected from the specific API, not just a browser
+name or the existence of origin-private storage. Native picker, permission and
+disk round-trip behavior still require actual browser/device acceptance.
 
 Run `node scripts/rinspace/check-source.mjs` to check the fixed source baseline,
 license, reviewed fork lockfile and toolchain declaration. The original upstream

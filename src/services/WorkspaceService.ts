@@ -19,13 +19,9 @@ import { authService } from './AuthService';
 import { DirectoryTarget } from './WriteTargetService';
 import type { DiskWriteReport } from '../workspace/DiskWriteResults';
 import {
-	discoverLocalProject,
 	isIgnoredLocalEntry,
 	isIgnoredLocalPath,
-	type LocalProjectDiscovery,
-	type LocalProjectKind,
-	selectLocalProject,
-} from '../workspace/LocalProjectDiscovery';
+} from '../workspace/LocalWritePolicy';
 
 const moduleLog = createNamedLogger('WorkspaceService');
 
@@ -206,49 +202,15 @@ class WorkspaceService {
 		await this.setDiskLinkedFlag(projectId, true);
 	}
 
-	async inspectFolder(
+	async checkFolderAccess(
 		handle: FileSystemDirectoryHandle,
 		signal?: AbortSignal,
-	): Promise<LocalProjectDiscovery> {
-		if (!(await ensurePermission(handle, 'read', false))) {
-			throw new Error(t('Read access to the folder was not granted'));
-		}
-		return discoverLocalProject(async function* (path) {
-			let directory = handle;
-			for (const name of path.split('/').filter(Boolean)) {
-				signal?.throwIfAborted();
-				directory = await directory.getDirectoryHandle(name);
-			}
-			// The browser API has async entries; TypeScript's DOM declarations omit it.
-			const iterable = directory as FileSystemDirectoryHandle & {
-				entries(): AsyncIterable<[string, FileSystemHandle]>;
-			};
-			for await (const [name, child] of iterable.entries()) {
-				yield { name, isDirectory: child.kind === 'directory' };
-			}
-		}, { signal });
-	}
-
-	async validateFolderSelection(
-		handle: FileSystemDirectoryHandle,
-		discovery: LocalProjectDiscovery,
-		kind: LocalProjectKind,
-		mainFile?: string,
-	): Promise<ReturnType<typeof selectLocalProject>> {
-		const selection = selectLocalProject(discovery, kind, mainFile);
+	): Promise<void> {
+		signal?.throwIfAborted();
 		if (!(await ensurePermission(handle, 'readwrite'))) {
 			throw new Error(t('Write access to the folder was not granted'));
 		}
-		if (selection.mainFile) {
-			const parts = selection.mainFile.slice(1).split('/');
-			const fileName = parts.pop();
-			if (!fileName) throw new Error(t('Entry file is no longer available'));
-			let directory = handle;
-			for (const name of parts) directory = await directory.getDirectoryHandle(name);
-			// Recheck that the selected file still exists, without reading its source.
-			await directory.getFileHandle(fileName);
-		}
-		return selection;
+		signal?.throwIfAborted();
 	}
 
 	async connect(projectId: string): Promise<boolean> {

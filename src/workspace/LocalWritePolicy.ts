@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { isIgnoredLocalPath } from './LocalProjectDiscovery';
+
+const protectedNames = new Set(['.git', '.svn', 'node_modules', '.texlyre', '.ds_store']);
+
+export function isIgnoredLocalEntry(name: string): boolean {
+	return protectedNames.has(name.toLowerCase());
+}
+
+export function isIgnoredLocalPath(path: string): boolean {
+	return path.split('/').some(isIgnoredLocalEntry);
+}
 
 export type LocalWritePathIssue = 'invalid-path' | 'protected-path';
 

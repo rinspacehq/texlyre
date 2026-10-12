@@ -1,20 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
 import test from 'node:test';
-
-// Native Node tests resolve this one extensionless bundler import without changing
-// application source or weakening the inherited Jest TypeScript configuration.
-const resolution = registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if (specifier === './LocalProjectDiscovery' && context.parentURL === new URL('../../src/workspace/LocalWritePolicy.ts', import.meta.url).href) {
-			return nextResolve(new URL('./LocalProjectDiscovery.ts', context.parentURL).href, context);
-		}
-		return nextResolve(specifier, context);
-	},
-});
-const { copyLocalWriteContent, getLocalWritePathIssue } = await import('../../src/workspace/LocalWritePolicy.ts');
-resolution.deregister();
+import { copyLocalWriteContent, getLocalWritePathIssue, isIgnoredLocalEntry, isIgnoredLocalPath } from '../../src/workspace/LocalWritePolicy.ts';
 
 test('writes reject malformed, traversing and OS paths before accessing a handle', () => {
 	for (const path of ['', '/', '//main.tex', '/./main.tex', '/../main.tex', '/a/../main.tex', 'C:/main.tex', '/C:/main.tex', '/a\\b.tex', '/a\0.tex', '/a//b.tex', '/a/']) {
@@ -28,6 +15,16 @@ test('write protection covers whole path segments, not unrelated prefix names', 
 	}
 	for (const path of ['/章节/文档.typ', 'main.tex', '/.gitignore', '/.gitattributes', '/node_modules-not-dependencies/readme.md']) {
 		assert.equal(getLocalWritePathIssue(path), null, path);
+	}
+});
+
+test('folder imports share write protection without discovering a project language', () => {
+	for (const name of ['.git', '.GIT', '.svn', 'node_modules', '.texlyre', '.DS_Store']) {
+		assert.equal(isIgnoredLocalEntry(name), true, name);
+		assert.equal(isIgnoredLocalPath(`/章节/${name}/file`), true, name);
+	}
+	for (const path of ['/.gitignore', '/.gitattributes', '/node_modules-not-dependencies', '/main.tex', '/文档.typ', '/README.md']) {
+		assert.equal(isIgnoredLocalPath(path), false, path);
 	}
 });
 

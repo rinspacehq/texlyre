@@ -14,10 +14,6 @@ import type { Project, TemplateProject } from '../../types/projects';
 import { ARCHIVE_ACCEPT, isArchiveFile } from '../../utils/archiveUtils';
 import { formatDate } from '../../utils/dateUtils';
 import {
-	type LocalProjectDiscovery,
-	type LocalProjectKind,
-} from '../../workspace/LocalProjectDiscovery';
-import {
 	UrlIcon,
 	ShareIcon,
 	ImportIcon,
@@ -64,75 +60,61 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 	const [showTemplateModal, setShowTemplateModal] = useState(false);
 	const [showUrlModal, setShowUrlModal] = useState(false);
 	const [showYjsLinkModal, setShowYjsLinkModal] = useState(false);
-	const [folder, setFolder] = useState<{
-		handle: FileSystemDirectoryHandle;
-		discovery: LocalProjectDiscovery;
-	} | null>(null);
-	const [folderKind, setFolderKind] = useState<LocalProjectKind | ''>('');
-	const [folderEntry, setFolderEntry] = useState('');
+	const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null);
 	const [folderProject, setFolderProject] = useState<Project | null>(null);
-	const folderScan = useRef<AbortController | null>(null);
-	useEffect(() => () => { folderScan.current?.abort(); }, [isOpen]);
+	const folderOperation = useRef<AbortController | null>(null);
+	useEffect(() => () => { folderOperation.current?.abort(); }, [isOpen]);
 
-	const handleFolderImport = async () => {
-		folderScan.current?.abort();
+	const handleFolderImport = async (retryHandle?: FileSystemDirectoryHandle) => {
+		if (folderOperation.current && !folderOperation.current.signal.aborted) return;
 		const controller = new AbortController();
-		folderScan.current = controller;
+		folderOperation.current = controller;
+		let handle = retryHandle ?? null;
 		setError(null);
 		setIsScanning(true);
 		try {
-			const handle = await workspaceService.pickFolder();
+			handle ??= await workspaceService.pickFolder();
 			if (!handle || controller.signal.aborted) return;
-			const discovery = await workspaceService.inspectFolder(handle, controller.signal);
-			if (controller.signal.aborted) return;
-			const kind = discovery.suggestedKind ?? '';
-			setFolder({ handle, discovery });
-			setFolderProject(null);
-			setFolderKind(kind);
-			setFolderEntry(kind && kind !== 'files' ? discovery.entryPoints[kind][0] ?? '' : '');
+			setFolder(handle);
 			setImportSource('folder');
-		} catch (error) {
-			if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return;
-			setError(error instanceof Error ? error.message : t('Failed to inspect folder'));
-		} finally {
-			if (!controller.signal.aborted) setIsScanning(false);
-		}
-	};
-
-	const handleFolderConfirm = async () => {
-		if (!folder || !folderKind || isImporting) return;
-		setIsImporting(true);
-		setError(null);
-		try {
-			const selection = await workspaceService.validateFolderSelection(
-				folder.handle, folder.discovery, folderKind, folderEntry || undefined,
-			);
-			const project = folderProject ?? await authService.createProject({
-				name: folder.handle.name,
+			await workspaceService.checkFolderAccess(handle, controller.signal);
+			if (controller.signal.aborted) return;
+			setIsScanning(false);
+			setIsImporting(true);
+			const previousProject = retryHandle ? folderProject : null;
+			const project = previousProject ?? await authService.createProject({
+				name: handle.name,
 				description: t('Local project from an authorized folder'),
-				...selection,
-				lastOpenedFilePath: selection.mainFile,
+				// Compatibility metadata, not a language or preview target.
+				type: 'files',
+				group: 'files',
 				docUrl: '',
 				tags: [],
 				isFavorite: false,
 			});
-			if (!folderProject) {
+			if (controller.signal.aborted) return;
+			if (!previousProject) {
 				setFolderProject(project);
 				onProjectsImported();
 			}
-			await workspaceService.link(project.id, folder.handle);
-			const entryFragment = selection.mainFile ? `&file:${encodeURIComponent(selection.mainFile)}` : '';
+			await workspaceService.link(project.id, handle);
+			if (controller.signal.aborted) return;
 			setFolder(null);
 			setFolderProject(null);
 			setImportSource(null);
-			onOpenProject(`${project.docUrl}${entryFragment}`);
+			onOpenProject(project.docUrl);
 			onClose();
 		} catch (error) {
+			if (controller.signal.aborted || (!handle && error instanceof Error && error.name === 'AbortError')) return;
 			setError(
 				error instanceof Error ? error.message : t('Failed to link folder'),
 			);
 		} finally {
-			setIsImporting(false);
+			if (folderOperation.current === controller) {
+				folderOperation.current = null;
+				setIsScanning(false);
+				setIsImporting(false);
+			}
 		}
 	};
 
@@ -299,10 +281,8 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 
 	const handleClose = () => {
 		if (isImporting) return;
-		folderScan.current?.abort();
+		folderOperation.current?.abort();
 		setFolder(null);
-		setFolderKind('');
-		setFolderEntry('');
 		setFolderProject(null);
 		setImportSource(null);
 		setAvailableProjects([]);
@@ -356,7 +336,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 									<button
 										type='button'
 										className='ui-choice-card'
-										onClick={handleFolderImport}
+										onClick={() => handleFolderImport()}
 										disabled={isScanning || isImporting}
 										style={{
 											pointerEvents:
@@ -466,51 +446,21 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 
 					{importSource === 'folder' && folder && (
 						<div className='ui-stack' data-gap='md'>
-							<h3 className='ui-section-title'>{folder.handle.name}</h3>
-							<p>{t('Choose the project format and entry file. Suggestions use filenames only; no compilation has started.')}</p>
-							<p>{t('Git metadata and dependency folders are excluded. The original folder is not changed by this review.')}</p>
-							<div className='ui-field'>
-								<label htmlFor='local-folder-format'>{t('Local project format')}</label>
-								<select id='local-folder-format' value={folderKind} disabled={isImporting || folderProject !== null}
-									onChange={(event) => {
-										const kind = event.target.value as LocalProjectKind | '';
-										setFolderKind(kind);
-										setFolderEntry(kind && kind !== 'files' ? folder.discovery.entryPoints[kind][0] ?? '' : '');
-									}}>
-									<option value=''>{t('Choose a format (mixed project)')}</option>
-									<option value='latex'>LaTeX</option>
-									<option value='typst'>Typst</option>
-									<option value='markdown'>Markdown</option>
-									<option value='files'>{t('Files only (no typesetter)')}</option>
-								</select>
-							</div>
-							{folderKind && folderKind !== 'files' && (
-								<div className='ui-field'>
-									<label htmlFor='local-folder-entry'>{t('Entry file')}</label>
-										<select id='local-folder-entry' value={folderEntry} disabled={isImporting || folderProject !== null}
-										onChange={(event) => setFolderEntry(event.target.value)}>
-										{folder.discovery.entryPoints[folderKind].length === 0 && (
-											<option value=''>{t('No matching entry file; select one after creating it')}</option>
-										)}
-										{folder.discovery.entryPoints[folderKind].map((path) => (
-											<option key={path} value={path}>{path.slice(1)}</option>
-										))}
-									</select>
-								</div>
-							)}
+							<h3 className='ui-section-title'>{folder.name}</h3>
+							{(isScanning || isImporting) && <p>{t('Opening...')}</p>}
 							{folderProject && (
 								<p className='ui-message' data-tone='info'>
 									{t('The browser project was created. Folder linking is not confirmed; retry or keep this project for recovery.')}
 								</p>
 							)}
 							<div className='ui-actions'>
-								<button type='button' className='button secondary' disabled={isImporting}
+								<button type='button' className='button secondary' disabled={isScanning || isImporting}
 									onClick={() => { setFolder(null); setFolderProject(null); setImportSource(null); setError(null); }}>
 									{t('Choose Different Source')}
 								</button>
-								<button type='button' className='button primary' disabled={!folderKind || isImporting}
-									onClick={handleFolderConfirm}>
-									{isImporting ? t('Opening...') : t('Open Local Folder')}
+								<button type='button' className='button primary' disabled={isScanning || isImporting}
+									onClick={() => handleFolderImport(folder)}>
+									{isScanning || isImporting ? t('Opening...') : t('Retry Opening Folder')}
 								</button>
 							</div>
 						</div>
