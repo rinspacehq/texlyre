@@ -665,6 +665,9 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 	const getFileContent = useCallback(async (fileId: string) => {
 		try {
 			const file = await fileStoreService.getFile(fileId);
+			if (file?.content !== undefined) {
+				fileStoreService.setFileContentCache(fileId, file.content);
+			}
 			return file?.content;
 		} catch (error) {
 			moduleLog.error('Error getting file content:', error);

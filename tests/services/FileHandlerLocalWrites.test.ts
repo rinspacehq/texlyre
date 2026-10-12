@@ -165,6 +165,23 @@ describe('persistent-local disk write results', () => {
 		expect(disk.bytes.get('/main.typ')).toBe('外部程序的新版本');
 		expect((await fileStoreService.getFile(original.id))?.content).toBe('浏览器草稿续写');
 	});
+	it('uses the editing tab baseline instead of newer shared browser storage for disk conflict checks', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		fileStoreService.setFileContentCache(original.id, '原稿');
+		await fileStoreService.updateFileContent(original.id, '第二标签页');
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		fileStoreService.setFileContentCache(original.id, '原稿');
+		await fileStoreService.updateFileContent(original.id, '第一标签页草稿');
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
+		expect(await disk.adapter.readFile('/main.typ')).toBe('第二标签页');
+		expect((await fileStoreService.getFile(original.id))?.content).toBe('第一标签页草稿');
+	});
 	it('aborts when a second external write happens while the browser stream is open', async () => {
 		const disk = directory(undefined, (path) => disk.bytes.set(path, '另一个程序的新内容'));
 		await disk.root.getFileHandle('main.typ', { create: true });

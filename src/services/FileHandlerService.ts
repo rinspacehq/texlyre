@@ -167,6 +167,10 @@ class FileHandlerService {
 		this.permissionPendingContents.clear();
 	}
 
+	hasWorkspacePermissionPending(projectId: string): boolean {
+		return this.permissionPendingProjectId === projectId;
+	}
+
 	rememberPermissionPendingOriginal(file: Pick<FileNode, 'id' | 'path'>, content: string | ArrayBuffer | null | undefined): void {
 		const intent = getStartupIntent();
 		if (intent.mode !== 'local-unbound' || !intent.persistentProfile ||

@@ -63,7 +63,7 @@ class FileStoreService {
 	private readonly FILES_STORE = 'files';
 	private readonly DB_VERSION = 1;
 	private projectId = '';
-	private contentCache: Map<string, string> = new Map();
+	private contentCache = new Map<string, string | ArrayBuffer | null>();
 
 	getCurrentProjectId(): string {
 		return this.projectId;
@@ -1162,12 +1162,12 @@ class FileStoreService {
 		return filteredFiles;
 	}
 
-	getFileContentCache(id: string): string | undefined {
+	getFileContentCache(id: string): string | ArrayBuffer | null | undefined {
 		return this.contentCache.get(id);
 	}
 
-	setFileContentCache(id: string, content: string): void {
-		this.contentCache.set(id, content);
+	setFileContentCache(id: string, content: string | ArrayBuffer | null): void {
+		this.contentCache.set(id, content instanceof ArrayBuffer ? content.slice(0) : content);
 	}
 
 	async updateFileContent(
@@ -1203,9 +1203,20 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		const expectedDiskContent = wasDeleted ? null : previousContent;
+		const cachedDiskContent = this.contentCache.get(id);
+		const expectedDiskContent = wasDeleted
+			? null
+			: cachedDiskContent === undefined ? previousContent : cachedDiskContent;
 		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
-		await fileHandlerService.mirrorFiles([file], expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]));
+		const report = await fileHandlerService.mirrorFiles(
+			[file],
+			expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]),
+		);
+		const diskWrite = report.entries[0];
+		if (diskWrite?.outcome === 'written' ||
+			(diskWrite?.reason === 'not-linked' && !fileHandlerService.hasWorkspacePermissionPending(this.projectId))) {
+			this.setFileContentCache(id, content);
+		}
 
 		fileStorageEventEmitter.emitChange(
 			wasDeleted !== Boolean(file.isDeleted)
