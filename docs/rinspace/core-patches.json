@@ -54,7 +54,7 @@
       "tests": ["tests/unit/workspace/LocalZipImport.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "real Firefox browser import/edit/reload/files-only export"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supports ordinary bounded ZIP import into a browser-only project while retaining backup recovery and clearly distinguishing downloaded copies from original-folder writes.",
-      "integrationStatus": "Local unit/type checks and isolated Firefox 151 UI acceptance passed before source commit: no directory API, real file input, ordinary ZIP with mixed LaTeX/Typst/Markdown/BibTeX/PNG, edited source recovered after reload and present in files-only downloaded ZIP; original ZIP and protected Git entry unchanged. Exact public CI and other N02 cases remain pending."
+      "integrationStatus": "Source 398960d passed public CI 38217751877: 49 foundation, 176 focused and 1123 full tests, types, lint, package assets and external archive checks; 16 inherited skips remain. Isolated Firefox 151 UI acceptance confirmed no directory API, real file input, ordinary ZIP with mixed LaTeX/Typst/Markdown/BibTeX/PNG, edited source recovered after reload and present in files-only downloaded ZIP; original ZIP and protected Git entry unchanged. Other N02 cases remain pending."
     },
     {
       "id": "pnpm-types-and-model-identity",
