@@ -1,4 +1,3 @@
-import { mergeResolutionService } from '@src/services/MergeResolutionService';
 import { fileConflictPromptService } from '@src/services/FileConflictPromptService';
 import { fileHandlerService } from '@src/services/FileHandlerService';
 import { fileStoreService } from '@src/services/FileStoreService';
