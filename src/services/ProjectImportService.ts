@@ -11,6 +11,9 @@ import {
 	ZipTarget,
 } from './WriteTargetService';
 import { generateYjsProjectId } from '../utils/urlUtils';
+import type { LocalZipProject } from '../workspace/LocalZipImport';
+import { fileHandlerService } from './FileHandlerService';
+import { fileStoreService } from './FileStoreService';
 
 const moduleLog = createNamedLogger('ProjectImportService');
 
@@ -39,6 +42,24 @@ class ProjectImportService {
 	private dataSerializer = new ProjectDataService();
 	private fileSystemManager = new WriteTargetService();
 	private unifiedService = new UnifiedDataStructureService();
+
+	async importLocalZipProject(archive: LocalZipProject): Promise<Project> {
+		const project = await authService.createProject({
+			name: archive.name,
+			description: t('Browser copy imported from a ZIP file; downloads do not update the original files'),
+			type: 'files',
+			group: 'files',
+			docUrl: '',
+			tags: [],
+			isFavorite: false,
+		});
+		await fileStoreService.initialize(project.docUrl);
+		await fileHandlerService.withoutMirroring(() => fileStoreService.batchStoreFiles(archive.files, {
+			showConflictDialog: false,
+			preserveTimestamp: true,
+		}));
+		return project;
+	}
 
 	private generateUniqueProjectName(
 		baseName: string,

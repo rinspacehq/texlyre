@@ -48,6 +48,15 @@
       "integrationStatus": "Source 1f2b0e6 passed public CI 38214766096: 49 foundation, 170 focused and 1117 full cases, types, lint and assets. Native Chromium confirmed ordinary writes, external conflict retention, disk denial draft retention, safe file deletion and partial directory deletion with browser recovery and retry. A follow-up fixes the missing-translation fallback in the failure notice. Other N02 acceptance remains pending. Browser File System Access does not provide an atomic directory transaction or lock against every other program."
     },
     {
+      "id": "ordinary-local-zip-import",
+      "files": ["src/workspace/LocalZipImport.ts", "src/services/ProjectImportService.ts", "src/components/project/ProjectImportModal.tsx"],
+      "purpose": "Open an ordinary ZIP without a TeXlyre backup manifest as a browser-only file project using the existing project and FileStore path. Preserve mixed source/resource paths, reject unsafe or colliding entries, skip protected Git/dependency metadata and bound archive expansion. Keep the existing validated TeXlyre backup import unchanged; no folder write or language choice is implied.",
+      "tests": ["tests/unit/workspace/LocalZipImport.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "real Firefox browser import/edit/reload/files-only export"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supports ordinary bounded ZIP import into a browser-only project while retaining backup recovery and clearly distinguishing downloaded copies from original-folder writes.",
+      "integrationStatus": "Local unit/type checks and isolated Firefox 151 UI acceptance passed before source commit: no directory API, real file input, ordinary ZIP with mixed LaTeX/Typst/Markdown/BibTeX/PNG, edited source recovered after reload and present in files-only downloaded ZIP; original ZIP and protected Git entry unchanged. Exact public CI and other N02 cases remain pending."
+    },
+    {
       "id": "pnpm-types-and-model-identity",
       "files": ["package.json", "pnpm-lock.yaml"],
       "purpose": "Directly declare required types and align the already locked ProseMirror model patch version; preserve original upstream lock provenance separately.",

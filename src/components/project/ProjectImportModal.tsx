@@ -13,6 +13,7 @@ import { workspaceService } from '../../services/WorkspaceService';
 import type { Project, TemplateProject } from '../../types/projects';
 import { ARCHIVE_ACCEPT, isArchiveFile } from '../../utils/archiveUtils';
 import { formatDate } from '../../utils/dateUtils';
+import { type LocalZipProject, isTeXlyreBackupZip, prepareLocalZipProject } from '../../workspace/LocalZipImport';
 import {
 	UrlIcon,
 	ShareIcon,
@@ -57,6 +58,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 	const [error, setError] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [selectedZipFile, setSelectedZipFile] = useState<File | null>(null);
+	const [localZipProject, setLocalZipProject] = useState<LocalZipProject | null>(null);
 	const [showTemplateModal, setShowTemplateModal] = useState(false);
 	const [showUrlModal, setShowUrlModal] = useState(false);
 	const [showYjsLinkModal, setShowYjsLinkModal] = useState(false);
@@ -200,9 +202,18 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 			setError(null);
 
 			setSelectedZipFile(file);
+			setLocalZipProject(null);
 
-			const projects = await projectImportService.scanZipFile(file);
-			setAvailableProjects(projects);
+			if (file.name.toLowerCase().endsWith('.zip') && !(await isTeXlyreBackupZip(file))) {
+				setAvailableProjects([]);
+				setLocalZipProject(await prepareLocalZipProject(file));
+			} else {
+				const projects = await projectImportService.scanZipFile(file);
+				if (projects.length === 0 && file.name.toLowerCase().endsWith('.zip')) {
+					throw new Error(t('This TeXlyre backup could not be validated'));
+				}
+				setAvailableProjects(projects);
+			}
 			setImportSource('zip');
 			setSelectedProjects(new Set());
 		} catch (error) {
@@ -214,6 +225,34 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 		} finally {
 			setIsScanning(false);
 		}
+	};
+
+	const handleLocalZipImport = async () => {
+		if (!localZipProject) return;
+		setIsImporting(true);
+		setError(null);
+		try {
+			const project = await projectImportService.importLocalZipProject(localZipProject);
+			document.dispatchEvent(new CustomEvent('projects-imported'));
+			onProjectsImported();
+			onOpenProject(project.docUrl);
+			setImportSource(null);
+			setSelectedZipFile(null);
+			setLocalZipProject(null);
+			if (fileInputRef.current) fileInputRef.current.value = '';
+			onClose();
+		} catch (error) {
+			setError(error instanceof Error ? error.message : t('Import failed'));
+		} finally {
+			setIsImporting(false);
+		}
+	};
+
+	const discardLocalZip = () => {
+		setLocalZipProject(null);
+		setSelectedZipFile(null);
+		setImportSource(null);
+		if (fileInputRef.current) fileInputRef.current.value = '';
 	};
 
 	const handleProjectToggle = (projectId: string) => {
@@ -288,6 +327,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 		setAvailableProjects([]);
 		setSelectedProjects(new Set());
 		setSelectedZipFile(null);
+		setLocalZipProject(null);
 		setError(null);
 		setIsScanning(false);
 		setIsImporting(false);
@@ -420,7 +460,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 										<strong>{t('From Archive File')}</strong>
 										<p>
 											{t(
-												'Import projects from a TeXlyre export archive: Supports LaTeX and Typst',
+									'Import a TeXlyre backup or open an ordinary ZIP as a browser project',
 											)}
 										</p>
 									</div>
@@ -598,7 +638,22 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 						</div>
 					)}
 
-					{importSource === 'zip' && availableProjects.length === 0 && !isScanning && (
+					{importSource === 'zip' && localZipProject && !isScanning && (
+						<div className='ui-stack' data-gap='md'>
+							<h3 className='ui-section-title'>{localZipProject.name}</h3>
+							<p className='ui-message' data-tone='info'>
+								{t('This ZIP will open as a browser copy. Editing it does not change the original ZIP or a local folder; export or download your work to keep a separate copy.')}
+							</p>
+							<p>{localZipProject.fileCount} {t('files ready to import')}</p>
+							{localZipProject.skippedProtectedCount > 0 && <p>{localZipProject.skippedProtectedCount} {t('protected archive entries were skipped')}</p>}
+							<div className='ui-actions'>
+								<button type='button' className='button secondary' disabled={isImporting} onClick={discardLocalZip}>{t('Choose Different Source')}</button>
+								<button type='button' className='button primary' disabled={isImporting} onClick={handleLocalZipImport}>{isImporting ? t('Importing...') : t('Open Browser Copy')}</button>
+							</div>
+						</div>
+					)}
+
+					{importSource === 'zip' && availableProjects.length === 0 && !localZipProject && !isScanning && (
 						<div className='ui-empty-state'>
 							<p>
 								{t('No importable projects found in the selected archive.')}
