@@ -7,7 +7,7 @@ import { stripAnnotationTagsWithSpans } from '../utils/annotationTagUtils';
 import { stripAnnotations, hasAnnotations } from '../utils/fileCommentUtils';
 import { isBinaryFile } from '../utils/fileUtils';
 import { getStartupIntent } from '../workspace/RuntimeStartup';
-import { copyLocalWriteContent, getLocalWritePathIssue } from '../workspace/LocalWritePolicy';
+import { copyLocalWriteContent, getLocalWritePathIssue, LocalDiskChangedError, matchesLocalWriteContent } from '../workspace/LocalWritePolicy';
 import type { DiskWriteEntry, DiskWriteReason, DiskWriteReport, DiskWriteStatus } from '../workspace/DiskWriteResults';
 import { mergeResolutionService } from './MergeResolutionService';
 import { ensurePermission } from './DiskHandleStore';
@@ -16,6 +16,7 @@ import type { DirectoryTarget } from './WriteTargetService';
 
 const moduleLog = createNamedLogger('FileHandlerService');
 const WORKSPACE_CLEAN_PREFIX = 'texlyre-workspace-clean-annotations:';
+const exclusiveWriteOptions: FileSystemCreateWritableOptions & { mode: 'exclusive' } = { keepExistingData: false, mode: 'exclusive' };
 
 export interface LaunchedFile {
 	name: string;
@@ -51,7 +52,7 @@ interface PullOptions {
 interface DiskTarget {
 	stat(): Promise<number | null>;
 	read(isBinary: boolean): Promise<string | ArrayBuffer>;
-	write(content: string | ArrayBuffer): Promise<void>;
+	write(content: string | ArrayBuffer, expected?: string | ArrayBuffer | null): Promise<void>;
 	remove?(): Promise<void>;
 }
 
@@ -79,13 +80,21 @@ const handleTarget = (handle: FileSystemFileHandle): DiskTarget => ({
 		const file = await handle.getFile();
 		return isBinary ? file.arrayBuffer() : file.text();
 	},
-	async write(content) {
+	async write(content, expected) {
 		if (!(await ensurePermission(handle, 'readwrite', false))) {
 			throw new Error('Write permission was not granted');
 		}
-		const writable = await handle.createWritable();
+		const writable = await handle.createWritable(expected === undefined ? undefined : exclusiveWriteOptions);
 		try {
+			if (expected !== undefined) {
+				const current = await (await handle.getFile()).arrayBuffer();
+				if (expected === null || !matchesLocalWriteContent(current, expected)) throw new LocalDiskChangedError();
+			}
 			await writable.write(content);
+			if (expected !== undefined) {
+				const current = await (await handle.getFile()).arrayBuffer();
+				if (expected === null || !matchesLocalWriteContent(current, expected)) throw new LocalDiskChangedError();
+			}
 			await writable.close();
 		} catch (error) {
 			// Abort is best-effort cleanup; never replace the original write/close failure.
@@ -105,8 +114,8 @@ const workspaceTarget = (
 	read() {
 		return adapter.readFile(path);
 	},
-	write(content) {
-		return adapter.writeFile(path, content);
+	write(content, expected) {
+		return expected === undefined ? adapter.writeFile(path, content) : adapter.writeFile(path, content, expected);
 	},
 	remove() {
 		return adapter.deleteEntry(path);
@@ -117,6 +126,7 @@ class FileHandlerService {
 	private listeners: LaunchListener[] = [];
 	private pending: LaunchedFile[] = [];
 	private baselines = new Map<string, SyncBaseline>();
+	private diskContents = new Map<string, { path: string; content: string | ArrayBuffer | null }>();
 	private suppressed = new Set<string>();
 	private linkedIds = new Set<string>();
 	private launchLinkedIds = new Set<string>();
@@ -139,6 +149,7 @@ class FileHandlerService {
 	attachWorkspace(adapter: DirectoryTarget, projectId = fileStoreService.getCurrentProjectId()): void {
 		this.workspace = adapter;
 		this.workspaceProjectId = projectId || null;
+		this.diskContents.clear();
 		this.resetWriteStatus();
 	}
 
@@ -147,6 +158,7 @@ class FileHandlerService {
 		this.workspaceProjectId = null;
 		this.resetWriteStatus();
 		this.baselines.clear();
+		this.diskContents.clear();
 		this.linkedIds.clear();
 		this.launchLinkedIds.clear();
 	}
@@ -176,6 +188,18 @@ class FileHandlerService {
 		this.linkedIds.delete(fileId);
 		this.launchLinkedIds.delete(fileId);
 		this.baselines.delete(fileId);
+		this.diskContents.delete(fileId);
+	}
+
+	/** A directory import or explicit conflict choice has observed these disk bytes. */
+	rememberDiskContent(file: Pick<FileNode, 'id' | 'path' | 'lastModified'>, content: string | ArrayBuffer | null): void {
+		if (!this.workspace) return;
+		this.diskContents.set(file.id, { path: file.path, content: content === null ? null : copyLocalWriteContent(content) });
+		this.rememberDiskMetadata(file);
+	}
+
+	rememberDiskMetadata(file: Pick<FileNode, 'id' | 'lastModified'>): void {
+		if (this.workspace) this.baselines.set(file.id, { disk: file.lastModified, local: file.lastModified });
 	}
 
 	resetLinks(fileIds: string[]): void {
@@ -259,7 +283,8 @@ class FileHandlerService {
 	}
 
 	async writeBackResult(file: FileNode, content: string | ArrayBuffer): Promise<DiskWriteEntry> {
-		const report = await this.mirrorFiles([{ ...file, content }]);
+		const original = file.content === undefined ? undefined : new Map([[file.id, copyLocalWriteContent(file.content)]]);
+		const report = await this.mirrorFiles([{ ...file, content }], original);
 		return report.entries[0];
 	}
 
@@ -341,6 +366,7 @@ class FileHandlerService {
 				this.suppressed.delete(file.id);
 			}
 
+			if (merged && this.workspace) this.rememberDiskContent(file, incoming);
 			this.baselines.set(file.id, { disk: lastModified, local: Date.now() });
 
 			if (merged) {
@@ -402,7 +428,7 @@ class FileHandlerService {
 		return summary;
 	}
 
-	async mirrorFiles(files: FileNode[]): Promise<DiskWriteReport> {
+	async mirrorFiles(files: FileNode[], originalContents?: ReadonlyMap<string, string | ArrayBuffer | null>): Promise<DiskWriteReport> {
 		const sequence = ++this.writeSequence;
 		const generation = this.targetGeneration;
 		const storeProjectId = this.getActiveProjectId();
@@ -427,7 +453,10 @@ class FileHandlerService {
 				? stripAnnotations(file.content) : file.content;
 			const outcome = reason === 'invalid-path' || reason === 'duplicate-path' || reason === 'target-changed' || reason === 'missing-content' ? 'failed' : reason ? 'skipped' : 'writing';
 			const initial: DiskWriteEntry = Object.freeze({ ...entry, outcome, ...(reason ? { reason } : {}) });
-			return { file, entry, target, content, initial };
+			const original = originalContents?.get(file.id);
+			const expectedOriginal = original === undefined ? undefined : original === null ? null :
+				this.shouldCleanTarget(file) ? stripAnnotations(original) : original;
+			return { file, entry, target, content, original: expectedOriginal === undefined ? undefined : expectedOriginal === null ? null : copyLocalWriteContent(expectedOriginal), initial };
 		});
 		for (const job of jobs) this.recordWriteEntry(job.initial, generation, projectId);
 		this.notifyWriteStatus();
@@ -445,12 +474,19 @@ class FileHandlerService {
 							if (job.file.type === 'directory' && adapter) {
 								await adapter.createDirectory(job.file.path);
 							} else if (job.target && job.content !== undefined) {
-								await job.target.write(job.content);
+								const intent = getStartupIntent();
+								const persistentLocal = intent.mode === 'local-unbound' && intent.persistentProfile;
+								const remembered = this.diskContents.get(job.file.id);
+								const expected = persistentLocal
+									? remembered?.path === job.file.path ? remembered.content : job.original ?? null
+									: undefined;
+								await job.target.write(job.content, expected);
 								// Metadata failure after close is not a failed write, nor a verified baseline.
 								let disk: number | null = null;
 								let baselineError: unknown;
 								try { disk = await job.target.stat(); } catch (error) { baselineError = error; }
 								if (generation === this.targetGeneration && (!this.getActiveProjectId() || this.getActiveProjectId() === projectId)) {
+									if (adapter) this.diskContents.set(job.file.id, { path: job.file.path, content: copyLocalWriteContent(job.content) });
 									if (disk !== null) this.baselines.set(job.file.id, { disk, local: job.file.lastModified });
 									this.linkedIds.add(job.file.id);
 								}
@@ -458,7 +494,7 @@ class FileHandlerService {
 							}
 							if (job.file.type === 'directory') result = Object.freeze({ ...job.entry, outcome: 'written' });
 						} catch (error) {
-							result = Object.freeze({ ...job.entry, outcome: 'failed', reason: 'write-failed', error });
+							result = Object.freeze({ ...job.entry, outcome: 'failed', reason: error instanceof LocalDiskChangedError ? 'disk-changed' : 'write-failed', error });
 							moduleLog.error('Disk write failed; the operation result retains the cause');
 						}
 						this.recordWriteEntry(result, generation, projectId);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 export type DiskWriteReason =
 	| 'invalid-path' | 'protected-path' | 'duplicate-path' | 'not-linked' | 'suppressed'
-	| 'deleted' | 'missing-content' | 'target-changed' | 'write-failed';
+	| 'deleted' | 'missing-content' | 'target-changed' | 'disk-changed' | 'write-failed';
 
 export interface DiskWriteEntry {
 	readonly fileId: string;

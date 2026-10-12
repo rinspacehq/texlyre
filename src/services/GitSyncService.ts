@@ -1265,6 +1265,9 @@ class GitSyncService {
 		if (await gitService.getHeadOid(projectId)) {
 			throw new Error('Remote adoption is only for an empty local Git history');
 		}
+		const previous = fileHandlerService.hasWorkspace()
+			? await fileStoreService.getAllFiles(false, false, true)
+			: [];
 		const git = await getGit();
 		const { fileSystem, options } = this.repo(projectId);
 		const currentBranch =
@@ -1300,7 +1303,13 @@ class GitSyncService {
 
 		if (fileHandlerService.hasWorkspace()) {
 			const files = await fileStoreService.getAllFiles(false, false, true);
-			if (files.length > 0) await fileHandlerService.mirrorFiles(files);
+			const previousByPath = new Map(previous.map((file) => [file.path, file]));
+			const originals = new Map<string, string | ArrayBuffer>();
+			for (const file of files) {
+				const oldContent = previousByPath.get(file.path)?.content;
+				if (oldContent !== undefined) originals.set(file.id, oldContent);
+			}
+			if (files.length > 0) await fileHandlerService.mirrorFiles(files, originals);
 		}
 		document.dispatchEvent(new CustomEvent('refresh-file-tree'));
 	}

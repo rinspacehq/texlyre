@@ -438,7 +438,8 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		await fileHandlerService.mirrorFiles([file]);
+		const previousDiskContent = existingFile && !existingFile.isDeleted && existingFile.path === file.path ? existingFile.content : undefined;
+		await fileHandlerService.mirrorFiles([file], previousDiskContent === undefined ? undefined : new Map([[file.id, previousDiskContent]]));
 		fileStorageEventEmitter.emitChange();
 		return file.id;
 	}
@@ -652,7 +653,13 @@ class FileStoreService {
 					throw error;
 				}
 			});
-			await fileHandlerService.mirrorFiles(filesToStore);
+			const originals = new Map<string, string | ArrayBuffer>();
+			for (const candidate of filesToStore) {
+				const existing = existingByPath.get(candidate.path);
+				const previous = existing?.isDeleted ? undefined : existing?.content;
+				if (previous !== undefined) originals.set(candidate.id, previous);
+			}
+			await fileHandlerService.mirrorFiles(filesToStore, originals);
 
 			const structureChanged = filesToStore.some((file) => {
 				const existing = existingByPath.get(file.path);
@@ -1173,6 +1180,7 @@ class FileStoreService {
 		if (!file) return undefined;
 
 		const wasDeleted = Boolean(file.isDeleted);
+		const previousContent = file.content;
 		file.content = content;
 		file.size =
 			typeof content === 'string'
@@ -1195,7 +1203,8 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		await fileHandlerService.mirrorFiles([file]);
+		const expectedDiskContent = wasDeleted ? null : previousContent;
+		await fileHandlerService.mirrorFiles([file], expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]));
 
 		fileStorageEventEmitter.emitChange(
 			wasDeleted !== Boolean(file.isDeleted)

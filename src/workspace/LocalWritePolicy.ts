@@ -27,3 +27,17 @@ export function getLocalWritePathIssue(path: string): LocalWritePathIssue | null
 export function copyLocalWriteContent(content: string | ArrayBuffer): string | ArrayBuffer {
 	return typeof content === 'string' ? content : content.slice(0);
 }
+
+/** Compare the actual bytes, including for text files with non-ASCII content. */
+export function matchesLocalWriteContent(actual: ArrayBuffer, expected: string | ArrayBuffer): boolean {
+	const previous = typeof expected === 'string' ? new TextEncoder().encode(expected) : new Uint8Array(expected);
+	const current = new Uint8Array(actual);
+	return current.length === previous.length && current.every((byte, index) => byte === previous[index]);
+}
+
+export class LocalDiskChangedError extends Error {
+	constructor() {
+		super('The folder file changed outside TeXlyre. The browser draft was retained.');
+		this.name = 'LocalDiskChangedError';
+	}
+}

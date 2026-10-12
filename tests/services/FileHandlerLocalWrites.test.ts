@@ -20,12 +20,12 @@ const deferred = () => {
 };
 
 /** Synthetic handles execute the real DirectoryTarget write/close/abort implementation. */
-function directory(onClose?: (path: string) => Promise<void>) {
+function directory(onClose?: (path: string) => Promise<void>, onWrite?: (path: string) => void) {
 	const bytes = new Map<string, string | ArrayBuffer>();
 	const handles = new Map<string, ReturnType<typeof makeFile>>();
 	const makeFile = (path: string) => {
 		let pending: string | ArrayBuffer = '';
-		const write = jest.fn(async (content: string | ArrayBuffer) => { pending = content; });
+		const write = jest.fn(async (content: string | ArrayBuffer) => { pending = content; onWrite?.(path); });
 		const close = jest.fn(async () => {
 			await onClose?.(path);
 			bytes.set(path, pending);
@@ -49,9 +49,12 @@ function directory(onClose?: (path: string) => Promise<void>) {
 	const makeDirectory = (path: string): FileSystemDirectoryHandle => ({
 		kind: 'directory', name: path.split('/').pop() ?? 'synthetic-folder',
 		getDirectoryHandle: jest.fn(async (name: string) => makeDirectory(`${path}/${name}`)),
-		getFileHandle: jest.fn(async (name: string) => {
+		getFileHandle: jest.fn(async (name: string, options?: { create?: boolean }) => {
 			const key = `${path}/${name}`;
-			if (!handles.has(key)) handles.set(key, makeFile(key));
+			if (!handles.has(key)) {
+				if (!options?.create) throw new DOMException('Missing file', 'NotFoundError');
+				handles.set(key, makeFile(key));
+			}
 			return handles.get(key);
 		}),
 	} as unknown as FileSystemDirectoryHandle);
@@ -77,6 +80,8 @@ describe('persistent-local disk write results', () => {
 		const disk = directory();
 		fileHandlerService.attachWorkspace(disk.adapter, projectId);
 		expect(fileHandlerService.getWorkspaceCleanAnnotations(projectId)).toBe(false);
+		disk.bytes.set('/main.typ', '中文源码');
+		await disk.root.getFileHandle('main.typ', { create: true });
 		await fileHandlerService.writeBack(file(), annotation);
 		expect(await disk.adapter.readFile('/main.typ')).toBe(annotation);
 		fileHandlerService.setWorkspaceCleanAnnotations(projectId, true);
@@ -85,14 +90,16 @@ describe('persistent-local disk write results', () => {
 	});
 	it('also preserves source annotations for directly launched files', async () => {
 		const disk = directory();
-		const handle = await disk.root.getFileHandle('main.tex');
+		const handle = await disk.root.getFileHandle('main.tex', { create: true });
+		disk.bytes.set('/main.tex', '中文源码');
 		await fileHandlerService.writeBack({ ...file('/main.tex'), launchHandle: handle }, annotation);
 		expect(disk.bytes.get('/main.tex')).toBe(annotation);
 	});
 	it('normalizes an uninitialized project scope without blocking directly launched files', async () => {
 		fileStoreService.setProjectId('');
 		const disk = directory();
-		const handle = await disk.root.getFileHandle('main.tex');
+		const handle = await disk.root.getFileHandle('main.tex', { create: true });
+		disk.bytes.set('/main.tex', '中文源码');
 		const result = await fileHandlerService.writeBackResult({ ...file('/main.tex'), launchHandle: handle }, annotation);
 		expect(result.outcome).toBe('written');
 		expect(disk.bytes.get('/main.tex')).toBe(annotation);
@@ -110,9 +117,50 @@ describe('persistent-local disk write results', () => {
 		expect(report.projectId).toBe(projectId);
 		expect(Object.isFrozen(report.entries)).toBe(true);
 	});
+	it('keeps the external version and the browser draft when a same-length disk change precedes save', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿甲');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '外改甲');
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await fileStoreService.updateFileContent(original.id, '浏览器草稿');
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
+		expect(disk.bytes.get('/main.typ')).toBe('外改甲');
+		expect((await fileStoreService.getFile(original.id))?.content).toBe('浏览器草稿');
+		await fileStoreService.updateFileContent(original.id, '第二次草稿');
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
+		expect(disk.bytes.get('/main.typ')).toBe('外改甲');
+	});
+	it('aborts when a second external write happens while the browser stream is open', async () => {
+		const disk = directory(undefined, (path) => disk.bytes.set(path, '另一个程序的新内容'));
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+		await expect(disk.adapter.writeFile('/main.typ', '浏览器草稿', '原稿')).rejects.toHaveProperty('name', 'LocalDiskChangedError');
+		expect(disk.bytes.get('/main.typ')).toBe('另一个程序的新内容');
+		expect(disk.handles.get('/main.typ')?.abort).toHaveBeenCalledTimes(1);
+	});
+	it('does not replace a new external file at the same path as a proposed file', async () => {
+		const disk = directory();
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await disk.root.getFileHandle('new.typ', { create: true });
+		disk.bytes.set('/new.typ', '外部新建');
+		const result = (await fileHandlerService.mirrorFiles([file('/new.typ', '浏览器新建')])).entries[0];
+		expect(result).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
+		expect(disk.bytes.get('/new.typ')).toBe('外部新建');
+	});
+	it('does not silently recreate a removed parent folder for a guarded write', async () => {
+		const getDirectoryHandle = jest.fn().mockRejectedValue(new DOMException('Removed folder', 'NotFoundError'));
+		const root = { getDirectoryHandle } as unknown as FileSystemDirectoryHandle;
+		const adapter = new DirectoryTarget(root);
+		await expect(adapter.writeFile('/removed/main.typ', 'draft', 'old')).rejects.toHaveProperty('name', 'NotFoundError');
+		expect(getDirectoryHandle).toHaveBeenCalledWith('removed');
+	});
 	it('reports denied launch permission without prompting or creating a writable stream', async () => {
 		const disk = directory();
-		const handle = await disk.root.getFileHandle('main.tex');
+		const handle = await disk.root.getFileHandle('main.tex', { create: true });
+		disk.bytes.set('/main.tex', '中文源码');
 		const fixture = disk.handles.get('/main.tex');
 		fixture?.queryPermission.mockResolvedValue('denied');
 		const result = await fileHandlerService.writeBackResult({ ...file('/main.tex'), launchHandle: handle }, 'source');
@@ -198,19 +246,19 @@ describe('persistent-local disk write results', () => {
 		const disk = directory();
 		jest.spyOn(disk.adapter, 'stat').mockRejectedValue(new Error('Synthetic metadata denied'));
 		fileHandlerService.attachWorkspace(disk.adapter, projectId);
-		const result = await fileHandlerService.writeBackResult(file(), 'source');
+		const result = (await fileHandlerService.mirrorFiles([file('/main.typ', 'source')])).entries[0];
 		expect(result).toMatchObject({ outcome: 'written', baselineAvailable: false });
 	});
 	it('does not allow failing observers to turn an actual write into a reported failure', async () => {
 		const disk = directory(); fileHandlerService.attachWorkspace(disk.adapter, projectId);
 		const remove = fileHandlerService.addWriteListener(() => { throw new Error('Synthetic observer failure'); });
-		try { expect(await fileHandlerService.writeBack(file(), 'source')).toBe(true); } finally { remove(); }
+		try { expect((await fileHandlerService.mirrorFiles([file('/main.typ', 'source')])).entries[0].outcome).toBe('written'); } finally { remove(); }
 	});
 	it('returns referentially stable external-store snapshots until actual write state changes', async () => {
 		const disk = directory(); fileHandlerService.attachWorkspace(disk.adapter, projectId);
 		const before = fileHandlerService.getWriteStatus();
 		expect(fileHandlerService.getWriteStatus()).toBe(before);
-		await fileHandlerService.writeBack(file(), 'source');
+		await fileHandlerService.mirrorFiles([file('/main.typ', 'source')]);
 		const after = fileHandlerService.getWriteStatus();
 		expect(after).not.toBe(before);
 		expect(fileHandlerService.getWriteStatus()).toBe(after);

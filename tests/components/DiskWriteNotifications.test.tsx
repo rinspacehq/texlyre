@@ -38,4 +38,10 @@ describe('disk failure notifications at the actual app hook', () => {
 		});
 		expect(notificationService.showError).not.toHaveBeenCalled();
 	});
+	it('explains an external folder edit while retaining the browser draft', () => {
+		renderHook(() => useDiskFiles('yjs:local-notify'));
+		const notify = jest.mocked(fileHandlerService.addWriteListener).mock.calls[0][0];
+		act(() => notify({ ...report('failed'), entries: [{ ...report('failed').entries[0], reason: 'disk-changed' }] }));
+		expect(notificationService.showError).toHaveBeenCalledWith(expect.stringContaining('browser draft was retained'));
+	});
 });

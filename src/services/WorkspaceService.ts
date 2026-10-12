@@ -302,6 +302,15 @@ class WorkspaceService {
 				!files.some((incoming) => incoming.path === file.path),
 		);
 		const projectOnlyPaths = projectOnly.map((file) => file.path);
+		// The walk observed the folder versions used for these explicit merge choices.
+		const outgoingPaths = new Set([...toExport, ...mergedBack].map((file) => file.path));
+		for (const incoming of files) {
+			const stored = tracked.get(incoming.path);
+			const observed = { ...incoming, id: stored?.id ?? incoming.id };
+			if (outgoingPaths.has(incoming.path) && incoming.content !== undefined) fileHandlerService.rememberDiskContent(observed, incoming.content);
+			else fileHandlerService.rememberDiskMetadata(observed);
+		}
+		for (const missing of projectOnly) fileHandlerService.rememberDiskContent(missing, null);
 		const outgoing = [...projectOnly, ...toExport, ...mergedBack];
 		const writtenPaths = new Set<string>();
 		if (outgoing.length > 0) {
@@ -523,6 +532,9 @@ class WorkspaceService {
 					preserveTimestamp: true,
 				}),
 			);
+			for (const file of files) {
+				fileHandlerService.rememberDiskMetadata(file);
+			}
 		}
 
 		await this.refreshLinks();

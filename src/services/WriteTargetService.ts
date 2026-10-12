@@ -6,8 +6,10 @@ import {
 	type WritableArchiveFormat,
 } from '../utils/archiveUtils';
 import { isBinaryFile, toArrayBuffer } from '../utils/fileUtils';
+import { LocalDiskChangedError, matchesLocalWriteContent } from '../workspace/LocalWritePolicy';
 
 const moduleLog = createNamedLogger('WriteTargetService');
+const exclusiveWriteOptions: FileSystemCreateWritableOptions & { mode: 'exclusive' } = { keepExistingData: false, mode: 'exclusive' };
 
 export interface WriteTarget {
 	writeFile(
@@ -26,18 +28,43 @@ export class DirectoryTarget implements WriteTarget {
 	async writeFile(
 		path: string,
 		content: string | ArrayBuffer | Uint8Array,
+		expected?: string | ArrayBuffer | null,
 	): Promise<void> {
 		const { dir, fileName } = this.parsePath(path);
-		const dirHandle = await this.getOrCreateDirectory(dir);
+		const dirHandle = expected === undefined ? await this.getOrCreateDirectory(dir) : await this.getDirectory(dir);
 		const data = toArrayBuffer(content);
 
 		const attempt = async (): Promise<void> => {
-			const fileHandle = await dirHandle.getFileHandle(fileName, {
-				create: true,
-			});
-			const writable = await fileHandle.createWritable();
+			let fileHandle: FileSystemFileHandle;
+			let existed = true;
+			if (expected !== undefined) {
+				try {
+					fileHandle = await dirHandle.getFileHandle(fileName);
+				} catch (error) {
+					if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+				if (expected !== null) throw new LocalDiskChangedError();
+				fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+				existed = false;
+				}
+				if (expected === null && existed) throw new LocalDiskChangedError();
+			} else {
+				fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+			}
+			const writable = await fileHandle.createWritable(expected === undefined ? undefined : exclusiveWriteOptions);
 			try {
+				if (expected !== undefined) {
+					const current = await (await fileHandle.getFile()).arrayBuffer();
+					if (expected === null ? current.byteLength !== 0 : !matchesLocalWriteContent(current, expected)) {
+						throw new LocalDiskChangedError();
+					}
+				}
 				await writable.write(data);
+				if (expected !== undefined) {
+					const current = await (await fileHandle.getFile()).arrayBuffer();
+					if (expected === null ? current.byteLength !== 0 : !matchesLocalWriteContent(current, expected)) {
+						throw new LocalDiskChangedError();
+					}
+				}
 				await writable.close();
 			} catch (error) {
 				await writable.abort().catch(() => {});
@@ -48,7 +75,7 @@ export class DirectoryTarget implements WriteTarget {
 		try {
 			await attempt();
 		} catch (error) {
-			if (error instanceof DOMException && error.name === 'InvalidStateError') {
+			if (expected === undefined && error instanceof DOMException && error.name === 'InvalidStateError') {
 				await attempt();
 				return;
 			}

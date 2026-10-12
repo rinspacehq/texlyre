@@ -36,7 +36,16 @@
       "tests": ["tests/services/FileHandlerLocalDeletion.test.ts", "tests/components/FileTreeLocalDeletion.test.tsx", "tests/services/FileHandlerLocalWrites.test.ts", "tests/services/FileHandlerService.test.ts", "tests/services/WorkspaceService.test.ts", "scripts/rinspace/check-deletion-lint.mjs"],
       "upstreamIssue": null,
       "removalCondition": "Upstream provides equivalent non-recursive known-entry removal, failed-delete draft retention, target scoping and segment-boundary selection with regressions.",
-      "integrationStatus": "Reviewed local candidate: application types, strict changed-code lint, zero-new-diagnostic legacy gate (26 inherited warnings) and 6 suites / 120 focused cases passed in isolated one-CPU checks. This includes 13 new deletion cases. Complete public CI and native application directory deletion acceptance remain pending; no directory atomicity or cross-program lock is claimed."
+      "integrationStatus": "Source de700bb passed full public CI 38209120665: application types, lint, 165 focused and 1112 full tests, package asset and archive checks. Native Chromium directory opening, text write/read-back and reload recovery also passed. Actual UI deletion and directory atomicity remain unverified."
+    },
+    {
+      "id": "local-folder-external-write-guard",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/WriteTargetService.ts", "src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WorkspaceService.ts", "src/services/GitService.ts", "src/services/GitSyncService.ts", "src/hooks/useDiskFiles.ts"],
+      "purpose": "For persistent local folders, compare original disk bytes immediately before and during an exclusive per-file write. Keep an externally changed disk file and the browser draft, report a distinct conflict, and carry the known previous version through FileStore, directory imports and Git worktree operations. Preserve the inherited account-mode write behavior and the existing browser compiler scheduler.",
+      "tests": ["tests/services/FileHandlerLocalWrites.test.ts", "tests/services/GitService.test.ts", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/WorkspaceService.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent conditional local-folder writes, external edit conflict reporting and browser draft retention across the same callers.",
+      "integrationStatus": "Candidate local checks: 169 focused cases, 1116 full cases, application types, strict touched-code lint, inherited-warning gate, and real native-folder Chromium before/after reproduction passed. Public CI and other N02 failure scenarios remain pending. Browser File System Access does not provide an atomic transaction or lock against every other program."
     },
     {
       "id": "pnpm-types-and-model-identity",

@@ -182,7 +182,7 @@ class GitService {
 		if (fileStoreService.getCurrentProjectId() !== projectId) {
 			await fileStoreService.initialize(`yjs:${projectId}`);
 		}
-		return fileStoreService.getAllFiles(false, false, false);
+		return fileStoreService.getAllFiles(false, false, true);
 	}
 
 	private async applyWorktreeMutation<T>(
@@ -201,7 +201,13 @@ class GitService {
 			await fileHandlerService.removeFromDisk(removed);
 		}
 		if (after.length > 0) {
-			await fileHandlerService.mirrorFiles(after);
+			const previousByPath = new Map(before.map((file) => [file.path, file]));
+			const originals = new Map<string, string | ArrayBuffer>();
+			for (const file of after) {
+				const previous = previousByPath.get(file.path)?.content;
+				if (previous !== undefined) originals.set(file.id, previous);
+			}
+			await fileHandlerService.mirrorFiles(after, originals);
 		}
 		return result;
 	}

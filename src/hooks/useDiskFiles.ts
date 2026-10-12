@@ -51,6 +51,10 @@ export const useDiskFiles = (docUrl: string | null) => {
 			if (report.projectId !== projectId || report.targetGeneration !== fileHandlerService.getWriteStatus().targetGeneration) return;
 			const failed = report.entries.filter((entry) => entry.outcome === 'failed');
 			if (failed.length === 0) return;
+			if (failed.some((entry) => entry.reason === 'disk-changed')) {
+				notificationService.showError(t('The folder file changed outside TeXlyre. The browser draft was retained. Review the folder version before saving again.'));
+				return;
+			}
 			notificationService.showError(t(
 				'Folder write failed for {count} paths. Browser data has not been rolled back; review folder access or export a copy.',
 				{ count: failed.length },

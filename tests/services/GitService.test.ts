@@ -504,10 +504,10 @@ describe('GitService', () => {
 		});
 		mockGetAllFiles
 			.mockResolvedValueOnce([
-				{ id: 'main', path: '/main.tex', type: 'file' },
-				{ id: 'scratch', path: '/scratch.tex', type: 'file' },
+				{ id: 'main', path: '/main.tex', type: 'file', content: 'previous working body' },
+				{ id: 'scratch', path: '/scratch.tex', type: 'file', content: 'new scratch' },
 			])
-			.mockResolvedValueOnce([{ id: 'main', path: '/main.tex', type: 'file' }]);
+			.mockResolvedValueOnce([{ id: 'main', path: '/main.tex', type: 'file', content: 'head body' }]);
 
 		await gitService.resetAll('project-1');
 
@@ -519,6 +519,7 @@ describe('GitService', () => {
 		);
 		expect(mockUnlink).toHaveBeenCalledWith('/scratch.tex');
 		expect(mockMirrorFiles).toHaveBeenCalledTimes(1);
+		expect(mockMirrorFiles.mock.calls[0][1].get('main')).toBe('previous working body');
 	});
 
 	it('suppresses incremental folder mirroring while restoring then mirrors the final tree once', async () => {
