@@ -68,9 +68,13 @@ Folder import/protection uses whole path segments: Git metadata (including
 worktree pointer files), dependencies and application metadata are excluded;
 `.gitignore`, `.gitattributes` and unrelated prefix-named folders are preserved.
 Initial directory read failures retain the pending import rather than recording
-a partial read as complete. These changes do not certify transaction durability,
-binary recovery, native browser permission behavior, compilation or original
-directory saving. Unsupported browsers receive an explicit warning that archive
+a partial read as complete. Isolated Chromium acceptance on source `8fcf31d`
+opened a PNG-only folder through the native picker and browser permission UI,
+then used the unchanged upstream Image Viewer to rotate a 3x1 image to 1x3,
+write changed bytes to the original folder and recover the matching preview after
+reload. This does not certify every binary format, transaction durability,
+browser compilation or durable recovery after a later permission loss and close.
+Unsupported browsers receive an explicit warning that archive
 imports/downloads are copies, not a write-back to the original folder.
 
 Directory pickers require a secure context and a user action. Stored handles are

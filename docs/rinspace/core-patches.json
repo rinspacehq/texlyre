@@ -18,7 +18,7 @@
       "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "Upstream opens generic local folders directly with equivalent permission/cancellation handling, protected paths and recovery-project reuse.",
-      "integrationStatus": "N01 source 41539da passed run 38199022499: 49 foundation, 109 focused, 1095 full tests plus application types/lint and package assets. The former language/entry selection was withdrawn; generic file preview follows unchanged upstream providers. Native browser directory and compilation acceptance remain pending; prior candidate CI remains historical."
+      "integrationStatus": "N01 source 41539da passed run 38199022499: 49 foundation, 109 focused, 1095 full tests plus application types/lint and package assets. The former language/entry selection was withdrawn; generic file preview follows unchanged upstream providers. On source 8fcf31d, actual Chromium opened a PNG-only directory without language or entry selection; the unchanged upstream Image Viewer rotated a 3x1 PNG to 1x3, wrote changed bytes to the original folder, and showed the same dimensions after reload. Actual browser compilation and durable recovery after a second close remain pending."
     },
     {
       "id": "local-disk-write-results",
