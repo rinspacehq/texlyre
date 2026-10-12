@@ -56,8 +56,7 @@ export const useDiskFiles = (docUrl: string | null) => {
 				return;
 			}
 			notificationService.showError(t(
-				'Folder write failed for {count} paths. Browser data has not been rolled back; review folder access or export a copy.',
-				{ count: failed.length },
+				'Some paths were not written to the folder. Browser data has not been rolled back; review folder access or export a copy.',
 			));
 		});
 	}, [docUrl]);

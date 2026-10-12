@@ -45,7 +45,7 @@
       "tests": ["tests/services/FileHandlerLocalWrites.test.ts", "tests/services/GitService.test.ts", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/WorkspaceService.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies equivalent conditional local-folder writes, external edit conflict reporting and browser draft retention across the same callers.",
-      "integrationStatus": "Candidate local checks: 169 focused cases, 1116 full cases, application types, strict touched-code lint, inherited-warning gate, and real native-folder Chromium before/after reproduction passed. Public CI and other N02 failure scenarios remain pending. Browser File System Access does not provide an atomic transaction or lock against every other program."
+      "integrationStatus": "Source 1f2b0e6 passed public CI 38214766096: 49 foundation, 170 focused and 1117 full cases, types, lint and assets. Native Chromium confirmed ordinary writes, external conflict retention, disk denial draft retention, safe file deletion and partial directory deletion with browser recovery and retry. A follow-up fixes the missing-translation fallback in the failure notice. Other N02 acceptance remains pending. Browser File System Access does not provide an atomic directory transaction or lock against every other program."
     },
     {
       "id": "pnpm-types-and-model-identity",

@@ -27,6 +27,7 @@ describe('disk failure notifications at the actual app hook', () => {
 		const notify = jest.mocked(fileHandlerService.addWriteListener).mock.calls[0][0];
 		act(() => notify(report('failed')));
 		expect(notificationService.showError).toHaveBeenCalledWith(expect.stringContaining('Browser data has not been rolled back'));
+		expect(notificationService.showError).toHaveBeenCalledWith(expect.not.stringContaining('{count}'));
 	});
 	it('does not show an error for successful writes or obsolete target/project results', () => {
 		renderHook(() => useDiskFiles('yjs:local-notify'));
