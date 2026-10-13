@@ -10,6 +10,7 @@ import { test } from 'node:test';
 const require = createRequire(import.meta.url);
 const {
 	ASSETS,
+	buildCurlArguments,
 	downloadArchive,
 	downloadCoreAssets,
 	getReviewEntry,
@@ -102,6 +103,26 @@ test('retries transient archive metadata failures with bounded backoff', async (
 	assert.equal(response.status, 200);
 	assert.equal(requests, 3);
 	assert.deepEqual(waits, [1000, 2000]);
+});
+
+test('curl retries stalled transfers without relaxing source or size limits', () => {
+	const filename = '/tmp/fixed-runtime.zip';
+	const url = validateAssetUrl(asset.url);
+	const args = buildCurlArguments(asset, filename, url);
+	const valueAfter = (flag) => args[args.indexOf(flag) + 1];
+
+	assert.equal(valueAfter('--proto'), '=https');
+	assert.equal(valueAfter('--max-redirs'), '0');
+	assert.equal(valueAfter('--connect-timeout'), '30');
+	assert.equal(valueAfter('--max-time'), String(45 * 60));
+	assert.equal(valueAfter('--retry'), '4');
+	assert.ok(args.includes('--retry-all-errors'));
+	assert.equal(valueAfter('--retry-max-time'), String(45 * 60));
+	assert.equal(valueAfter('--speed-limit'), '1024');
+	assert.equal(valueAfter('--speed-time'), '60');
+	assert.equal(valueAfter('--max-filesize'), String(asset.maxBytes));
+	assert.equal(valueAfter('--output'), filename);
+	assert.equal(valueAfter('--url'), asset.url);
 });
 
 test('requires an exact extracted inventory lock for warm caches', () => {

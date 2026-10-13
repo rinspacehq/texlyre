@@ -161,6 +161,37 @@ async function requestWithRetries(
 	}
 }
 
+function buildCurlArguments(entry, filename, url) {
+	return [
+		'--fail',
+		'--silent',
+		'--show-error',
+		'--proto',
+		'=https',
+		'--max-redirs',
+		'0',
+		'--connect-timeout',
+		'30',
+		'--max-time',
+		String(45 * 60),
+		'--retry',
+		'4',
+		'--retry-all-errors',
+		'--retry-max-time',
+		String(45 * 60),
+		'--speed-limit',
+		'1024',
+		'--speed-time',
+		'60',
+		'--max-filesize',
+		String(entry.maxBytes),
+		'--output',
+		filename,
+		'--url',
+		url.href,
+	];
+}
+
 async function downloadArchive(entry, filename, request) {
 	const useCurlTransport = request === undefined;
 	request ??= fetch;
@@ -193,29 +224,9 @@ async function downloadArchive(entry, filename, request) {
 		// and allowlisted above; curl is forbidden from following another one.
 		await response.body.cancel();
 		try {
-			await execFileAsync(
-				'curl',
-				[
-					'--fail',
-					'--silent',
-					'--show-error',
-					'--proto',
-					'=https',
-					'--max-redirs',
-					'0',
-					'--connect-timeout',
-					'30',
-					'--max-time',
-					String(45 * 60),
-					'--max-filesize',
-					String(entry.maxBytes),
-					'--output',
-					filename,
-					'--url',
-					url.href,
-				],
-				{ maxBuffer: 1024 * 1024 },
-			);
+			await execFileAsync('curl', buildCurlArguments(entry, filename, url), {
+				maxBuffer: 1024 * 1024,
+			});
 			await fs.chmod(filename, 0o600);
 			return await verifyDownloadedArchive(entry, filename);
 		} catch (error) {
@@ -466,6 +477,7 @@ if (require.main === module) {
 
 module.exports = {
 	ASSETS,
+	buildCurlArguments,
 	downloadArchive,
 	downloadCoreAssets,
 	getReviewEntry,
