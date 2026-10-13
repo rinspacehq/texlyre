@@ -13,6 +13,7 @@ const {
 	downloadArchive,
 	downloadCoreAssets,
 	getReviewEntry,
+	requestWithRetries,
 	resolveRequestedId,
 	validateAssetUrl,
 	verifyInventoryLock,
@@ -84,6 +85,24 @@ test('rejects a redirect outside the public asset allowlist', () =>
 		);
 		assert.equal(requests, 1);
 	}));
+
+test('retries transient archive metadata failures with bounded backoff', async () => {
+	let requests = 0;
+	const waits = [];
+	const response = await requestWithRetries(
+		async () => {
+			requests++;
+			if (requests < 3) throw new TypeError('transient socket failure');
+			return new Response(bytes, { status: 200 });
+		},
+		asset.url,
+		{ signal: AbortSignal.timeout(1000) },
+		{ attempts: 5, wait: async (milliseconds) => waits.push(milliseconds) },
+	);
+	assert.equal(response.status, 200);
+	assert.equal(requests, 3);
+	assert.deepEqual(waits, [1000, 2000]);
+});
 
 test('requires an exact extracted inventory lock for warm caches', () => {
 	const summary = {
