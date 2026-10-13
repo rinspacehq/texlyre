@@ -8,6 +8,7 @@ const path = require('node:path');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { execFile } = require('node:child_process');
+const { setTimeout: delay } = require('node:timers/promises');
 const { promisify } = require('node:util');
 const JSZip = require('jszip');
 
@@ -143,6 +144,23 @@ async function verifyDownloadedArchive(entry, filename) {
 	return { size, sha256 };
 }
 
+async function requestWithRetries(
+	request,
+	url,
+	options,
+	{ attempts = 5, wait = delay } = {},
+) {
+	assert.ok(Number.isSafeInteger(attempts) && attempts > 0, 'invalid request retry limit');
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await request(url, options);
+		} catch (error) {
+			if (options.signal?.aborted || attempt >= attempts) throw error;
+			await wait(1000 * 2 ** (attempt - 1));
+		}
+	}
+}
+
 async function downloadArchive(entry, filename, request) {
 	const useCurlTransport = request === undefined;
 	request ??= fetch;
@@ -153,7 +171,7 @@ async function downloadArchive(entry, filename, request) {
 	const signal = AbortSignal.timeout(45 * 60 * 1000);
 
 	for (let redirects = 0; redirects <= 5; redirects++) {
-		response = await request(url.href, {
+		response = await requestWithRetries(request, url.href, {
 			credentials: 'omit',
 			redirect: 'manual',
 			signal,
@@ -452,6 +470,7 @@ module.exports = {
 	downloadCoreAssets,
 	getReviewEntry,
 	resolveRequestedId,
+	requestWithRetries,
 	summarizeInventory,
 	validateAssetUrl,
 	verifyInventoryLock,
