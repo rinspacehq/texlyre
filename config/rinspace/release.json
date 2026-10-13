@@ -1,0 +1,319 @@
+{
+  "schema": "rinspace-texlyre-release/v1",
+  "releaseTag": "v0.13.2-rinspace.1",
+  "version": "0.13.2-rinspace.1",
+  "canonicalRepository": "rinspacehq/texlyre",
+  "routeBase": "/editor/",
+  "license": "AGPL-3.0-or-later",
+  "productionAccepted": true,
+  "source": {
+    "repositoryUrl": "https://github.com/rinspacehq/texlyre",
+    "branch": "main",
+    "commitBoundAtBuild": true,
+    "sourceArchiveRequired": true
+  },
+  "artifact": {
+    "filename": "texlyre-editor-v0.13.2-rinspace.1.tar.gz",
+    "archiveRoot": "editor",
+    "includesDependencyNotices": true,
+    "includesExternalNotices": true
+  },
+  "externalNotices": [
+    {
+      "id": "drawio-embed",
+      "sourcePath": "README.md",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/drawio-embed-mirror/0e54912af644e59966900f4904eb81d59ab2d094/README.md",
+      "size": 1784,
+      "sha256": "87094949e143170c1c19168cb5d0b44f5f5e85466434f381275209f6f2fe01f0",
+      "artifactPath": "notices/external/drawio-embed/README.md"
+    },
+    {
+      "id": "drawio-embed",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/jgraph/drawio/96f82344513935b16a06d0dea9a0f529a758a56b/LICENSE",
+      "size": 11356,
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "artifactPath": "notices/external/drawio-embed/LICENSE"
+    },
+    {
+      "id": "tikz-editor",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/tikz-editor-embed-mirror/b98714d3584ee849178f19cf44c7768ff9063f6e/LICENSE",
+      "size": 1077,
+      "sha256": "eb4b1d48e16267665081f49e37b4e3d1b5650d48e61a5eaae29b3042eafe2540",
+      "artifactPath": "notices/external/tikz-editor/LICENSE"
+    },
+    {
+      "id": "busytex",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-busytex/1d9ba827ad0da2c85d05da2ada26a4debf6df81e/LICENSE",
+      "size": 34523,
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "artifactPath": "notices/external/busytex/LICENSE"
+    },
+    {
+      "id": "busytex",
+      "sourcePath": "README.md",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-busytex/1d9ba827ad0da2c85d05da2ada26a4debf6df81e/README.md",
+      "size": 9743,
+      "sha256": "65e432a2b32f27c30e723159d994fed662461739071006df808b9d380d6cb3cb",
+      "artifactPath": "notices/external/busytex/README.md"
+    },
+    {
+      "id": "grammar-assets",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-grammar-assets/3562d2bb74b343dcc9d4d89f6afa7e9fa8df5deb/LICENSE",
+      "size": 34273,
+      "sha256": "5132c7f0475b02c8107a2e0f0363e70423c62d2664ab927e76193226e5e05905",
+      "artifactPath": "notices/external/grammar-assets/LICENSE"
+    },
+    {
+      "id": "grammar-assets",
+      "sourcePath": "NOTICE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-grammar-assets/3562d2bb74b343dcc9d4d89f6afa7e9fa8df5deb/NOTICE",
+      "size": 381,
+      "sha256": "ebcd86997763a98d1c5742d0c61ed22e7d8ed399c7ecad686dd00e6e4770a671",
+      "artifactPath": "notices/external/grammar-assets/NOTICE"
+    },
+    {
+      "id": "grammar-assets",
+      "sourcePath": "THIRD_PARTY.md",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-grammar-assets/3562d2bb74b343dcc9d4d89f6afa7e9fa8df5deb/THIRD_PARTY.md",
+      "size": 1082,
+      "sha256": "5afc2f137dd076b0622c15c9d1a7ce40f9d55b1b532534478094f0de67c61ac0",
+      "artifactPath": "notices/external/grammar-assets/THIRD_PARTY.md"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSE",
+      "size": 34273,
+      "sha256": "5132c7f0475b02c8107a2e0f0363e70423c62d2664ab927e76193226e5e05905",
+      "artifactPath": "notices/external/font-assets/LICENSE"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "NOTICE",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/NOTICE",
+      "size": 311,
+      "sha256": "bd00374f3dc679039bac2736c114734bfeee74ee54e2ac32356e23568c454a9b",
+      "artifactPath": "notices/external/font-assets/NOTICE"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "THIRD_PARTY.md",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/THIRD_PARTY.md",
+      "size": 7697,
+      "sha256": "fdeb0a3c9812411b3d825c4b40f6bdf29a59549dcd174b0726c316c3c4a8b47f",
+      "artifactPath": "notices/external/font-assets/THIRD_PARTY.md"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/BricolageGrotesque-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/BricolageGrotesque-OFL.txt",
+      "size": 4401,
+      "sha256": "c61079ae10468f423ddb2918b85c61d5d771b3734907e2249a479d4ae6e98436",
+      "artifactPath": "notices/external/font-assets/LICENSES/BricolageGrotesque-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/DejaVuSansMono-LICENSE.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/DejaVuSansMono-LICENSE.txt",
+      "size": 8797,
+      "sha256": "9ae67b1b34ffdef0fc3f16f8640f2e8aaaf562f179075812a988be32bf82bb7c",
+      "artifactPath": "notices/external/font-assets/LICENSES/DejaVuSansMono-LICENSE.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/FiraCode-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/FiraCode-OFL.txt",
+      "size": 4389,
+      "sha256": "664f8096fafbc0104a8f7d78a4db7b25c10f85b155469c9ae4c54bd77df936af",
+      "artifactPath": "notices/external/font-assets/LICENSES/FiraCode-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/FiraMath-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/FiraMath-OFL.txt",
+      "size": 4366,
+      "sha256": "acba6a73d781a214c4662810f376f133f6c711aac075a7ea45d5823718575de5",
+      "artifactPath": "notices/external/font-assets/LICENSES/FiraMath-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/FiraSans-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/FiraSans-OFL.txt",
+      "size": 4385,
+      "sha256": "3b1944d9ad65d468e673a6dd301e1d6598b8e78e261b28ddb8584a6b6b25c661",
+      "artifactPath": "notices/external/font-assets/LICENSES/FiraSans-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Fraunces-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Fraunces-OFL.txt",
+      "size": 4390,
+      "sha256": "092c2c4abdef9ce3ae26f80093a5fe6e5aedd90ca70f2d4bcbdd54862d353478",
+      "artifactPath": "notices/external/font-assets/LICENSES/Fraunces-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/HubotSans-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/HubotSans-OFL.txt",
+      "size": 4403,
+      "sha256": "d9fe90b530186ed66c4e5181fd54a964d18b0bf94b9a512320945a649f5dcbea",
+      "artifactPath": "notices/external/font-assets/LICENSES/HubotSans-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/IBMPlex-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/IBMPlex-OFL.txt",
+      "size": 4361,
+      "sha256": "d7cded3a34ad0ae1a73f11feae67fc69320b66536e2cf4871f3130eeb40335bc",
+      "artifactPath": "notices/external/font-assets/LICENSES/IBMPlex-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/InriaSerif-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/InriaSerif-OFL.txt",
+      "size": 4397,
+      "sha256": "a048e2fd6876b470d99dd9d036955c6feeafc7134c76a43af0ade253d9c2bb36",
+      "artifactPath": "notices/external/font-assets/LICENSES/InriaSerif-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Inter-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Inter-OFL.txt",
+      "size": 4379,
+      "sha256": "8922b7b25b1428a17bc61d5b2cbaa71f6ba72bffea190963b42b883d9c209563",
+      "artifactPath": "notices/external/font-assets/LICENSES/Inter-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Libertinus-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Libertinus-OFL.txt",
+      "size": 4426,
+      "sha256": "4d800c244c94cc7b2768cae71e258bc543f22e3364099d72d271ba199689d700",
+      "artifactPath": "notices/external/font-assets/LICENSES/Libertinus-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/LinuxLibertine-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/LinuxLibertine-OFL.txt",
+      "size": 4460,
+      "sha256": "ebaa7db6bdaae779d2609a3ef5e6f2a873c9f97e50ec33f5d13036406011c6a4",
+      "artifactPath": "notices/external/font-assets/LICENSES/LinuxLibertine-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Literata-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Literata-OFL.txt",
+      "size": 4388,
+      "sha256": "38301a990b1d65a5ac21fd95acd72edca0aec0a15484ec989cd634a91816340e",
+      "artifactPath": "notices/external/font-assets/LICENSES/Literata-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/NewComputerModern-GUST-1.0.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/NewComputerModern-GUST-1.0.txt",
+      "size": 1495,
+      "sha256": "d72bc92aa51c001b3483ce407653909ac95fbabb146bb49045f65b133498dbd1",
+      "artifactPath": "notices/external/font-assets/LICENSES/NewComputerModern-GUST-1.0.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Newsreader-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Newsreader-OFL.txt",
+      "size": 4394,
+      "sha256": "f4e438ce83c12342cc620ae8ae8cbd813507873a32a03c095ada60f53290a734",
+      "artifactPath": "notices/external/font-assets/LICENSES/Newsreader-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/NotoCJK-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/NotoCJK-OFL.txt",
+      "size": 4391,
+      "sha256": "ed7a2de59a4c04689b5795a4693b875c00b6cf3fb2b942b5a1fc441dbd8fbe01",
+      "artifactPath": "notices/external/font-assets/LICENSES/NotoCJK-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/NotoColorEmoji-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/NotoColorEmoji-OFL.txt",
+      "size": 4328,
+      "sha256": "ae5c450cf4361bb474aec3cf67ecaaf29c4134f821f4ac6127904e876d0f93c8",
+      "artifactPath": "notices/external/font-assets/LICENSES/NotoColorEmoji-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/NotoFonts-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/NotoFonts-OFL.txt",
+      "size": 4377,
+      "sha256": "781242cb2fdbdb8d69b9fe9c77713c219793ff39b295da9fbaf60621c68d4b8f",
+      "artifactPath": "notices/external/font-assets/LICENSES/NotoFonts-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/PTSans-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/PTSans-OFL.txt",
+      "size": 4421,
+      "sha256": "38c4c7b9a1a42bf51c04b44559788dbe2a36531f3d2f0a6de413ce8b4ecf4de4",
+      "artifactPath": "notices/external/font-assets/LICENSES/PTSans-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Recursive-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Recursive-OFL.txt",
+      "size": 4388,
+      "sha256": "517f84ad3af064a83517bb9b1b294dfd56dbf7fc379e97ef53916775a2272793",
+      "artifactPath": "notices/external/font-assets/LICENSES/Recursive-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Roboto-Regular-Apache-2.0.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Roboto-Regular-Apache-2.0.txt",
+      "size": 11444,
+      "sha256": "5a8cd6db1f05c70ae57eb20ba4535c9b4fca2fcbe928dd92d2a6a0c0ce18fb97",
+      "artifactPath": "notices/external/font-assets/LICENSES/Roboto-Regular-Apache-2.0.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/RobotoVariable-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/RobotoVariable-OFL.txt",
+      "size": 4392,
+      "sha256": "16b8ef9e642a016766293be5235fd957c248f142883e642231024103d231d7cb",
+      "artifactPath": "notices/external/font-assets/LICENSES/RobotoVariable-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/STIXTwo-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/STIXTwo-OFL.txt",
+      "size": 4519,
+      "sha256": "7279d3cfcbcbfad14d30c47cb2db09510929b26e7a97ace0d6b3559ec54e6443",
+      "artifactPath": "notices/external/font-assets/LICENSES/STIXTwo-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/SourceSerif4-OFL.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/SourceSerif4-OFL.txt",
+      "size": 4486,
+      "sha256": "8413ae42412d36d9d2d412388841eeace72f974b47207fbf3718bdd2bf4faedb",
+      "artifactPath": "notices/external/font-assets/LICENSES/SourceSerif4-OFL.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/TwitterColorEmoji-CC-BY-4.0.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/TwitterColorEmoji-CC-BY-4.0.txt",
+      "size": 18858,
+      "sha256": "d50e0022dccebd4ce8534060bef63c5dbd19a85ff135ddfbd1cd04cd0c93a309",
+      "artifactPath": "notices/external/font-assets/LICENSES/TwitterColorEmoji-CC-BY-4.0.txt"
+    },
+    {
+      "id": "font-assets",
+      "sourcePath": "LICENSES/Ubuntu-UFL-1.0.txt",
+      "sourceUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/LICENSES/Ubuntu-UFL-1.0.txt",
+      "size": 4748,
+      "sha256": "a02000e9319c263bf799cac0936d713f460e023454c403650f275e7b780e7ec7",
+      "artifactPath": "notices/external/font-assets/LICENSES/Ubuntu-UFL-1.0.txt"
+    }
+  ]
+}

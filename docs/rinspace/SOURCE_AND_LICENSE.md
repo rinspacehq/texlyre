@@ -4,7 +4,9 @@ This is a history-preserving fork of [TeXlyre](https://github.com/TeXlyre/texlyr
 maintained at [rinspacehq/texlyre](https://github.com/rinspacehq/texlyre).
 Initial development starts at `d10e020a7c6452c83dedebf943615dcecfe65919`,
 four commits after upstream `v0.13.0`; it does not track mutable `main`.
-The upstream application version `0.13.2` is not a Rinspace release.
+The upstream application version `0.13.2` is not itself a Rinspace release.
+The first reviewed fork release is `v0.13.2-rinspace.1` and is assembled only
+from a clean public `main` commit by the dedicated release workflow.
 
 The fork, Rinspace browser plugins and generic core modifications remain
 `AGPL-3.0-or-later`. The original LICENSE and copyright/contribution notices
@@ -21,7 +23,11 @@ asset manifest and notices by immutable identifiers/digests. A link to moving
 Coverage of integration code is assessed from its actual relationship, not
 from labels such as "plugin", "API" or "separate process".
 
-No Rinspace version has been released or deployed from this fork yet.
+The `v0.13.2-rinspace.1` release record binds its exact public source commit and
+tree, a `git archive` source package, the self-contained `/editor/` static tree,
+the dependency lock and notices, every external notice, and all artifact hashes.
+Publication and private product consumption remain separate operations: a tag or
+asset does not by itself alter Rinspace production.
 No private product history, secrets, operational configuration, user repositories
 or drafts are included. Product/backend contracts and exact artifact acceptance
 remain with Rinspace. Gitea remains authoritative for managed committed content;
@@ -148,9 +154,11 @@ inventory. The exact notice-source review is recorded in
 `config/rinspace/external-assets.notices.json`. It found that tex-fmt and the
 vendored TeX Live subset carry their reviewed notices, while the installed
 Draw.io, TikZ editor, BusyTeX and font trees omit required source license
-material and the grammar tree carries only its per-grammar subset. Those are
-explicit release blockers, not implied approvals. This is not a release lock
-and `productionAccepted` remains false.
+material and the grammar tree carries only its per-grammar subset. The formal
+release assembler now fetches those missing texts from full immutable source
+commits, verifies every size and SHA-256, and packages the complete set under
+`/editor/notices/external`. Any missing or changed text fails the release; the
+runtime archive locks remain separate and unchanged.
 
 The Rinspace default profile uses the reviewed browser-only BusyTeX pdfTeX
 engine and leaves both on-demand TeX package settings blank. SwiftLaTeX remains
@@ -198,9 +206,14 @@ recorded worker hashes; rebuilding an unreviewed upstream worker fails closed.
 
 The Rinspace release assembly uses the single `/editor/` base for Vite assets,
 PWA scope, manifest actions, service-worker navigation and the content-addressed
-`/editor/assets/<asset-set>/<digest>/...` tree. This is source-stage assembly
-only; it does not state that a release, product lock or production route exists.
+`/editor/assets/<asset-set>/<digest>/...` tree. `config/rinspace/release.json`
+fixes the public tag, archive root and complete immutable notice inputs. The
+release workflow additionally binds the actual clean source commit/tree and the
+packaged static inventory; the private product must still lock and verify those
+exact output hashes before any rollout.
 
 The inherited GitHub Pages job is restricted to `TeXlyre/texlyre`; it cannot
 deploy this source-stage Rinspace fork on a main merge or a manual dispatch.
-No fork release or product deployment path is enabled by ordinary source checks.
+Ordinary source checks cannot publish. Only an explicit manual dispatch of the
+formal release workflow on public `main` may create the reviewed Release; it has
+no production credentials and cannot modify the Rinspace product or route.

@@ -19,9 +19,10 @@ test('external review keeps exact source archives and fixed release metadata', a
 	assert.equal(review.productionAccepted, false);
 	assert.throws(() => validateReview({ ...review, productionAccepted: true }));
 	assert.throws(() => validateReview({ ...review, assets: [{ ...review.assets[0], sha256: null }] }), /digest must be fixed/);
-	assert.equal(notices.productionAccepted, false);
+	assert.equal(notices.productionAccepted, true);
 	assert.equal(notices.assets.length, 7);
-	assert.ok(notices.assets.some((entry) => entry.releaseDecision.startsWith('blocked-')));
+	assert.ok(notices.assets.every((entry) => entry.releaseDecision === 'notice-present' ||
+		entry.releaseDecision === 'included-by-formal-release-assembly'));
 	assert.ok(notices.assets.every((entry) => entry.artifactNotice));
 });
 

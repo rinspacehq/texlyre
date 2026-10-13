@@ -1,0 +1,119 @@
+name: Formal Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact reviewed Rinspace TeXlyre tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: texlyre-formal-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'rinspacehq/texlyre' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact public main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fix and verify release identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          expected="$(node -p "require('./config/rinspace/release.json').releaseTag")"
+          test "$RELEASE_TAG" = "$expected"
+          test "$GITHUB_REF" = refs/heads/main
+          git checkout -B main "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          git remote -v
+
+      - name: Set up fixed Node and pnpm
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.13.1
+
+      - name: Install frozen dependencies on one CPU
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" corepack enable pnpm
+          nice -n 15 taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
+          nice -n 15 taskset -c "$task_cpu" pnpm install --frozen-lockfile
+
+      - name: Re-run source, test and asset gates
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
+          nice -n 15 taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
+          nice -n 15 taskset -c "$task_cpu" pnpm generate:plugins
+          nice -n 15 taskset -c "$task_cpu" pnpm exec tsc --project tsconfig.workspace.json
+          nice -n 15 taskset -c "$task_cpu" pnpm exec tsc --noEmit
+          nice -n 15 taskset -c "$task_cpu" pnpm test:ci
+          nice -n 15 taskset -c "$task_cpu" pnpm check:package-assets
+
+      - name: Build self-contained editor on one CPU
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" pnpm build:prod
+          test -f dist/index.html
+          test -f dist/rinspace-source-candidate.json
+
+      - name: Assemble exact source, notices and static artifacts
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          output="$RUNNER_TEMP/texlyre-release"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/assemble-release.cjs --tag "$RELEASE_TAG" --output "$output"
+          artifact="$(node -p "require('./config/rinspace/release.json').artifact.filename")"
+          cd "$output"
+          sha256sum -c "$artifact.sha256"
+          source_archive="$(find . -maxdepth 1 -type f -name 'texlyre-source-*.tar.gz' -printf '%f\n')"
+          test -n "$source_archive"
+          sha256sum -c "$source_archive.sha256"
+          tar -tzf "$artifact" > artifact-files.txt
+          test "$(sed -n '1p' artifact-files.txt)" = editor/
+          grep -q '^editor/notices/external/font-assets/LICENSES/' artifact-files.txt
+          grep -qx 'editor/rinspace-release.json' artifact-files.txt
+
+      - name: Publish immutable public release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          output="$RUNNER_TEMP/texlyre-release"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "$output"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Rinspace TeXlyre $RELEASE_TAG" \
+            --notes $'Self-contained browser editor for the `/editor/` route.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. The attached manifest binds the exact source commit/tree, complete source archive, static artifact, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
+
+      - name: Verify published assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,isDraft,isPrerelease,assets
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$GITHUB_SHA"
