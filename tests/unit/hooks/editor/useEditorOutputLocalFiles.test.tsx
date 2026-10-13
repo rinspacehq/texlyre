@@ -53,6 +53,22 @@ describe('upstream output selection for a neutral local project', () => {
 		},
 	);
 
+	it('re-resolves the already open file after neutral project metadata loads', async () => {
+		let resolveProject!: (value: Project | null) => void;
+		mockGetProjectById.mockReturnValue(
+			new Promise((resolve) => {
+				resolveProject = resolve;
+			}),
+		);
+		const { result } = renderHook(() => useEditorOutput());
+		act(() => result.current.setOutputForFileName('README.md'));
+		act(() => resolveProject(project));
+
+		await waitFor(() => expect(result.current.projectType).toBe('files'));
+		expect(result.current.showLatexOutput).toBe(false);
+		expect(result.current.showTypstOutput).toBe(false);
+	});
+
 	it('preserves the existing provider and metadata-update behavior for typed projects', async () => {
 		const { result } = renderHook(() => useEditorOutput());
 		await waitFor(() => expect(result.current.projectType).toBe('files'));

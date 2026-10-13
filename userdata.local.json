@@ -1,5 +1,5 @@
 {
-  "version": "1.3.5",
+  "version": "1.3.7",
   "settings": {
     "bibtex-viewer-auto-tidy": false,
     "bibtex-viewer-tidy-options": "standard",
@@ -21,7 +21,7 @@
     "editor-theme-highlights": "auto",
     "file-sync-auto-interval": 10,
     "file-sync-conflict-resolution": "prefer-latest",
-    "file-sync-enable": true,
+    "file-sync-enable": false,
     "file-sync-hold-timeout": 30,
     "file-sync-notifications": "all",
     "file-sync-request-timeout": 60,
@@ -76,7 +76,10 @@
     "settings": [
       "status-page-url",
       "status-json-url",
+      "latex-texlive-endpoint",
+      "latex-busytex-endpoint",
       "theme-plugin",
+      "file-sync-enable",
       "file-sync-notifications"
     ],
     "properties": []

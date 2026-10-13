@@ -237,9 +237,14 @@ class PluginRegistryManager {
 	}
 
 	getGitRemoteProviders(): GitRemoteProvider[] {
-		return this.registry.backup.flatMap((plugin) =>
-			plugin.gitRemote ? [plugin.gitRemote] : [],
-		);
+		return [
+			...this.registry.backup.flatMap((plugin) =>
+				plugin.gitRemote ? [plugin.gitRemote] : [],
+			),
+			...this.registry.workspace.flatMap((plugin) =>
+				plugin.gitRemote ? [plugin.gitRemote] : [],
+			),
+		];
 	}
 
 	getBackupById(id: string): BackupPlugin | null {

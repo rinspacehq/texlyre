@@ -59,15 +59,13 @@ export const LaTeXProvider: React.FC<LaTeXProviderProps> = ({ children }) => {
 	const currentFormat =
 		(getSetting('latex-default-format')?.value as LaTeXOutputFormat) ?? 'pdf';
 	const texliveEndpoint =
-		(getSetting('latex-texlive-endpoint')?.value as string) ??
-		'http://texlive.localhost:8082';
+		(getSetting('latex-texlive-endpoint')?.value as string) ?? '';
 	const storeCache =
 		(getSetting('latex-store-cache')?.value as boolean) ?? true;
 	const storeWorkingDirectory =
 		(getSetting('latex-store-working-directory')?.value as boolean) ?? false;
 	const busyTeXEndpoint =
-		(getSetting('latex-busytex-endpoint')?.value as string) ??
-		'http://texlive2026.localhost:8082';
+		(getSetting('latex-busytex-endpoint')?.value as string) ?? '';
 	const busyTeXBundles =
 		(getSetting('latex-busytex-bundles')?.value as string) ?? 'recommended';
 

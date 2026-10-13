@@ -5,7 +5,7 @@ module.exports = {
 	testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
 	setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
 	globals: {
-		__BASE_PATH__: '/texlyre',
+		__BASE_PATH__: '/editor',
 	},
 	transformIgnorePatterns: ['node_modules/(?!(wasm-latex-tools)/)'],
 	moduleNameMapper: {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { deleteDB, unwrap } from 'idb';
+import { webcrypto } from 'node:crypto';
 import { deserialize, serialize } from 'node:v8';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -32,6 +33,9 @@ describe('persistent browser-local profile', () => {
 		service = new AuthService();
 		peers = [];
 		jest.clearAllMocks();
+		jest.mocked(global.crypto.subtle.digest).mockImplementation(
+			webcrypto.subtle.digest.bind(webcrypto.subtle),
+		);
 	});
 	afterEach(async () => {
 		service.db?.close();
@@ -122,11 +126,55 @@ describe('persistent browser-local profile', () => {
 		expect(cleanupProjectDatabases).not.toHaveBeenCalled();
 		expect((await database.get('users', 'guest-owner')).isGuest).toBe(true);
 	});
-	it('refuses a managed intent instead of creating a local owner', async () => {
+	it('keeps the standalone local owner on a managed deep link', async () => {
 		window.history.replaceState(null, '', '/?mode=managed&type=article&id=123');
-		await expect(service.initialize()).rejects.toThrow('workspace mode');
-		expect(service.getCurrentUser()).toBeNull();
-		expect(localStorage.getItem('texlyre-current-user')).toBeNull();
+		await service.initialize({ persistentLocalProfile: true });
+		expect(service.getCurrentUser()?.localProfileScope).toBe('standalone');
+		expect(localStorage.getItem('texlyre-current-user')).toBe(
+			service.getCurrentUser()?.id,
+		);
+	});
+	it('partitions managed projects by verified actor and restores the same actor partition', async () => {
+		window.history.replaceState(null, '', '/?mode=managed&owner=a&repository=42');
+		await service.initialize({ managedActorId: 'native-actor-a' });
+		const actorA = service.getCurrentUser();
+		expect(actorA?.localProfileScope).toMatch(/^rinspace:[0-9a-f]{64}$/);
+		expect(JSON.stringify(actorA)).not.toContain('native-actor-a');
+		await service.createProject({
+			name: 'Actor A source', description: '', type: 'files', group: 'files',
+			docUrl: 'yjs:actor-a-source', tags: [], isFavorite: false,
+		});
+
+		const actorBService = new AuthService(); peers.push(actorBService);
+		await actorBService.initialize({ managedActorId: 'native-actor-b' });
+		const actorB = actorBService.getCurrentUser();
+		expect(actorB?.id).not.toBe(actorA?.id);
+		expect(actorB?.username).not.toBe(actorA?.username);
+		expect(actorB?.localProfileScope).not.toBe(actorA?.localProfileScope);
+		expect(await actorBService.getProjects()).toEqual([]);
+
+		const actorAReload = new AuthService(); peers.push(actorAReload);
+		await actorAReload.initialize({ managedActorId: 'native-actor-a' });
+		expect(actorAReload.getCurrentUser()?.id).toBe(actorA?.id);
+		expect((await actorAReload.getProjects()).map((entry) => entry.id)).toEqual([
+			'actor-a-source',
+		]);
+	});
+	it('does not expose a managed account partition on the standalone editor route', async () => {
+		window.history.replaceState(null, '', '/?mode=managed&owner=a&repository=42');
+		await service.initialize({ managedActorId: 'native-actor-a' });
+		const managed = service.getCurrentUser();
+		await service.createProject({
+			name: 'Managed source', description: '', type: 'files', group: 'files',
+			docUrl: 'yjs:managed-source', tags: [], isFavorite: false,
+		});
+
+		window.history.replaceState(null, '', '/');
+		const standalone = new AuthService(); peers.push(standalone);
+		await standalone.initialize();
+		expect(standalone.getCurrentUser()?.id).not.toBe(managed?.id);
+		expect(standalone.getCurrentUser()?.localProfileScope).toBe('standalone');
+		expect(await standalone.getProjects()).toEqual([]);
 	});
 	it('does not resume automatic backup from restored settings', async () => {
 		await service.initialize();
@@ -134,6 +182,20 @@ describe('persistent browser-local profile', () => {
 		await service.createProject({ name: 'Synthetic local', description: '', type: 'latex',
 			docUrl: 'yjs:synthetic-local', tags: [], isFavorite: false });
 		expect(diskBackupService.synchronize).not.toHaveBeenCalled();
+	});
+	it('creates a new local document at a caller-supplied valid workspace identity', async () => {
+		await service.initialize();
+		const id = '94528bf5-c137-48b7-87af-149fd0d42cdc';
+		const created = await service.createProject({
+			id, name: 'Managed source', description: '', type: 'files', group: 'files',
+			tags: [], isFavorite: false,
+		});
+		expect(created.id).toBe(id);
+		expect(created.docUrl).toBe(`yjs:${id}`);
+		await expect(service.createProject({
+			id, name: 'Duplicate', description: '', type: 'files', group: 'files',
+			tags: [], isFavorite: false,
+		})).rejects.toThrow('already exists');
 	});
 	it.each(['latex', 'typst', 'markdown'] as const)('persists a selected local %s entry in the project row and reopened Yjs metadata', async (type) => {
 		// The inherited JSON-only clone drops Uint8Array updates used by y-indexeddb.

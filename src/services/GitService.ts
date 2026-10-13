@@ -151,6 +151,19 @@ function comparisonContent(
 }
 
 class GitService {
+	private readonly managedCommitIdentities = new Map<
+		string,
+		{ name: string; email: string }
+	>();
+
+	setManagedCommitIdentity(
+		projectId: string,
+		identity: { name: string; email: string } | undefined,
+	): void {
+		if (identity) this.managedCommitIdentities.set(projectId, identity);
+		else this.managedCommitIdentities.delete(projectId);
+	}
+
 	private repo(projectId: string) {
 		const fileSystem = gitFileSystemService.get(projectId);
 		return {
@@ -527,11 +540,13 @@ class GitService {
 
 		const git = await getGit();
 		const { fileSystem, options } = this.repo(projectId);
+		const author =
+			this.managedCommitIdentities.get(projectId) ?? authorForUser(user);
 		await this.stageAll(projectId);
 		const oid = await git.commit({
 			...options,
 			message: trimmedMessage,
-			author: authorForUser(user),
+			author,
 		});
 		await this.setWorktreeBase(projectId, oid);
 		await fileSystem.flush();

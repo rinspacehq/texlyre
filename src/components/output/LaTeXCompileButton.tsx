@@ -140,6 +140,10 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 	const projectMainFile = useSharedSettings
 		? doc?.projectMetadata?.mainFile
 		: undefined;
+	const managedMainFile =
+		doc?.projectMetadata?.managedBuild?.status === 'valid'
+			? `/${doc.projectMetadata.managedBuild.entry}`
+			: undefined;
 	const projectEngine = useSharedSettings
 		? doc?.projectMetadata?.latexEngine
 		: undefined;
@@ -147,7 +151,7 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 		? doc?.projectMetadata?.latexOutputFormat
 		: undefined;
 
-	const effectiveMainFile = projectMainFile || propMainFile || autoMainFile;
+	const effectiveMainFile = managedMainFile || projectMainFile || propMainFile || autoMainFile;
 	const effectiveEngine = projectEngine || propEngine || settingEngine;
 	const effectiveFormat = projectFormat || propFormat || settingFormat;
 	const effectiveBundle = propBundle || settingBundle;
@@ -564,7 +568,8 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 	useEffect(() => {
 		const buttonElement = document.querySelector('.header-compile-button');
 		if (buttonElement) {
-			(buttonElement as any).clearAndCompile = handleClearCacheAndCompile;
+			(buttonElement as Element & { clearAndCompile?: () => void }).clearAndCompile =
+				handleClearCacheAndCompile;
 		}
 	}, [handleClearCacheAndCompile]);
 
@@ -642,7 +647,7 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 		});
 	};
 
-	const handleShareFormat = (checked: boolean) => {
+	const _handleShareFormat = (checked: boolean) => {
 		if (!useSharedSettings || !changeDoc) return;
 
 		changeDoc((d) => {

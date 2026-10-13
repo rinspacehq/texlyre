@@ -534,13 +534,11 @@ const BibliographyPanel: React.FC<BibliographyPanelProps> = ({
 						<input
 							type='text'
 							placeholder={
-								selectedProvider === 'all'
+							selectedProvider === 'all'
 									? t('Search all sources...')
 									: selectedProvider === 'local'
 										? t('Search local bibliography...')
-										: isOnDemand
-											? t('Search OpenAlex...')
-											: t('Search bibliography...')
+										: t('Search bibliography...')
 							}
 							value={searchQuery}
 							onChange={(e) => setSearchQuery(e.target.value)}

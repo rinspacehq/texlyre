@@ -42,6 +42,10 @@ export interface GitRemoteConfig {
 	credentialSource: GitHistoryCredentialSource;
 	credentialRef?: GitRemoteCredentialRef;
 	syncBase?: GitRemoteSyncBase;
+	/** Product-managed binding: the repository/ref cannot be replaced in TeXlyre. */
+	managed?: boolean;
+	/** The authenticated actor may read this binding but cannot push it. */
+	readOnly?: boolean;
 }
 
 export interface GitRemoteSignature {
@@ -68,6 +72,11 @@ export interface GitRemoteCommitObject {
 	treeOid?: string;
 	gpgsig?: string;
 	unsignedPayload?: string;
+}
+
+export interface GitRemoteLink {
+	label: string;
+	href: string;
 }
 
 export interface GitRemoteCommitChange {
@@ -127,6 +136,18 @@ export interface GitRemoteProvider {
 	historyTokenSecretKey: string;
 	backupPluginId: string;
 	backupTokenSecretKey: string;
+	/** Authenticate with the current same-origin HttpOnly browser session. */
+	usesBrowserSession?: boolean;
+	/** Do not offer product-managed providers in the manual remote picker. */
+	hiddenFromPicker?: boolean;
+	/** Runtime guard for a provider owned by a closable plugin. */
+	isEnabled?(): boolean;
+	/** Same-origin product links for an already bound repository/ref. */
+	repositoryLinks?(repositoryId: string, branch: string): GitRemoteLink[];
+	/** Preserve native Git objects over a same-origin Smart HTTP endpoint. */
+	smartHttp?: {
+		repositoryUrl(repositoryId: string): string;
+	};
 	configure?(getSetting: (id: string) => { value?: unknown } | undefined): void;
 	getApiConfiguration?(): GitRemoteApiConfiguration;
 	applyApiConfiguration?(configuration: GitRemoteApiConfiguration): void;

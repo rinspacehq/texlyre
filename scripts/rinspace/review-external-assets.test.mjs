@@ -11,9 +11,18 @@ const asset = { id: 'example', version: 'v1', url: 'https://github.com/TeXlyre/e
 
 test('external review keeps exact source archives and fixed release metadata', async () => {
 	const review = JSON.parse(await readFile(new URL('../../config/rinspace/external-assets.review.json', import.meta.url), 'utf8'));
+	const notices = JSON.parse(await readFile(new URL('../../config/rinspace/external-assets.notices.json', import.meta.url), 'utf8'));
 	assert.equal(validateReview(review).assets.length, 7);
+	assert.ok(review.assets.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256)));
+	assert.ok(review.assets.every((entry) => Number.isSafeInteger(entry.size) && entry.size > 0));
+	assert.equal(review.assets.filter((entry) => entry.extracted).length, 7);
 	assert.equal(review.productionAccepted, false);
 	assert.throws(() => validateReview({ ...review, productionAccepted: true }));
+	assert.throws(() => validateReview({ ...review, assets: [{ ...review.assets[0], sha256: null }] }), /digest must be fixed/);
+	assert.equal(notices.productionAccepted, false);
+	assert.equal(notices.assets.length, 7);
+	assert.ok(notices.assets.some((entry) => entry.releaseDecision.startsWith('blocked-')));
+	assert.ok(notices.assets.every((entry) => entry.artifactNotice));
 });
 
 test('public asset URL rejects local services, credentials, ports and downgrade', () => {

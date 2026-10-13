@@ -104,6 +104,7 @@ const resolveDefaults = (ref: string): string => {
 describe('GitService', () => {
 	beforeEach(() => {
 		jest.clearAllMocks();
+		gitService.setManagedCommitIdentity('project-1', undefined);
 		mockStat.mockResolvedValue({});
 		mockReadFile.mockResolvedValue(new TextEncoder().encode('working'));
 		mockWriteFile.mockResolvedValue(undefined);
@@ -181,6 +182,22 @@ describe('GitService', () => {
 				ref: 'refs/texlyre/worktree-base',
 				value: 'commit-1',
 				force: true,
+			}),
+		);
+	});
+
+	it('uses the verified managed identity for a repository commit', async () => {
+		mockStatusMatrix.mockResolvedValue([['main.tex', 1, 2, 1]]);
+		gitService.setManagedCommitIdentity('project-1', {
+			name: 'Alice',
+			email: 'alice@example.test',
+		});
+
+		await gitService.commit('project-1', 'Managed change', user);
+
+		expect(mockCommit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				author: { name: 'Alice', email: 'alice@example.test' },
 			}),
 		);
 	});

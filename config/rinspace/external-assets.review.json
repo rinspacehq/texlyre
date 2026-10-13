@@ -2,7 +2,7 @@
   "schema": "texlyre-external-asset-review/v1",
   "stage": "inventory-review",
   "productionAccepted": false,
-  "notes": "Acquisition review only, not a release asset lock. The two source archives need measured digests; all assets still need extracted inventories and embedded license/notice review before T02 acceptance.",
+  "notes": "Acquisition review only, not a release asset lock. All source archives have measured byte and extracted-inventory locks. config/rinspace/external-assets.notices.json records the exact notice sources and the browser trees that still omit required license material; those omissions block release acceptance.",
   "assets": [
     {
       "id": "drawio-embed",
@@ -10,9 +10,14 @@
       "repository": "TeXlyre/drawio-embed-mirror",
       "sourceCommit": "0e54912af644e59966900f4904eb81d59ab2d094",
       "url": "https://codeload.github.com/TeXlyre/drawio-embed-mirror/zip/0e54912af644e59966900f4904eb81d59ab2d094",
-      "sha256": null,
-      "size": null,
-      "maxBytes": 268435456
+      "sha256": "d485677b176e960f13aabfa90da57bbf971f5673f49da7a4a926bbeabad37f82",
+      "size": 32983130,
+      "maxBytes": 268435456,
+      "extracted": {
+        "files": 240,
+        "bytes": 86871255,
+        "inventorySha256": "79736cfc52ba3cf53150c8b565e8c5e1b9e95a6f5b02d8fe1cfacaa1027726c8"
+      }
     },
     {
       "id": "tikz-editor",
@@ -20,9 +25,14 @@
       "repository": "TeXlyre/tikz-editor-embed-mirror",
       "sourceCommit": "b98714d3584ee849178f19cf44c7768ff9063f6e",
       "url": "https://codeload.github.com/TeXlyre/tikz-editor-embed-mirror/zip/b98714d3584ee849178f19cf44c7768ff9063f6e",
-      "sha256": null,
-      "size": null,
-      "maxBytes": 268435456
+      "sha256": "0aa01e17859d5387da9dad565efada8574316890198dd28c6f2bb399c4f96563",
+      "size": 5476365,
+      "maxBytes": 268435456,
+      "extracted": {
+        "files": 150,
+        "bytes": 16879791,
+        "inventorySha256": "760b36575672098e023820dcf38bd595c1f333a5c28b9ead7fbecbe5a4a3cbf2"
+      }
     },
     {
       "id": "tex-fmt",
@@ -31,7 +41,12 @@
       "url": "https://github.com/TeXlyre/tex-fmt/releases/download/wasm-v0.5.7/tex-fmt-wasm-0.5.7.zip",
       "sha256": "2aa8e1457bc4222095fc05a9f3b7fdd197233057942ef513c8cb7f716196ee32",
       "size": 490470,
-      "maxBytes": 490470
+      "maxBytes": 490470,
+      "extracted": {
+        "files": 5,
+        "bytes": 1315739,
+        "inventorySha256": "b3d4cd24e60aedae80e39eb066d635bc4cdc42b6d2c8d135dbb960b3964b38e3"
+      }
     },
     {
       "id": "busytex",
@@ -40,7 +55,12 @@
       "url": "https://github.com/TeXlyre/texlyre-busytex/releases/download/assets-v1.4.0/busytex-assets.tar.gz",
       "sha256": "1caa434fb5aab5bdd59dc303bca2ac7b9b9af02ef1627bf8652caabfa1b7cd2b",
       "size": 521751667,
-      "maxBytes": 521751667
+      "maxBytes": 521751667,
+      "extracted": {
+        "files": 26,
+        "bytes": 718231348,
+        "inventorySha256": "246e3ae2ea05e77120620f32bccefb3c695767863bcac7ad1a2fc0bdf3fab55f"
+      }
     },
     {
       "id": "grammar-assets",
@@ -49,7 +69,13 @@
       "url": "https://github.com/TeXlyre/texlyre-grammar-assets/releases/download/v0.1.0/texlyre-grammar-assets-0.1.0.zip",
       "sha256": "26a3f4624a22fd309e177d949035617d4271e8fa7b162c76cb06dfb43a3067e1",
       "size": 480892,
-      "maxBytes": 480892
+      "maxBytes": 480892,
+      "excludedUnsafeArchiveEntries": 477,
+      "extracted": {
+        "files": 97,
+        "bytes": 1743313,
+        "inventorySha256": "48b2c1f18baddcae3ab99ae5a6fcbec89137a09e618edf02b8f2de8582a26b7b"
+      }
     },
     {
       "id": "grammar-assets-optional",
@@ -58,16 +84,28 @@
       "url": "https://github.com/TeXlyre/texlyre-grammar-assets/releases/download/v0.1.0/texlyre-grammar-assets-0.1.0-include-optional.zip",
       "sha256": "b749b3c68d9f3d574d59750a69bde54c811a98698646c034ae9391dfee727464",
       "size": 521362,
-      "maxBytes": 521362
+      "maxBytes": 521362,
+      "excludedUnsafeArchiveEntries": 477,
+      "extracted": {
+        "files": 99,
+        "bytes": 1815133,
+        "inventorySha256": "45bede62aa227828aa391e0f3234509365e1142d8e8ecca16026d8720314bfd7"
+      }
     },
     {
       "id": "font-assets",
       "version": "v0.1.0",
       "repository": "TeXlyre/texlyre-font-assets",
+      "buildSourceCommit": "b048ac917adba5ea448a7863a6b42a2a51eacbef",
       "url": "https://github.com/TeXlyre/texlyre-font-assets/releases/download/v0.1.0/texlyre-font-assets-0.1.0.zip",
       "sha256": "27a7f1a54a4a13066972592ccc649b3f560331b7e2053210a61f0ebd498c7a30",
       "size": 48171608,
-      "maxBytes": 48171608
+      "maxBytes": 48171608,
+      "extracted": {
+        "files": 128,
+        "bytes": 76940237,
+        "inventorySha256": "28ee9e0b3f7630b7807a046b6d1baa49d54311b9f3ab53c0eaa77776bc50c988"
+      }
     }
   ]
 }

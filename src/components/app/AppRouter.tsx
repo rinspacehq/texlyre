@@ -14,11 +14,13 @@ import { useAuth } from '../../hooks/useAuth';
 import { useDiskFiles } from '../../hooks/useDiskFiles';
 import { collabService } from '../../services/CollabService';
 import { fileStoreService } from '../../services/FileStoreService';
+import { pluginRegistry } from '../../plugins/PluginRegistry';
 import {
 	shareTargetService,
 	type PendingShare,
 } from '../../services/ShareTargetService';
 import type { YjsDocUrl } from '../../types/yjs';
+import type { WorkspaceCatalogProject } from '../../workspace/contracts';
 import {
 	isValidYjsUrl,
 	parseUrlFragments,
@@ -435,6 +437,26 @@ const AppRouter: React.FC = () => {
 		setCurrentView('editor');
 	};
 
+	const handleOpenManagedProject = async (
+		project: WorkspaceCatalogProject,
+	): Promise<void> => {
+		const host = pluginRegistry.getWorkspaceExtensions().host;
+		if (!host) throw new Error('Rinspace workspace integration is unavailable');
+		const controller = new AbortController();
+		const context = await host.open(project.openIntent, controller.signal);
+		if (context.mode !== 'managed') {
+			throw new Error('Rinspace workspace identity was not verified');
+		}
+		const fragments = parseUrlFragments(window.location.hash.substring(1));
+		const managedDocUrl = `yjs:${context.binding.workspaceId}` as YjsDocUrl;
+		setDocUrl(managedDocUrl);
+		setCurrentProjectId(context.binding.workspaceId);
+		setTargetDocId(fragments.docId || null);
+		setTargetFilePath(fragments.filePath || null);
+		sessionStorage.setItem('currentProjectId', context.binding.workspaceId);
+		setCurrentView('editor');
+	};
+
 	const handleLogout = async () => {
 		await logout();
 		setDocUrl(null);
@@ -505,7 +527,11 @@ const AppRouter: React.FC = () => {
 			{!isAuthenticated ? (
 				<AuthApp onAuthSuccess={handleAuthSuccess} />
 			) : currentView === 'projects' ? (
-				<ProjectApp onOpenProject={handleOpenProject} onLogout={handleLogout} />
+				<ProjectApp
+					onOpenProject={handleOpenProject}
+					onOpenManagedProject={handleOpenManagedProject}
+					onLogout={handleLogout}
+				/>
 			) : currentView === 'editor' && docUrl ? (
 				<EditorApp
 					docUrl={docUrl}
@@ -515,7 +541,11 @@ const AppRouter: React.FC = () => {
 					targetFilePath={targetFilePath}
 				/>
 			) : (
-				<ProjectApp onOpenProject={handleOpenProject} onLogout={handleLogout} />
+				<ProjectApp
+					onOpenProject={handleOpenProject}
+					onOpenManagedProject={handleOpenManagedProject}
+					onLogout={handleLogout}
+				/>
 			)}
 
 			<PrivacyModal isOpen={showPrivacy} onClose={handleClosePrivacy} />

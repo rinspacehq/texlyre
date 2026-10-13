@@ -30,16 +30,26 @@ export function validateReview(review) {
 		assert.ok(!url.search && !url.hash, 'initial asset URL must not contain credentials or fragments');
 		assert.match(asset.repository, /^TeXlyre\/[a-zA-Z0-9-]+$/);
 		assert.ok(Number.isSafeInteger(asset.maxBytes) && asset.maxBytes > 0 && asset.maxBytes <= 1024 * 1024 * 1024, 'invalid archive limit');
-		if (asset.sha256 !== null) assert.match(asset.sha256, /^[0-9a-f]{64}$/);
-		if (asset.size !== null) assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0 && asset.size <= asset.maxBytes, 'invalid asset size');
+		assert.match(asset.sha256, /^[0-9a-f]{64}$/, 'asset digest must be fixed');
+		assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0 && asset.size <= asset.maxBytes, 'asset size must be fixed');
+		if (asset.extracted !== undefined) {
+			assert.ok(Number.isSafeInteger(asset.extracted.files) && asset.extracted.files > 0, 'invalid extracted file count');
+			assert.ok(Number.isSafeInteger(asset.extracted.bytes) && asset.extracted.bytes > 0, 'invalid extracted byte count');
+			assert.match(asset.extracted.inventorySha256, /^[0-9a-f]{64}$/, 'invalid extracted inventory digest');
+		}
+		if (asset.excludedUnsafeArchiveEntries !== undefined) {
+			assert.ok(Number.isSafeInteger(asset.excludedUnsafeArchiveEntries) && asset.excludedUnsafeArchiveEntries > 0,
+				'invalid excluded archive entry count');
+		}
 		if (asset.sourceCommit) {
 			assert.match(asset.sourceCommit, /^[0-9a-f]{40}$/);
 			assert.equal(url.href, `https://codeload.github.com/${asset.repository}/zip/${asset.sourceCommit}`);
 		} else {
 			assert.equal(url.hostname, 'github.com');
 			assert.ok(url.pathname.startsWith(`/${asset.repository}/releases/download/`));
-			assert.notEqual(asset.sha256, null, 'released asset must have a known digest');
-			assert.notEqual(asset.size, null, 'released asset must have a known size');
+		}
+		if (asset.buildSourceCommit) {
+			assert.match(asset.buildSourceCommit, /^[0-9a-f]{40}$/);
 		}
 	}
 	return review;
@@ -47,7 +57,8 @@ export function validateReview(review) {
 
 export async function measureAsset(asset, request = fetch) {
 	let url = validateAssetUrl(asset.url);
-	const signal = AbortSignal.timeout(180_000);
+	// This verifier also streams the fixed 522 MB BusyTeX archive.
+	const signal = AbortSignal.timeout(45 * 60 * 1000);
 	let response;
 	for (let redirects = 0; redirects <= 5; redirects++) {
 		response = await request(url.href, { redirect: 'manual', signal, credentials: 'omit' });
@@ -69,10 +80,10 @@ export async function measureAsset(asset, request = fetch) {
 	}
 	const sha256 = hash.digest('hex');
 	assert.ok(size > 0, 'empty asset download');
-	if (asset.size !== null) assert.equal(size, asset.size, `asset ${asset.id} size mismatch`);
-	if (asset.sha256 !== null) assert.equal(sha256, asset.sha256, `asset ${asset.id} digest mismatch`);
+	assert.equal(size, asset.size, `asset ${asset.id} size mismatch`);
+	assert.equal(sha256, asset.sha256, `asset ${asset.id} digest mismatch`);
 	return { id: asset.id, version: asset.version, size, sha256,
-		previouslyPinned: asset.sha256 !== null, stage: 'inventory-review', productionAccepted: false };
+		previouslyPinned: true, stage: 'inventory-review', productionAccepted: false };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

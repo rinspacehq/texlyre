@@ -1,0 +1,92 @@
+{
+  "schema": "rinspace-runtime-mirror-review/v1",
+  "observedAt": "2026-10-12",
+  "productionAccepted": false,
+  "runtimeEnabled": [],
+  "runtimePolicy": {
+    "executableAssets": "same-origin-only",
+    "dataMirrorRequirement": "HTTPS, browser CORS, byte ranges, reviewed operator terms, exact protocol compatibility and digest verification are all required",
+    "fallback": "The content-addressed Rinspace same-origin tree is the only enabled browser source. An unqualified mirror is never requested and cannot delay or replace it.",
+    "failureMatrix": {
+      "timeout": "discard mirror response and use the same-origin digest path",
+      "http404": "discard mirror response and use the same-origin digest path",
+      "wrongBytes": "reject before handing bytes to an engine and use the same-origin digest path",
+      "missingRange": "exclude the candidate before runtime enablement",
+      "missingCors": "exclude the candidate before runtime enablement"
+    }
+  },
+  "candidates": [
+    {
+      "id": "aliyun-ctan",
+      "operator": "Alibaba Cloud",
+      "baseUrl": "https://mirrors.aliyun.com/CTAN/",
+      "purpose": "build-ctan",
+      "officialIndex": "https://www.ctan.org/mirrors",
+      "https": true,
+      "range": true,
+      "browserCors": false,
+      "hotlinkTermsReviewed": false,
+      "texlyreProtocolCompatible": false,
+      "observation": {
+        "probePath": "systems/texlive/tlnet/archive/ctex.tar.xz",
+        "status": 206,
+        "contentType": "application/octet-stream",
+        "contentRange": "bytes 0-0/136228",
+        "accessControlAllowOrigin": null,
+        "decision": "build-only; a browser at rinspace.com cannot read the response"
+      }
+    },
+    {
+      "id": "tencent-ctan",
+      "operator": "Tencent Cloud",
+      "baseUrl": "https://mirrors.cloud.tencent.com/CTAN/",
+      "purpose": "build-ctan",
+      "officialIndex": "https://www.ctan.org/mirrors",
+      "https": true,
+      "range": true,
+      "browserCors": false,
+      "hotlinkTermsReviewed": false,
+      "texlyreProtocolCompatible": false,
+      "observation": {
+        "probePath": "systems/texlive/tlnet/archive/ctex.tar.xz",
+        "status": 206,
+        "contentType": "application/octet-stream",
+        "contentRange": "bytes 0-0/136228",
+        "accessControlAllowOrigin": null,
+        "decision": "build-only; a browser at rinspace.com cannot read the response"
+      }
+    },
+    {
+      "id": "huawei-ctan",
+      "operator": "Huawei Cloud CodeArts",
+      "baseUrl": "https://mirrors.huaweicloud.com/CTAN/",
+      "purpose": "runtime-data-candidate",
+      "officialIndex": null,
+      "https": true,
+      "range": true,
+      "browserCors": true,
+      "hotlinkTermsReviewed": false,
+      "texlyreProtocolCompatible": false,
+      "observation": {
+        "probePath": "systems/texlive/tlnet/archive/ctex.tar.xz",
+        "status": 206,
+        "contentType": "application/octet-stream;charset=UTF-8",
+        "contentRange": "bytes 0-0/136228",
+        "accessControlAllowOrigin": "*",
+        "decision": "not enabled; operator index/terms and TeXlyre filename protocol are not established"
+      }
+    },
+    {
+      "id": "npmmirror",
+      "operator": "Alibaba Cloud",
+      "baseUrl": "https://registry.npmmirror.com/",
+      "purpose": "build-npm",
+      "officialIndex": "https://developer.aliyun.com/mirror/NPM/",
+      "https": true,
+      "range": true,
+      "browserCors": true,
+      "hotlinkTermsReviewed": true,
+      "texlyreProtocolCompatible": false
+    }
+  ]
+}

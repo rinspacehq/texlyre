@@ -10,6 +10,13 @@ const {
 	copyWasmLatexToolsAssets,
 } = require('./copy-wasm-latex-tools-assets.cjs');
 const { downloadCoreAssets } = require('./download-core-assets.cjs');
+const {
+	installVendoredRuntimeAssets,
+} = require('./rinspace/install-vendored-runtime-assets.cjs');
+const {
+	writeDependencyNotices,
+} = require('./rinspace/generate-dependency-notices.cjs');
+const { writeSourceCandidate } = require('./rinspace/source-candidate.cjs');
 
 const userdataFiles = [
 	'userdata.json',
@@ -42,7 +49,10 @@ async function setupAssets() {
 		await copyOnigurumaWasm();
 		await copyWasmLatexToolsAssets();
 		await downloadCoreAssets();
+		await installVendoredRuntimeAssets();
 		await copyUserdataFiles();
+		await writeDependencyNotices(path.resolve(__dirname, '..'));
+		await writeSourceCandidate(path.resolve(__dirname, '..'));
 
 		console.log('\n✅ Asset setup complete');
 	} catch (err) {

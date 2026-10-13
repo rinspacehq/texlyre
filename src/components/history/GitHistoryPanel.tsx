@@ -37,6 +37,7 @@ import GitHistorySections, {
 	shortGitOid,
 } from './GitHistorySections';
 
+// eslint-disable-next-line react-refresh/only-export-components -- Existing test-facing graph helpers share this component module.
 export { buildGitGraphRows, shortGitOid } from './GitHistorySections';
 
 const moduleLog = createNamedLogger('GitHistoryPanel');
@@ -87,7 +88,8 @@ const GitRemoteSyncControls: React.FC<GitRemoteSyncControlsProps> = ({
 					type='button'
 					className='button secondary '
 					onClick={() => void onPush(secrets)}
-					disabled={isWorking || !hasHead}
+					disabled={isWorking || !hasHead || remote.readOnly}
+					title={remote.readOnly ? t('This repository is read-only') : undefined}
 				>
 					{t('Push')}
 				</button>
@@ -138,6 +140,7 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 	);
 	const [showRemoteModal, setShowRemoteModal] = useState(false);
 
+	/* eslint-disable react-hooks/set-state-in-effect -- Hydrate persisted panel layout when the settings store becomes available. */
 	useEffect(() => {
 		if (propertiesRegistered.current) return;
 		propertiesRegistered.current = true;
@@ -191,7 +194,9 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 		setSectionSizes(nextSizes);
 		setPropertiesLoaded(true);
 	}, [getProperty, propertiesLoaded]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
+	/* eslint-disable react-hooks/set-state-in-effect -- Keep React state synchronized with the external Git remote store. */
 	useEffect(() => {
 		if (!projectId) {
 			setRemoteConfig(undefined);
@@ -202,6 +207,7 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 			setRemoteConfig(next);
 		});
 	}, [projectId]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
 	const toggleBranches = () => {
 		const next = !branchesCollapsed;
@@ -257,9 +263,11 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 		}
 	}, [projectId]);
 
+	/* eslint-disable react-hooks/set-state-in-effect -- Initial Git history load owns its loading and error state. */
 	useEffect(() => {
 		void load();
 	}, [load]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
 	useEffect(() => {
 		const refreshStatus = () => {
@@ -905,11 +913,17 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 		setNotice(null);
 		try {
 			const result = await gitSyncService.push(projectId, secrets);
-			setNotice(
-				t('Pushed {local} to {remote}.', {
+			const pushNotice = t('Pushed {local} to {remote}.', {
 					local: result.localBranch,
 					remote: `${result.repositoryLabel} · ${result.remoteBranch}`,
-				}),
+				});
+			setNotice(
+				remoteConfig.managed
+					? `${pushNotice} ${t(
+							'Gitea accepted commit {hash}. Publication is processed separately.',
+							{ hash: result.canonicalOid.slice(0, 7) },
+						)}`
+					: pushNotice,
 			);
 			await load();
 		} catch (pushError) {

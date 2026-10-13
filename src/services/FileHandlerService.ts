@@ -171,6 +171,24 @@ class FileHandlerService {
 		return this.permissionPendingProjectId === projectId;
 	}
 
+	async restorePermissionPendingOriginals(projectId: string): Promise<void> {
+		const records = await fileStoreService.getLocalWriteBaselines(projectId);
+		if (records.length === 0) return;
+		this.permissionPendingProjectId = projectId;
+		this.permissionPendingContents = new Map(
+			records.map((record) => [
+				record.fileId,
+				{
+					path: record.path,
+					content:
+						record.content instanceof ArrayBuffer
+							? record.content.slice(0)
+							: record.content,
+				},
+			]),
+		);
+	}
+
 	rememberPermissionPendingOriginal(file: Pick<FileNode, 'id' | 'path'>, content: string | ArrayBuffer | null | undefined): void {
 		const intent = getStartupIntent();
 		if (intent.mode !== 'local-unbound' || !intent.persistentProfile ||

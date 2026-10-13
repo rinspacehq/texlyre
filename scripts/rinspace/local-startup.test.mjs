@@ -2,7 +2,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLocalProfile, preserveGuestAsLocalProfile } from '../../src/workspace/LocalProfile.ts';
-import { allowsAutomaticConnections, resolveStartupIntent } from '../../src/workspace/StartupPolicy.ts';
+import {
+	allowsAutomaticConnections,
+	allowsExplicitPeerConnections,
+	resolveStartupIntent,
+} from '../../src/workspace/StartupPolicy.ts';
 
 test('persistent local profile has no guest expiry, password or platform credentials', () => {
 	const profile = createLocalProfile('local_browser-owner', 10);
@@ -46,4 +50,17 @@ test('managed and malformed intents never silently become local', () => {
 });
 test('omitting persistent-local configuration preserves upstream connection behavior', () => {
 	assert.equal(allowsAutomaticConnections(resolveStartupIntent('', false)), true);
+});
+
+test('only an explicit local choice may enable peer file transfer', () => {
+	assert.equal(allowsExplicitPeerConnections(resolveStartupIntent('', true)), true);
+	assert.equal(allowsExplicitPeerConnections(resolveStartupIntent('', false)), true);
+	assert.equal(
+		allowsExplicitPeerConnections(resolveStartupIntent('?mode=managed', false)),
+		false,
+	);
+	assert.equal(
+		allowsExplicitPeerConnections(resolveStartupIntent('?mode=unknown', false)),
+		false,
+	);
 });

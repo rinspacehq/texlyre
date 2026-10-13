@@ -555,6 +555,7 @@ export function isBinaryFile(fileName: string): boolean {
 		'snm',
 		'sty',
 		'tex',
+		'tikzcd',
 		'toc',
 		'vrb',
 

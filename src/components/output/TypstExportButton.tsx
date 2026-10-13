@@ -84,8 +84,12 @@ const TypstExportButton: React.FC<TypstExportButtonProps> = ({
 	const projectMainFile = useSharedSettings
 		? doc?.projectMetadata?.mainFile
 		: undefined;
+	const managedMainFile =
+		doc?.projectMetadata?.managedBuild?.status === 'valid'
+			? `/${doc.projectMetadata.managedBuild.entry}`
+			: undefined;
 
-	const effectiveMainFile = projectMainFile || propMainFile || autoMainFile;
+	const effectiveMainFile = managedMainFile || projectMainFile || propMainFile || autoMainFile;
 	const selectedFormat = propFormat || 'pdf';
 	const localPdfOptions: TypstPdfOptions = {
 		pdfStandard: propPdfStandard ?? '"1.7"',

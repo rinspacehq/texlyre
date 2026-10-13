@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { deleteDB } from 'idb';
+import { deleteDB, openDB } from 'idb';
 import { deserialize, serialize } from 'node:v8';
 import { fileHandlerService } from '@src/services/FileHandlerService';
 import { fileStoreService } from '@src/services/FileStoreService';
@@ -164,6 +164,102 @@ describe('persistent-local disk write results', () => {
 		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({ outcome: 'failed', reason: 'disk-changed' });
 		expect(disk.bytes.get('/main.typ')).toBe('外部程序的新版本');
 		expect((await fileStoreService.getFile(original.id))?.content).toBe('浏览器草稿续写');
+	});
+	it('restores a permission-pending baseline after the service process is recreated', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileStoreService.updateFileContent(original.id, '跨进程浏览器草稿');
+		expect(await fileStoreService.getLocalWriteBaselines(projectId)).toEqual([
+			expect.objectContaining({
+				fileId: original.id,
+				path: original.path,
+				content: '原稿',
+			}),
+		]);
+
+		fileHandlerService.detachWorkspace();
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileHandlerService.restorePermissionPendingOriginals(projectId);
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await fileStoreService.updateFileContent(
+			original.id,
+			'跨进程浏览器草稿\n重连保存',
+		);
+
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({
+			outcome: 'written',
+		});
+		expect(await disk.adapter.readFile('/main.typ')).toBe(
+			'跨进程浏览器草稿\n重连保存',
+		);
+		expect(await fileStoreService.getLocalWriteBaselines(projectId)).toEqual([]);
+	});
+	it('keeps a durable pending baseline when the disk changes across restart', async () => {
+		await fileStoreService.initialize(`yjs:${projectId}`);
+		const disk = directory();
+		const original = file('/main.typ', '原稿');
+		await fileStoreService.db?.put('files', original);
+		await disk.root.getFileHandle('main.typ', { create: true });
+		disk.bytes.set('/main.typ', '原稿');
+
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileStoreService.updateFileContent(original.id, '跨进程浏览器草稿');
+		fileHandlerService.detachWorkspace();
+		disk.bytes.set('/main.typ', '外部程序跨进程修改');
+
+		fileHandlerService.markWorkspacePermissionPending(projectId);
+		await fileHandlerService.restorePermissionPendingOriginals(projectId);
+		fileHandlerService.attachWorkspace(disk.adapter, projectId);
+		await fileStoreService.updateFileContent(
+			original.id,
+			'跨进程浏览器草稿\n重连尝试',
+		);
+
+		expect(fileHandlerService.getWriteStatus().entries[0]).toMatchObject({
+			outcome: 'failed',
+			reason: 'disk-changed',
+		});
+		expect(disk.bytes.get('/main.typ')).toBe('外部程序跨进程修改');
+		expect((await fileStoreService.getFile(original.id))?.content).toBe(
+			'跨进程浏览器草稿\n重连尝试',
+		);
+		expect(await fileStoreService.getLocalWriteBaselines(projectId)).toHaveLength(
+			1,
+		);
+	});
+	it('upgrades an existing v1 project database without losing its files', async () => {
+		fileStoreService.cleanup();
+		const dbName = `texlyre-project-${projectId}`;
+		const original = file('/main.typ', '升级前的本机草稿');
+		const legacy = await openDB(dbName, 1, {
+			upgrade: (db) => {
+				const store = db.createObjectStore('files', { keyPath: 'id' });
+				store.createIndex('path', 'path', { unique: false });
+			},
+		});
+		await legacy.put('files', original);
+		legacy.close();
+
+		fileStoreService.setProjectId(projectId);
+		await fileStoreService.initialize();
+		expect((await fileStoreService.getFile(original.id))?.content).toBe(
+			'升级前的本机草稿',
+		);
+
+		await fileStoreService.rememberLocalWriteBaseline(original, original.content ?? null);
+		expect(await fileStoreService.getLocalWriteBaselines(projectId)).toEqual([
+			expect.objectContaining({
+				fileId: original.id,
+				path: original.path,
+				content: '升级前的本机草稿',
+			}),
+		]);
 	});
 	it('uses the editing tab baseline instead of newer shared browser storage for disk conflict checks', async () => {
 		await fileStoreService.initialize(`yjs:${projectId}`);

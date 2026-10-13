@@ -828,6 +828,7 @@ class WorkspaceService {
 		this.rootHandle = handle;
 		this.projectId = projectId;
 		this.needsPermission = false;
+		await fileHandlerService.restorePermissionPendingOriginals(projectId);
 		fileHandlerService.attachWorkspace(new DirectoryTarget(handle), projectId);
 		this.notify();
 	}

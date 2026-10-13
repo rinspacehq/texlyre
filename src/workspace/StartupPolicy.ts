@@ -16,3 +16,8 @@ export function resolveStartupIntent(search: string, persistentProfile: boolean)
 export function allowsAutomaticConnections(intent: StartupIntent): boolean {
 	return intent.mode === 'local-unbound' && !intent.persistentProfile;
 }
+
+/** A local user may explicitly enable peer transfer; managed repositories need host ACL first. */
+export function allowsExplicitPeerConnections(intent: StartupIntent): boolean {
+	return intent.mode === 'local-unbound';
+}

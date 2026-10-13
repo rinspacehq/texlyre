@@ -5,8 +5,8 @@ import { sanitizeSvg } from '../../utils/svgSanitizer';
 import { longPathFetchPackageRegistry } from './LongPathPackageRegistry';
 import { normalizeTypstSvgNavigation } from './svgNavigation';
 import {
+	createLocalTypstFontLoader,
 	getTypstRenderer,
-	loadTypstFonts,
 	BASE_PATH,
 } from './TypstRendererRuntime';
 
@@ -70,7 +70,7 @@ async function ensureCompiler(): Promise<void> {
 	if (compilerPromise) return compilerPromise;
 
 	compilerPromise = (async () => {
-		const fonts = await loadTypstFonts();
+		const fontLoader = await createLocalTypstFontLoader();
 		// NOTE (fabawi): Patch for issue (#340)[https://github.com/TeXlyre/texlyre/issues/340]
 		// const packageRegistry = TypstSnippet.fetchPackageRegistry();
 		const packageRegistry = longPathFetchPackageRegistry();
@@ -81,9 +81,7 @@ async function ensureCompiler(): Promise<void> {
 				`${BASE_PATH}/core/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm`,
 			beforeBuild: [
 				...packageRegistry.provides,
-				async (_: unknown, { builder }: any) => {
-					for (const font of fonts) await builder.add_raw_font(font);
-				},
+				fontLoader,
 			],
 		});
 	})();

@@ -2,6 +2,19 @@
 export type ProjectType = 'latex' | 'typst' | (string & {});
 export type ProjectGroup = 'tex' | (string & {});
 
+export type ManagedBuildState =
+	| {
+		authority: 'rinspace.yaml';
+		status: 'valid';
+		format: 'markdown' | 'latex' | 'typst' | 'pdf';
+		entry: string;
+	}
+	| {
+		authority: 'rinspace.yaml';
+		status: 'invalid';
+		message: string;
+	};
+
 export interface Project {
 	id: string;
 	name: string;
@@ -21,12 +34,28 @@ export interface Project {
 	lastOpenedDocId?: string;
 	lastOpenedFilePath?: string;
 	isDiskLinked?: boolean;
+	managedBuild?: ManagedBuildState;
+	managedBinding?: {
+		profileScope: string;
+		repositoryId: string;
+		owner: string;
+		repository: string;
+		ref: string;
+		baseCommit: string;
+		objectFormat: 'sha1' | 'sha256';
+		generation: number;
+		commitIdentity?: {
+			name: string;
+			email: string;
+		};
+	};
 }
 
 export type ProjectCreateInput = Omit<
 	Project,
 	'id' | 'createdAt' | 'updatedAt' | 'ownerId' | 'docUrl'
 > & {
+	id?: string;
 	docUrl?: string;
 };
 

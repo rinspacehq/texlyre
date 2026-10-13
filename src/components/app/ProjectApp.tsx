@@ -11,6 +11,7 @@ import { useWheelScroll } from '../../hooks/useWheelScroll';
 import { useDiskBackup } from '../../hooks/useDiskBackup';
 import { useTheme } from '../../hooks/useTheme';
 import type { Project, ProjectType, ProjectGroup } from '../../types/projects';
+import type { WorkspaceCatalogProject } from '../../workspace/contracts';
 import {
 	isValidYjsUrl,
 	buildUrlWithFragments,
@@ -32,6 +33,7 @@ import ProjectForm from '../project/ProjectForm';
 import ProjectImportModal from '../project/ProjectImportModal';
 import ProjectList from '../project/ProjectList';
 import ProjectPanel from '../project/ProjectPanel';
+import WorkspaceCatalogSection from '../project/WorkspaceCatalogSection';
 import SettingsButton from '../settings/SettingsButton';
 import PrivacyModal from '../common/PrivacyModal';
 import DeleteAccountModal from '../profile/DeleteAccountModal';
@@ -53,11 +55,13 @@ interface ProjectManagerProps {
 		projectGroup?: ProjectGroup,
 		projectId?: string,
 	) => void;
+	onOpenManagedProject?: (project: WorkspaceCatalogProject) => Promise<void>;
 	onLogout: () => void;
 }
 
 const ProjectApp: React.FC<ProjectManagerProps> = ({
 	onOpenProject,
+	onOpenManagedProject,
 	onLogout,
 }) => {
 	const {
@@ -120,7 +124,9 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	const loadProjects = useCallback(async () => {
 		try {
 			setIsLoading(true);
-			const userProjects = await getProjects();
+			const userProjects = (await getProjects()).filter(
+				(project) => !project.managedBinding,
+			);
 			setProjects(userProjects);
 			setFilteredProjects(userProjects);
 
@@ -525,26 +531,35 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 						</div>
 					)}
 
-					{isLoading ? (
-						<div className='ui-loading-state' data-fill='true'>
-							<div className='loading-spinner' />
-							<p>{t('Loading projects...')}</p>
-						</div>
-					) : (
-						<ProjectList
-							// key={`${searchQuery}:${selectedTag}:${selectedType}:${selectedGroup}`}
-							projects={filteredProjects}
-							onOpenProject={openProject}
-							onOpenProjectDefault={handleOpenDefault}
-							onEditProject={openEditModal}
-							onDeleteProject={openDeleteModal}
-							onToggleFavorite={handleToggleFavorite}
-							onToggleViewMode={handleToggleViewMode}
-							onExportSelected={handleExportSelected}
-							onDeleteSelected={handleDeleteSelected}
-							viewMode={viewMode}
+					{onOpenManagedProject && (
+						<WorkspaceCatalogSection
+							searchQuery={searchQuery}
+							onOpenProject={onOpenManagedProject}
 						/>
 					)}
+					<section data-role='local-projects'>
+						<h2 className='ui-panel-title'>{t('Local Projects')}</h2>
+						{isLoading ? (
+							<div className='ui-loading-state' data-fill='true'>
+								<div className='loading-spinner' />
+								<p>{t('Loading projects...')}</p>
+							</div>
+						) : (
+							<ProjectList
+								// key={`${searchQuery}:${selectedTag}:${selectedType}:${selectedGroup}`}
+								projects={filteredProjects}
+								onOpenProject={openProject}
+								onOpenProjectDefault={handleOpenDefault}
+								onEditProject={openEditModal}
+								onDeleteProject={openDeleteModal}
+								onToggleFavorite={handleToggleFavorite}
+								onToggleViewMode={handleToggleViewMode}
+								onExportSelected={handleExportSelected}
+								onDeleteSelected={handleDeleteSelected}
+								viewMode={viewMode}
+							/>
+						)}
+					</section>
 				</div>
 				<ProjectExportModal
 					isOpen={showExportModal}

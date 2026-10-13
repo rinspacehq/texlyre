@@ -6,10 +6,9 @@ import wasm from 'vite-plugin-wasm';
 
 const useHttps = process.env.VITE_USE_HTTPS === 'true';
 
-const basePath = '/texlyre/';
+const basePath = '/editor/';
 const appVersion = process.env.npm_package_version || '1.0.0';
 
-// @ts-expect-error
 export default defineConfig({
 	base: basePath,
 
@@ -94,7 +93,7 @@ export default defineConfig({
 
 	server: {
 		host: true,
-		https: useHttps,
+		https: useHttps ? {} : undefined,
 		hmr: {
 			port: 5173,
 			clientPort: 5173,

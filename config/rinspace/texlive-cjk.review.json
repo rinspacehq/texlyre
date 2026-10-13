@@ -1,0 +1,55 @@
+{
+  "schema": "rinspace-vendored-runtime-asset/v1",
+  "stage": "source-development",
+  "productionAccepted": false,
+  "assetSet": "texlive-2026-cjk",
+  "version": "texlive-2026-20260730",
+  "inventorySha256": "2bafcd705bbff2e02567be5c0b08a86054e82d2bafccddeea189a935fed24718",
+  "files": 20,
+  "bytes": 18888796,
+  "source": {
+    "repository": "TeXlyre/texlyre-busytex-build",
+    "buildCommit": "8c9313d8a5f2f4c9936ac838d819733526edfb52",
+    "releaseTag": "texlive-full-2026",
+    "archiveUrl": "https://github.com/TeXlyre/texlyre-busytex-build/releases/download/texlive-full-2026/texmf-dist.tar.zst",
+    "archiveSize": 1442977323,
+    "archiveSha256": "438c997af1f851dcd87c91d3b16710ccb3620f8a7b6db488afcf458411931bcb",
+    "treeListUrl": "https://github.com/TeXlyre/texlyre-busytex-build/releases/download/texlive-full-2026/texlive-full.txt",
+    "treeListSize": 14638217,
+    "treeListSha256": "918330755445895602589cf181fe27668df8ca8774d771a82ec90f219ecb2246"
+  },
+  "packages": [
+    { "id": "cjk", "revision": 60865, "license": "GPL-2.0-or-later" },
+    { "id": "ctex", "revision": 77682, "license": "LPPL-1.3c-or-later" },
+    { "id": "fandol", "revision": 37889, "license": "GPL-with-font-exception" },
+    { "id": "xecjk", "revision": 77682, "license": "LPPL-1.3c-or-later" },
+    { "id": "zhnumber", "revision": 77682, "license": "LPPL-1.3c-or-later" }
+  ],
+  "mirrorReview": {
+    "checkedAt": "2026-10-12T19:45:00+08:00",
+    "buildOnly": true,
+    "result": "Aliyun and Tencent current tlnet archives reproduce the locked cjk and Fandol bytes, but their ctex, xeCJK and zhnumber aliases have advanced past this fixed TeX Live tree. No browser runtime mirror is enabled."
+  },
+  "entries": [
+    { "path": "26/CJKfntef.sty", "size": 12851, "sha256": "d06dc529270d63296ae382551930b086aba07d654c089d882ec1b6db5689c658", "sourcePath": "texmf-dist/tex/latex/cjk/texinput/CJKfntef.sty", "package": "cjk" },
+    { "path": "26/ctex-c5size.clo", "size": 2616, "sha256": "bbcb9f53fee79765958176b580622721feb7b8691454f5ba0b68baae52d300e8", "sourcePath": "texmf-dist/tex/latex/ctex/ctex-c5size.clo", "package": "ctex" },
+    { "path": "26/ctex-engine-xetex.def", "size": 4760, "sha256": "23ca571bb8631b994e041e09b9a8dadf3ba5b75240e1774f6f61b97589287d0e", "sourcePath": "texmf-dist/tex/latex/ctex/engine/ctex-engine-xetex.def", "package": "ctex" },
+    { "path": "26/ctex-fontset-fandol.def", "size": 4554, "sha256": "b40e53afbc885efc048c7a54cb3cea41f236eebe3c5164b12b60cacfa1193897", "sourcePath": "texmf-dist/tex/latex/ctex/fontset/ctex-fontset-fandol.def", "package": "ctex" },
+    { "path": "26/ctex-name-utf8.cfg", "size": 1770, "sha256": "778bb83f395cf149e33db9980ff12946927c778faeaecd69fba0ebf50326f587", "sourcePath": "texmf-dist/tex/latex/ctex/config/ctex-name-utf8.cfg", "package": "ctex" },
+    { "path": "26/ctex-scheme-chinese-article.def", "size": 4622, "sha256": "cb6461f507b40cbc30f910403081fec6932ce412abcf6e4865e0c88e35596fc4", "sourcePath": "texmf-dist/tex/latex/ctex/scheme/ctex-scheme-chinese-article.def", "package": "ctex" },
+    { "path": "26/ctex.cfg", "size": 1230, "sha256": "4a8ec7a1657410266fafa163ce656c923b714c53818e99dbeafbc08ac99709b8", "sourcePath": "texmf-dist/tex/latex/ctex/config/ctex.cfg", "package": "ctex" },
+    { "path": "26/ctexart.cls", "size": 55219, "sha256": "822d4a8c15e964c068c28be77c026ab891c4ab5b224503546c2994ac077efd93", "sourcePath": "texmf-dist/tex/latex/ctex/ctexart.cls", "package": "ctex" },
+    { "path": "26/ctexbackend.cfg", "size": 1904, "sha256": "ac452bc753fc440c29e73a0319f17148524412b3e67478e2012dbc50af0e605f", "sourcePath": "texmf-dist/tex/latex/ctex/config/ctexbackend.cfg", "package": "ctex" },
+    { "path": "26/ctexhook.sty", "size": 6505, "sha256": "40e83f5ed34900870bb14fbe09dc24440bb98bc01813e28c59575c69134ffae6", "sourcePath": "texmf-dist/tex/latex/ctex/ctexhook.sty", "package": "ctex" },
+    { "path": "26/ctexopts.cfg", "size": 1291, "sha256": "57def444aad796d361c44f4b3be4f8221042df015de9fdc97010fb7f842b39ef", "sourcePath": "texmf-dist/tex/latex/ctex/config/ctexopts.cfg", "package": "ctex" },
+    { "path": "26/ctexpatch.sty", "size": 8448, "sha256": "9f7980ed971ea9ee22583726d4760ebcba5a6e4cc2edc1576f2b71b613d64c29", "sourcePath": "texmf-dist/tex/latex/ctex/ctexpatch.sty", "package": "ctex" },
+    { "path": "26/xeCJK.cfg", "size": 408, "sha256": "d4fd750245a9702da242938637ece678b37862da73d1cf7d15df931828482a5c", "sourcePath": "texmf-dist/tex/xelatex/xecjk/xeCJK.cfg", "package": "xecjk" },
+    { "path": "26/xeCJK.sty", "size": 183137, "sha256": "c61660692befbcec0b52dfb3e2e69b360cbd3e187e07565d722a296df8e893ef", "sourcePath": "texmf-dist/tex/xelatex/xecjk/xeCJK.sty", "package": "xecjk" },
+    { "path": "26/xeCJKfntef.sty", "size": 39577, "sha256": "3388a7a7d4c88c533d22cc6dbcb0e7b18b6bd1411376bfa5be6c3e5d6df9a35d", "sourcePath": "texmf-dist/tex/xelatex/xecjk/xeCJKfntef.sty", "package": "xecjk" },
+    { "path": "26/zhnumber-utf8.cfg", "size": 5700, "sha256": "55de8dddc989474abc973f76fb08a19321650046584f6b54e7e746a0cb30ba54", "sourcePath": "texmf-dist/tex/latex/zhnumber/zhnumber-utf8.cfg", "package": "zhnumber" },
+    { "path": "26/zhnumber.sty", "size": 38160, "sha256": "eb315870e85d0bbce058f52ac9dfd16c177a98ffba1abedd0eca29a7fdd952ae", "sourcePath": "texmf-dist/tex/latex/zhnumber/zhnumber.sty", "package": "zhnumber" },
+    { "path": "47/FandolKai-Regular.otf", "size": 7790552, "sha256": "ea7e7fb4f9b3ac694a68d43946e04d21deed6e8c29a7c2d3081e1a4138f2f827", "sourcePath": "texmf-dist/fonts/opentype/public/fandol/FandolKai-Regular.otf", "package": "fandol" },
+    { "path": "47/FandolSong-Bold.otf", "size": 5777588, "sha256": "ffa76a70e128947a4dd22151d5ee829b23e24ce3cb6fe8ad49891cd1c2d9e9b9", "sourcePath": "texmf-dist/fonts/opentype/public/fandol/FandolSong-Bold.otf", "package": "fandol" },
+    { "path": "47/FandolSong-Regular.otf", "size": 4947904, "sha256": "a3820003227d4abe31fe28b493200d94a849ccfd078b50a019264f70353020b0", "sourcePath": "texmf-dist/fonts/opentype/public/fandol/FandolSong-Regular.otf", "package": "fandol" }
+  ]
+}

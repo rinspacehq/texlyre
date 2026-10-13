@@ -47,9 +47,10 @@ const airgapAllowedProtocols = unique([
 
 const generatedBlock = `// These constants are automatically generated. Do not edit directly.
 // Generated on: ${generatedAt}
-const CACHE_NAME = \`texlyre-v${version}\`;
+const APP_CACHE_PREFIX = 'texlyre-app-shell-v';
+const CACHE_NAME = \`${'${APP_CACHE_PREFIX}'}${version}\`;
 const BASE_PATH = '${basePath}';
-const FONTS_CACHE_NAME = 'fonts-cache-v1';
+const FONTS_CACHE_NAME = 'texlyre-fonts-v1';
 const AIRGAP_ALLOWED_DOMAINS = ${JSON.stringify(airgapAllowedDomains, null, '\t')};
 const AIRGAP_ALLOWED_PROTOCOLS = ${JSON.stringify(airgapAllowedProtocols, null, '\t')};
 // *** End automatic generation ***`;

@@ -16,7 +16,9 @@ export interface Plugin {
 	settings?: Setting[];
 }
 
-export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin;
+export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin & {
+	gitRemote?: GitRemoteProvider;
+};
 
 export interface SupportedExtension {
 	extension: string;

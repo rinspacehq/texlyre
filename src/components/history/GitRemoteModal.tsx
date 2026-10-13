@@ -51,6 +51,10 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 		[projectId],
 	);
 	const [providers, setProviders] = useState<GitRemoteProvider[]>([]);
+	const selectableProviders = useMemo(
+		() => providers.filter((item) => !item.hiddenFromPicker),
+		[providers],
+	);
 	const initialRemote = gitSyncService.getConfig(projectId);
 	const [gitSettings, setGitSettings] = useState(() =>
 		fileSystem.getSettings(),
@@ -88,6 +92,10 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 	);
 	const workspaceStatus = workspaceService.getStatus();
 	const hasLinkedFolder = workspaceStatus.projectId === projectId;
+	const repositoryLinks =
+		remote?.managed && provider && provider.isEnabled?.() !== false
+			? provider.repositoryLinks?.(remote.repositoryId, remote.branch) ?? []
+			: [];
 
 	useEffect(() => {
 		provider?.configure?.(getSetting);
@@ -110,20 +118,24 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 	}, [projectId]);
 
 	/* biome-ignore lint/correctness/useExhaustiveDependencies(isOpen): Opening the modal intentionally refreshes settings backed by external services. */
+	/* eslint-disable react-hooks/set-state-in-effect -- Opening the modal snapshots external Git and workspace settings. */
 	useEffect(() => {
 		setGitSettings(fileSystem.getSettings());
 		setWorkspaceCleanAnnotations(
 			fileHandlerService.getWorkspaceCleanAnnotations(projectId),
 		);
 	}, [fileSystem, isOpen, projectId]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
+	/* eslint-disable react-hooks/set-state-in-effect -- Keep React state synchronized with the external Git remote store. */
 	useEffect(() => {
 		if (!isOpen) return;
 		let active = true;
 		void gitSyncService.getProviders().then((available) => {
 			if (!active) return;
+			const selectable = available.filter((item) => !item.hiddenFromPicker);
 			setProviders(available);
-			setProviderId((current) => current || available[0]?.id || '');
+			setProviderId((current) => current || selectable[0]?.id || '');
 		});
 		return () => {
 			active = false;
@@ -134,7 +146,9 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 		setRemote(gitSyncService.getConfig(projectId));
 		return gitSyncService.addListener(projectId, (next) => setRemote(next));
 	}, [projectId]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
+	/* eslint-disable react-hooks/set-state-in-effect -- Derive the confirmation prompt when disk and browser Git projections differ. */
 	useEffect(() => {
 		const needsAlignment =
 			isOpen &&
@@ -150,6 +164,7 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 		isOpen,
 		workspaceCleanAnnotations,
 	]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
 	useEffect(() => {
 		if (!isOpen) return;
@@ -532,6 +547,28 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 									{remote.repositoryLabel} ({remote.branch})
 								</span>
 							</div>
+							{remote.managed ? (
+								<>
+									<p className='ui-note'>
+										{t('This remote is fixed by the managed workspace.')}
+									</p>
+									{repositoryLinks.length > 0 ? (
+										<div className='ui-actions' data-wrap='true'>
+											{repositoryLinks.map((link) => (
+												<a
+													key={link.href}
+													className='button secondary'
+													href={link.href}
+													target='_blank'
+													rel='noreferrer'
+												>
+													{t(link.label)}
+												</a>
+											))}
+										</div>
+									) : null}
+								</>
+							) : (
 							<button
 								type='button'
 								className='button secondary'
@@ -554,11 +591,14 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 							>
 								<DisconnectIcon /> {t('Disconnect remote')}
 							</button>
+							)}
 						</div>
 					) : null}
 
+					{!remote?.managed ? (
+					<>
 					<h3>{remote ? t('Change remote') : t('Connect remote')}</h3>
-					{providers.length === 0 ? (
+					{selectableProviders.length === 0 ? (
 						<p>{t('No Git remote providers are available in this build.')}</p>
 					) : (
 						<>
@@ -577,7 +617,7 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 									setBranches([]);
 								}}
 							>
-								{providers.map((item) => (
+								{selectableProviders.map((item) => (
 									<option key={item.id} value={item.id}>
 										{item.displayName}
 									</option>
@@ -702,6 +742,8 @@ const GitRemoteModal: React.FC<GitRemoteModalProps> = ({
 							) : null}
 						</>
 					)}
+					</>
+					) : null}
 				</section>
 			</div>
 		</Modal>

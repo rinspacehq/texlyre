@@ -28,6 +28,7 @@ import { authService } from './services/AuthService';
 import { isMobileUserAgent } from './utils/browserUtils';
 import { FORCED_DEFAULTS_KEY } from './utils/userDataUtils';
 import { applyStoredViewport } from './utils/viewportUtils';
+import { getStartupIntent } from './workspace/RuntimeStartup';
 
 const moduleLog = createNamedLogger('main');
 
@@ -39,6 +40,7 @@ const isMobileDevice = (): boolean => {
 
 // The Guest account cleanup runs every hour when app is active
 const setupGuestCleanup = () => {
+	if (getStartupIntent().mode === 'managed') return () => {};
 	let cleanupInterval: NodeJS.Timeout;
 
 	const runCleanup = async () => {
@@ -251,7 +253,6 @@ function setupDirection() {
 			const directionSetting = settings['text-direction'];
 
 			if (directionSetting === 'auto') {
-				const languageSetting = settings.language || 'en';
 				direction = localStorage.getItem('text-direction') || 'ltr';
 			} else if (directionSetting) {
 				direction = directionSetting;
@@ -266,11 +267,12 @@ function setupDirection() {
 
 async function startApp() {
 	try {
-		await Promise.all([
-			initDatabases(),
-			authService.initialize(),
-			initUserData(),
-		]);
+		const startup = getStartupIntent();
+		const initialization = [initDatabases(), initUserData()];
+		// Managed mode must first obtain a verified Native actor through the
+		// packaged host plugin. AuthProvider initializes its isolated local profile.
+		if (startup.mode !== 'managed') initialization.push(authService.initialize());
+		await Promise.all(initialization);
 	} catch (error) {
 		moduleLog.error('Error during initialization:', error);
 	}

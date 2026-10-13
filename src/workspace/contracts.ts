@@ -33,6 +33,39 @@ export interface HostAdapter {
 	onContextInvalidated(listener: () => void): () => void;
 }
 
+export interface WorkspaceCatalogProject {
+	readonly id: string;
+	readonly name: string;
+	readonly description: string;
+	readonly repositoryLabel: string;
+	readonly contentType: string;
+	readonly defaultRef: string;
+	readonly updatedAt?: number;
+	readonly private: boolean;
+	readonly access: 'owner' | 'collaborator';
+	readonly openIntent: Readonly<Record<string, string>>;
+}
+
+export type WorkspaceCatalogPage =
+	| { readonly status: 'anonymous'; readonly projects: readonly [] }
+	| {
+		readonly status: 'authenticated';
+		readonly accountLabel: string;
+		readonly projects: readonly WorkspaceCatalogProject[];
+		readonly page: number;
+		readonly hasMore: boolean;
+	};
+
+/** Optional remote metadata listing. Opening still goes through HostAdapter. */
+export interface WorkspaceProjectCatalog {
+	isEnabled(): boolean;
+	subscribe(listener: () => void): () => void;
+	listPage(
+		request: { readonly page: number; readonly pageSize: number },
+		signal: AbortSignal,
+	): Promise<WorkspaceCatalogPage>;
+}
+
 export interface GitHttpRequest {
 	readonly url: string;
 	readonly method: 'GET' | 'POST';
@@ -149,6 +182,7 @@ export interface AssetPwaConfiguration {
 
 export interface WorkspaceExtensions {
 	readonly host?: HostAdapter;
+	readonly catalog?: WorkspaceProjectCatalog;
 	readonly git?: GitTransport;
 	readonly collaboration?: CollaborationAdapter;
 	readonly snapshots?: SourceSnapshotProvider;

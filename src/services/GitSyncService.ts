@@ -24,6 +24,22 @@ type GitTreeMode = '100644' | '100755' | '040000' | '160000' | '120000';
 
 let gitPromise: Promise<typeof import('isomorphic-git')> | null = null;
 const getGit = () => (gitPromise ??= import('isomorphic-git'));
+let smartHttpPromise: Promise<typeof import('isomorphic-git/http/web')> | null = null;
+const getSmartHttp = async (signal?: AbortSignal) => {
+	const web = await (smartHttpPromise ??= import('isomorphic-git/http/web'));
+	return {
+		request: (request: Parameters<typeof web.request>[0]) =>
+			web.request({
+				...request,
+				fetchOptions: {
+					...request.fetchOptions,
+					credentials: 'include',
+					cache: 'no-store',
+					...(signal ? { signal } : {}),
+				},
+			}),
+	};
+};
 
 export interface GitFetchedRemote {
 	providerName: string;
@@ -487,6 +503,43 @@ class GitSyncService {
 		return next;
 	}
 
+	async bindBrowserSessionRemote(
+		projectId: string,
+		config: Pick<
+			GitRemoteConfig,
+			'providerId' | 'repositoryId' | 'repositoryLabel' | 'branch' | 'readOnly'
+		>,
+		syncBase?: GitRemoteConfig['syncBase'],
+	): Promise<void> {
+		const provider = await this.getProvider(config.providerId);
+		if (!provider?.usesBrowserSession || !provider.smartHttp) {
+			throw new Error('The managed Git provider is unavailable');
+		}
+		if (provider.isEnabled && !provider.isEnabled()) {
+			throw new Error(`${provider.displayName} integration is disabled`);
+		}
+		if (!(await provider.testConnection(''))) {
+			throw new Error('The current Gitea browser session is unavailable');
+		}
+		const existing = this.getConfig(projectId);
+		const preservedBase =
+			existing?.managed &&
+			existing.providerId === config.providerId &&
+			existing.repositoryId === config.repositoryId &&
+			existing.branch === config.branch
+				? existing.syncBase
+				: undefined;
+		this.setConfig(projectId, {
+			...config,
+			providerName: provider.displayName,
+			credentialSource: 'history',
+			managed: true,
+			...(syncBase ?? preservedBase
+				? { syncBase: syncBase ?? preservedBase }
+				: {}),
+		});
+	}
+
 	async getCredentialOptions(
 		providerId: string,
 		projectId: string,
@@ -570,6 +623,9 @@ class GitSyncService {
 	): Promise<void> {
 		const provider = await this.getProvider(config.providerId);
 		if (!provider) throw new Error('Git remote provider is not available');
+		if (provider.usesBrowserSession) {
+			throw new Error('This Git remote is managed by the current workspace');
+		}
 
 		let token = credential.token.trim();
 		let credentialSource: GitHistoryCredentialSource;
@@ -667,14 +723,21 @@ class GitSyncService {
 				`The ${config.providerName ?? config.providerId} Git Extra is not available`,
 			);
 		}
+		if (provider.isEnabled && !provider.isEnabled()) {
+			throw new Error(`${provider.displayName} integration is disabled`);
+		}
 		const apiConfiguration =
 			config.apiConfiguration ?? provider.getApiConfiguration?.();
-		if (!apiConfiguration) {
+		if (!apiConfiguration && !provider.usesBrowserSession) {
 			throw new Error(
 				'Reconnect this Git remote once so its API settings can be saved.',
 			);
 		}
-		provider.applyApiConfiguration?.(apiConfiguration);
+		if (apiConfiguration) provider.applyApiConfiguration?.(apiConfiguration);
+
+		if (provider.usesBrowserSession) {
+			return { config, provider, token: '' };
+		}
 
 		const credentialRef =
 			config.credentialRef ??
@@ -1181,41 +1244,12 @@ class GitSyncService {
 		document.dispatchEvent(new CustomEvent('git-history-changed'));
 	}
 
-	async fetchForMerge(
+	private async createFetchedBranch(
 		projectId: string,
-		secrets: GitSecretReader,
-	): Promise<GitFetchedRemote | null> {
-		const transport = await this.resolveTransport(projectId, secrets);
-		const remoteOid = await transport.provider.historyTransport.getHead(
-			transport.token,
-			transport.config.repositoryId,
-			transport.config.branch,
-		);
-		if (!remoteOid) return null;
-
-		if (!(await gitService.isInitialized(projectId))) {
-			await gitService.initialize(projectId);
-		}
-		const localHead = await gitService.getHeadOid(projectId);
-		if (localHead && (await gitService.getChanges(projectId)).length > 0) {
-			throw new Error(
-				'Commit or restore the current changes before pulling from a remote',
-			);
-		}
-		const remoteToLocal = new Map<string, string>();
-		if (transport.config.syncBase) {
-			remoteToLocal.set(
-				transport.config.syncBase.remoteOid,
-				transport.config.syncBase.localOid,
-			);
-		}
-		const localOid = await this.importRemoteCommit(
-			projectId,
-			transport,
-			remoteOid,
-			remoteToLocal,
-		);
-
+		transport: ResolvedTransport,
+		remoteOid: string,
+		localOid: string,
+	): Promise<GitFetchedRemote> {
 		const git = await getGit();
 		const { fileSystem, options } = this.repo(projectId);
 		const branchPart = safeRefPart(transport.config.branch);
@@ -1244,6 +1278,88 @@ class GitSyncService {
 		};
 	}
 
+	private async fetchSmartHttp(
+		projectId: string,
+		transport: ResolvedTransport,
+		signal?: AbortSignal,
+	): Promise<GitFetchedRemote | null> {
+		const smartHttp = transport.provider.smartHttp;
+		if (!smartHttp) return null;
+		const git = await getGit();
+		const http = await getSmartHttp(signal);
+		const { fileSystem, options } = this.repo(projectId);
+		const repositoryUrl = smartHttp.repositoryUrl(
+			transport.config.repositoryId,
+		);
+		await git.addRemote({
+			...options,
+			remote: 'rinspace',
+			url: repositoryUrl,
+			force: true,
+		});
+		const result = await git.fetch({
+			...options,
+			http,
+			url: repositoryUrl,
+			remote: 'rinspace',
+			ref: transport.config.branch,
+			remoteRef: transport.config.branch,
+			singleBranch: true,
+			tags: false,
+			prune: false,
+		});
+		await fileSystem.flush();
+		if (!result.fetchHead) return null;
+		return this.createFetchedBranch(
+			projectId,
+			transport,
+			result.fetchHead,
+			result.fetchHead,
+		);
+	}
+
+	async fetchForMerge(
+		projectId: string,
+		secrets: GitSecretReader,
+		signal?: AbortSignal,
+	): Promise<GitFetchedRemote | null> {
+		const transport = await this.resolveTransport(projectId, secrets);
+		const remoteOid = await transport.provider.historyTransport.getHead(
+			transport.token,
+			transport.config.repositoryId,
+			transport.config.branch,
+		);
+		if (!remoteOid) return null;
+		if (!(await gitService.isInitialized(projectId))) {
+			await gitService.initialize(projectId);
+		}
+		const localHead = await gitService.getHeadOid(projectId);
+		if (localHead && (await gitService.getChanges(projectId)).length > 0) {
+			throw new Error(
+				'Commit or restore the current changes before pulling from a remote',
+			);
+		}
+		if (transport.provider.smartHttp) {
+			return this.fetchSmartHttp(projectId, transport, signal);
+		}
+
+		const remoteToLocal = new Map<string, string>();
+		if (transport.config.syncBase) {
+			remoteToLocal.set(
+				transport.config.syncBase.remoteOid,
+				transport.config.syncBase.localOid,
+			);
+		}
+		const localOid = await this.importRemoteCommit(
+			projectId,
+			transport,
+			remoteOid,
+			remoteToLocal,
+		);
+
+		return this.createFetchedBranch(projectId, transport, remoteOid, localOid);
+	}
+
 	async discardFetched(
 		projectId: string,
 		temporaryBranch: string,
@@ -1261,9 +1377,16 @@ class GitSyncService {
 	async adoptFetched(
 		projectId: string,
 		fetched: GitFetchedRemote,
+		adoption: { preserveWorktree?: boolean; baseOid?: string; branch?: string } = {},
 	): Promise<void> {
 		if (await gitService.getHeadOid(projectId)) {
 			throw new Error('Remote adoption is only for an empty local Git history');
+		}
+		const adoptedOid = adoption.baseOid ?? fetched.localOid;
+		if (!(await this.hasCommit(projectId, adoptedOid))) {
+			throw new Error(
+				`The managed workspace base ${adoptedOid} is no longer available from the repository`,
+			);
 		}
 		const previous = fileHandlerService.hasWorkspace()
 			? await fileStoreService.getAllFiles(false, false, true)
@@ -1271,13 +1394,31 @@ class GitSyncService {
 		const git = await getGit();
 		const { fileSystem, options } = this.repo(projectId);
 		const currentBranch =
+			adoption.branch ||
 			(await gitService.getCurrentBranch(projectId)) ||
 			fetched.remoteBranch ||
 			'main';
+		if (adoptedOid !== fetched.localOid) {
+			await git.writeRef({
+				...options,
+				ref: `refs/heads/${fetched.temporaryBranch}`,
+				value: adoptedOid,
+				force: true,
+			});
+		}
+		if (!adoption.preserveWorktree) {
+			await git.checkout({
+				...options,
+				ref: fetched.temporaryBranch,
+				noUpdateHead: true,
+				force: true,
+				nonBlocking: true,
+			});
+		}
 		await git.writeRef({
 			...options,
 			ref: `refs/heads/${currentBranch}`,
-			value: fetched.localOid,
+			value: adoptedOid,
 			force: true,
 		});
 		await git.writeRef({
@@ -1287,16 +1428,10 @@ class GitSyncService {
 			force: true,
 			symbolic: true,
 		});
-		await git.checkout({
-			...options,
-			ref: currentBranch,
-			force: true,
-			nonBlocking: true,
-		});
 		await git.writeRef({
 			...options,
 			ref: WORKTREE_BASE_REF,
-			value: fetched.localOid,
+			value: adoptedOid,
 			force: true,
 		});
 		await fileSystem.flush();
@@ -1321,6 +1456,114 @@ class GitSyncService {
 		});
 	}
 
+	private async pushSmartHttp(
+		projectId: string,
+		transport: ResolvedTransport,
+		localBranch: string,
+		headOid: string,
+		remoteHead: string | null,
+	): Promise<GitPushSummary> {
+		if (transport.config.readOnly) {
+			throw new Error('The current repository permission does not allow Push');
+		}
+		const syncBase = transport.config.syncBase;
+		let localBaseOid: string | null = null;
+		if (syncBase) {
+			if (remoteHead !== syncBase.remoteOid) {
+				throw new Error(
+					'Remote branch changed since the last synchronization. Pull first.',
+				);
+			}
+			localBaseOid = syncBase.localOid;
+		} else if (remoteHead) {
+			if (await this.hasCommit(projectId, remoteHead)) localBaseOid = remoteHead;
+			else {
+				throw new Error(
+					'Pull this remote once before pushing so TeXlyre can establish a synchronization base.',
+				);
+			}
+		}
+		const missing = await this.missingCommits(
+			projectId,
+			headOid,
+			localBaseOid,
+			true,
+			true,
+		);
+		if (missing.length === 0) {
+			if (remoteHead) {
+				this.setSyncBase(projectId, { localOid: headOid, remoteOid: remoteHead });
+			}
+			return {
+				providerName:
+					transport.config.providerName ?? transport.config.providerId,
+				repositoryLabel: transport.config.repositoryLabel,
+				localBranch,
+				remoteBranch: transport.config.branch,
+				previousLocalOid: headOid,
+				canonicalOid: headOid,
+				pushedCommits: 0,
+			};
+		}
+
+		const git = await getGit();
+		const http = await getSmartHttp();
+		const { fileSystem, options } = this.repo(projectId);
+		let pushFailure: unknown;
+		try {
+			const result = await git.push({
+				...options,
+				http,
+				url: transport.provider.smartHttp!.repositoryUrl(
+					transport.config.repositoryId,
+				),
+				ref: localBranch,
+				remoteRef: transport.config.branch,
+				force: false,
+			});
+			if (!result.ok) {
+				throw new Error(result.error || 'Gitea rejected the Git Push');
+			}
+		} catch (error) {
+			pushFailure = error;
+		}
+		await fileSystem.flush();
+
+		const confirmedRemoteHead =
+			await transport.provider.historyTransport.getHead(
+				transport.token,
+				transport.config.repositoryId,
+				transport.config.branch,
+			);
+		if (confirmedRemoteHead !== headOid) {
+			if (pushFailure) {
+				throw new Error(
+					confirmedRemoteHead !== remoteHead
+						? 'The Push result is uncertain and the remote branch moved. Pull and inspect history before pushing again.'
+						: pushFailure instanceof Error
+							? pushFailure.message
+							: 'Gitea rejected the Git Push',
+					{ cause: pushFailure },
+				);
+			}
+			throw new Error(
+				'The remote branch did not resolve to the pushed commit. Pull before pushing again.',
+			);
+		}
+
+		this.setSyncBase(projectId, { localOid: headOid, remoteOid: headOid });
+		return {
+			providerName:
+				transport.config.providerName ?? transport.config.providerId,
+			repositoryLabel: transport.config.repositoryLabel,
+			localBranch,
+			remoteBranch: transport.config.branch,
+			previousLocalOid: headOid,
+			canonicalOid: headOid,
+			pushedCommits: missing.length,
+		};
+	}
+
 	async push(
 		projectId: string,
 		secrets: GitSecretReader,
@@ -1339,6 +1582,15 @@ class GitSyncService {
 			transport.config.repositoryId,
 			transport.config.branch,
 		);
+		if (transport.provider.smartHttp) {
+			return this.pushSmartHttp(
+				projectId,
+				transport,
+				localBranch,
+				headOid,
+				remoteHead,
+			);
+		}
 
 		const syncBase = transport.config.syncBase;
 		let localBaseOid: string | null = null;

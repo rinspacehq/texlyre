@@ -3,6 +3,7 @@ import { BusyTexRunner } from 'texlyre-busytex';
 import type { FileInput, TexliveRemoteFile } from 'texlyre-busytex';
 
 import { createNamedLogger } from '@/logging';
+import { cacheBusyTeXRuntimeWasm } from './BusyTeXRuntimeCache';
 import type { CompileResult } from '../../types/compilation';
 import type { FileNode } from '../../types/files';
 import { isTemporaryFile, toArrayBuffer } from '../../utils/fileUtils';
@@ -111,6 +112,17 @@ export class BusyTeXEngine {
 					);
 				},
 			});
+
+			if (this.useWorker) {
+				try {
+					await cacheBusyTeXRuntimeWasm(this.busytexBasePath);
+				} catch (error) {
+					moduleLog.warn(
+						'Could not prepare the BusyTeX WASM offline cache; continuing with the normal worker request',
+						error,
+					);
+				}
+			}
 
 			await this.runner.initialize(this.useWorker);
 			this.setStatus('ready');

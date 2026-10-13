@@ -14,10 +14,14 @@ import type {
 } from '../types/projects';
 import { generateRandomColor } from '../utils/colorUtils';
 import { cleanupProjectDatabases } from '../utils/dbDeleteUtils';
-import { generateYjsProjectId } from '../utils/urlUtils';
+import { generateYjsProjectId, isValidYjsProjectId } from '../utils/urlUtils';
 import { getUserDataKey } from '../utils/userDataUtils';
 import { diskBackupService } from './DiskBackupService';
-import { createLocalProfile, preserveGuestAsLocalProfile } from '../workspace/LocalProfile';
+import {
+	createLocalProfile,
+	managedLocalProfileScope,
+	preserveGuestAsLocalProfile,
+} from '../workspace/LocalProfile';
 import { getStartupIntent } from '../workspace/RuntimeStartup';
 import { allowsAutomaticConnections } from '../workspace/StartupPolicy';
 
@@ -37,18 +41,32 @@ export class AuthService {
 	private persistentLocalProfile = false;
 	private initialization: Promise<void> | null = null;
 
-	initialize(options: { persistentLocalProfile?: boolean } = {}): Promise<void> {
+	initialize(
+		options: {
+			persistentLocalProfile?: boolean;
+			managedActorId?: string;
+		} = {},
+	): Promise<void> {
 		if (this.initialization) return this.initialization;
 		const intent = getStartupIntent();
-		if (intent.mode !== 'local-unbound') return Promise.reject(new Error('Local profile unavailable for this workspace mode.'));
-		this.persistentLocalProfile = options.persistentLocalProfile ?? intent.persistentProfile;
-		this.initialization = this.initializeDatabase().finally(() => {
+		if (intent.mode === 'invalid') {
+			return Promise.reject(new Error('Local profile unavailable for this workspace mode.'));
+		}
+		this.persistentLocalProfile =
+			intent.mode === 'managed' ||
+			(options.persistentLocalProfile ?? intent.persistentProfile);
+		this.initialization = (async () => {
+			const profileScope = options.managedActorId
+				? await managedLocalProfileScope(options.managedActorId)
+				: 'standalone';
+			await this.initializeDatabase(profileScope);
+		})().finally(() => {
 			this.initialization = null;
 		});
 		return this.initialization;
 	}
 
-	private async initializeDatabase(): Promise<void> {
+	private async initializeDatabase(profileScope: string): Promise<void> {
 		try {
 			this.db ??= await openDB(this.DB_NAME, this.DB_VERSION, {
 				upgrade: (db, _oldVersion, _newVersion) => {
@@ -76,7 +94,7 @@ export class AuthService {
 
 			// Preserve guests before either restoration or the upstream expiry sweep.
 			if (this.persistentLocalProfile) {
-				await this.restorePersistentLocalProfile();
+				await this.restorePersistentLocalProfile(profileScope);
 				return;
 			}
 
@@ -113,7 +131,9 @@ export class AuthService {
 		}
 	}
 
-	private async restorePersistentLocalProfile(): Promise<void> {
+	private async restorePersistentLocalProfile(
+		profileScope = 'standalone',
+	): Promise<void> {
 		if (!this.db) throw new Error(t('Database not initialized'));
 		const currentId = localStorage.getItem('texlyre-current-user');
 		const localId = localStorage.getItem('texlyre-local-profile');
@@ -126,14 +146,38 @@ export class AuthService {
 			if (users[index].isGuest) await tx.store.put(preserved[index]);
 		}
 		// Keep owner IDs, preferences, registered profiles and project databases intact.
-		const user = preserved.find((entry) => entry.id === currentId)
-			?? preserved.find((entry) => entry.id === localId && entry.isLocalProfile)
-			?? preserved.find((entry) => entry.isLocalProfile)
-			?? createLocalProfile(`local_${crypto.randomUUID()}`, Date.now());
+		const matchesScope = (entry: User) =>
+			entry.isLocalProfile &&
+			(entry.localProfileScope ?? 'standalone') === profileScope;
+		let user = preserved.find(
+			(entry) =>
+				entry.id === currentId &&
+				(matchesScope(entry) ||
+					(profileScope === 'standalone' &&
+						!entry.isGuest &&
+						!entry.isLocalProfile)),
+		)
+			?? (profileScope === 'standalone'
+				? preserved.find(
+					(entry) => entry.id === localId && matchesScope(entry),
+				)
+				: undefined)
+			?? preserved.find(matchesScope);
+		if (!user) {
+			const baseId = `local_${crypto.randomUUID()}`;
+			let candidateId = baseId;
+			let suffix = 1;
+			while (preserved.some((entry) => entry.id === candidateId)) {
+				candidateId = `${baseId}_${suffix++}`;
+			}
+			user = createLocalProfile(candidateId, Date.now(), profileScope);
+		}
 		if (!preserved.some((entry) => entry.id === user.id)) await tx.store.add(user);
 		await tx.done;
 		// A durable transaction, not an individual request, acknowledges the profile.
-		if (user.isLocalProfile) localStorage.setItem('texlyre-local-profile', user.id);
+		if (user.isLocalProfile && profileScope === 'standalone') {
+			localStorage.setItem('texlyre-local-profile', user.id);
+		}
 		localStorage.setItem('texlyre-current-user', user.id);
 		this.currentUser = user;
 	}
@@ -640,11 +684,17 @@ export class AuthService {
 			throw new Error('User not authenticated');
 		}
 
-		const projectId = project.docUrl
+		const projectId = project.id ?? (project.docUrl
 			? project.docUrl.startsWith('yjs:')
 				? project.docUrl.slice(4)
 				: project.docUrl
-			: generateYjsProjectId();
+			: generateYjsProjectId());
+		if (project.id && !isValidYjsProjectId(projectId)) {
+			throw new Error('Invalid project identity');
+		}
+		if (project.id && (await db.get(this.PROJECT_STORE, projectId))) {
+			throw new Error('Project already exists');
+		}
 
 		const docUrl =
 			project.docUrl ||

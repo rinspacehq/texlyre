@@ -13,14 +13,14 @@ const file = (path, bytes = new Uint8Array([1, 2, 3]), mode = '100644') => ({ pa
 test('unhosted mode has no extensions and no implicit server dependency', () => {
 	assert.deepEqual(new WorkspaceExtensionRegistry().getExtensions(), {});
 });
-test('all seven hooks can be registered without changing upstream providers', () => {
+test('all eight hooks can be registered without changing upstream providers', () => {
 	const registry = new WorkspaceExtensionRegistry();
 	registry.register(extension('host', { host }));
-	for (const name of ['git', 'collaboration', 'snapshots', 'recovery', 'actions', 'assets']) {
+	for (const name of ['catalog', 'git', 'collaboration', 'snapshots', 'recovery', 'actions', 'assets']) {
 		registry.register(extension(name, { [name]: { marker: name } }));
 	}
 	assert.equal(registry.getExtensions().host, host);
-	assert.equal(Object.keys(registry.getExtensions()).length, 7);
+	assert.equal(Object.keys(registry.getExtensions()).length, 8);
 	assert.ok(Object.isFrozen(registry.getExtensions()));
 });
 test('conflicting registration is atomic and cannot replace the host', () => {

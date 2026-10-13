@@ -1,10 +1,19 @@
 import {
     isTemporaryFile,
+    isBinaryFile,
     arrayBufferToString,
     toArrayBuffer,
 } from '@src/utils/fileUtils';
 
 describe('File Utils', () => {
+    describe('isBinaryFile', () => {
+        it('keeps Quiver TikZ-CD sources editable as text', () => {
+            expect(isBinaryFile('/assets/quiver/diagram.tikzcd')).toBe(false);
+            expect(isBinaryFile('/assets/quiver/diagram.pending.tikzcd')).toBe(false);
+            expect(isBinaryFile('/assets/quiver/diagram.svg')).toBe(true);
+        });
+    });
+
     describe('isTemporaryFile', () => {
         it('should identify temporary files', () => {
             expect(isTemporaryFile('/.texlyre-cache/file.aux')).toBe(true);

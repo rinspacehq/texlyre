@@ -3,6 +3,7 @@ import type React from 'react';
 import { type ReactNode, createContext, useEffect, useState } from 'react';
 
 import { authService } from '../services/AuthService';
+import { pluginRegistry } from '../plugins/PluginRegistry';
 import { getStartupIntent } from '../workspace/RuntimeStartup';
 import type { AuthContextType, User } from '../types/auth';
 import type {
@@ -55,10 +56,10 @@ export const AuthContext = createContext<AuthContextType>({
 	getProjectsByTag: async () => {
 		throw new Error('Not implemented');
 	},
-	getProjectsByGroup: async (group: ProjectGroup) => {
+	getProjectsByGroup: async (_group: ProjectGroup) => {
 		throw new Error('Not implemented');
 	},
-	getProjectsByType: async (type: ProjectType) => {
+	getProjectsByType: async (_type: ProjectType) => {
 		throw new Error('Not implemented');
 	},
 	searchProjects: async () => {
@@ -90,15 +91,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
 	useEffect(() => {
 		let active = true;
+		const controller = new AbortController();
 		const initAuth = async () => {
 			try {
 				const intent = getStartupIntent();
-				if (intent.mode !== 'local-unbound') {
-					throw new Error(intent.mode === 'managed'
-						? 'Managed workspace requires a verified host adapter; local fallback is disabled.'
-						: 'Invalid workspace mode.');
+				if (intent.mode === 'invalid') {
+					throw new Error('Invalid workspace mode.');
 				}
-				await authService.initialize({ persistentLocalProfile: intent.persistentProfile });
+				await authService.initialize({ persistentLocalProfile: true });
+				if (intent.mode === 'managed') {
+					const host = pluginRegistry.getWorkspaceExtensions().host;
+					if (!host) {
+						throw new Error(
+							'Managed workspace requires the packaged Rinspace plugin.',
+						);
+					}
+					const parameters = Object.fromEntries(
+						new URLSearchParams(window.location.search).entries(),
+					);
+					const context = await host.open(parameters, controller.signal);
+					if (context.mode !== 'managed') {
+						throw new Error('Managed workspace identity was not verified.');
+					}
+				}
 				if (active) setUser(authService.getCurrentUser());
 			} catch (error) {
 				if (active) setInitializationError(error instanceof Error ? error.message : 'Local workspace initialization failed.');
@@ -108,7 +123,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 		};
 
 		void initAuth();
-		return () => { active = false; };
+		return () => {
+			active = false;
+			controller.abort();
+		};
 	}, []);
 
 	const login = async (username: string, password: string): Promise<User> => {

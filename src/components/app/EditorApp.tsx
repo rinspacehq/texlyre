@@ -29,7 +29,7 @@ import type { DocumentList } from '../../types/documents';
 import type { YjsDocUrl } from '../../types/yjs';
 import type { TypstOutputFormat } from '../../types/typst';
 import type { LaTeXEngine } from '../../types/latex';
-import type { ProjectType, ProjectGroup } from '../../types/projects';
+import type { Project, ProjectType, ProjectGroup } from '../../types/projects';
 import BackupModal from '../backup/BackupModal';
 import BackupStatusIndicator from '../backup/BackupStatusIndicator';
 import ChatPanel from '../chat/ChatPanel';
@@ -160,15 +160,64 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 	const projectType = doc?.projectMetadata?.type || 'latex';
 	const projectTypeKnown = doc?.projectMetadata?.type !== undefined;
 	const projectCompilerId = doc?.projectMetadata?.compilerId;
-	const activeTypesetterProvider = typesetterRegistryService.resolve(
-		projectType,
-		projectCompilerId,
-	);
+	const managedBuild = doc?.projectMetadata?.managedBuild;
+	const selectedFileName =
+		linkedFileInfo?.filePath ?? targetFilePath ?? selectedDocument?.name;
+	const selectedFileExtension = selectedFileName?.split('.').pop() ?? '';
+	const selectedFileProvider =
+		projectType === 'files' && !managedBuild && selectedFileExtension
+			? typesetterRegistryService.getForExtension(selectedFileExtension)
+			: undefined;
+	const managedProvider =
+		managedBuild?.status === 'valid' &&
+		(managedBuild.format === 'latex' || managedBuild.format === 'typst')
+			? typesetterRegistryService.resolve(managedBuild.format)
+			: undefined;
+	const effectiveProjectType = managedBuild
+		? managedBuild.status === 'valid'
+			? managedBuild.format
+			: 'files'
+		: selectedFileProvider?.projectType ?? projectType;
+	const activeTypesetterProvider =
+		managedBuild
+			? managedProvider
+			: selectedFileProvider ??
+				typesetterRegistryService.resolve(projectType, projectCompilerId);
 	const externalAutoCompileOnOpen =
 		(getSetting('external-typesetter-auto-compile-on-open')
 			?.value as boolean) ?? false;
 
 	useGlobalKeyboard();
+
+	useEffect(() => {
+		const updateManagedPreview = (event: Event) => {
+			const detail = (event as CustomEvent<{
+				workspaceId: string;
+				managedBuild: NonNullable<Project['managedBuild']>;
+			}>).detail;
+			if (
+				!detail ||
+				detail.workspaceId !== sessionStorage.getItem('currentProjectId')
+			) return;
+			changeDoc((draft) => {
+				if (!draft.projectMetadata) {
+					draft.projectMetadata = { name: '', description: '' };
+				}
+				draft.projectMetadata.type = 'files';
+				draft.projectMetadata.group = 'files';
+				draft.projectMetadata.managedBuild = detail.managedBuild;
+				draft.projectMetadata.mainFile =
+					detail.managedBuild.status === 'valid'
+						? `/${detail.managedBuild.entry}`
+						: undefined;
+			});
+		};
+		document.addEventListener('workspace-preview-configuration', updateManagedPreview);
+		return () => document.removeEventListener(
+			'workspace-preview-configuration',
+			updateManagedPreview,
+		);
+	}, [changeDoc]);
 
 	const updateContent = (docId: string, content: string) => {
 		changeDoc((d) => {
@@ -370,7 +419,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 			if (isCompiling || isTypstCompiling) return;
 
 			const buttonSelectors =
-				projectType === 'typst'
+				effectiveProjectType === 'typst'
 					? [
 							'.header-typst-compile-button .compile-button',
 							'.header-compile-button .compile-button',
@@ -387,12 +436,14 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 			if (isCompiling || isTypstCompiling) return;
 
 			const containerSelectors =
-				projectType === 'typst'
+				effectiveProjectType === 'typst'
 					? ['.header-typst-compile-button', '.header-compile-button']
 					: ['.header-compile-button', '.header-typst-compile-button'];
 
 			for (const selector of containerSelectors) {
-				const container = document.querySelector(selector) as any;
+				const container = document.querySelector(selector) as
+					| (Element & { clearAndCompile?: () => void })
+					| null;
 				if (container && container.clearAndCompile) {
 					container.clearAndCompile();
 					return;
@@ -443,7 +494,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 			);
 			document.removeEventListener('trigger-typst-compile', handleTypstCompile);
 		};
-	}, [isCompiling, isTypstCompiling, projectType]);
+	}, [isCompiling, isTypstCompiling, effectiveProjectType]);
 
 	useEffect(() => {
 		if (!hasDoc || !activeTypesetterProvider) return;
@@ -512,6 +563,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 		if (targetFilePath) return;
 		if (doc?.currentDocId === undefined) return;
 
+		// eslint-disable-next-line react-hooks/set-state-in-effect -- Mirror the selected collaborative document into local UI state.
 		setLocalDocId(doc.currentDocId);
 	}, [doc?.currentDocId, targetDocId, targetFilePath]);
 
@@ -521,6 +573,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 
 		const targetDoc = doc.documents.find((d) => d.id === targetDocId);
 		if (targetDoc) {
+			// eslint-disable-next-line react-hooks/set-state-in-effect -- Apply a URL-selected collaborative document after it arrives.
 			handleSelectDocument(targetDocId);
 		}
 	}, [doc, targetDocId, handleSelectDocument]);
@@ -632,7 +685,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 			);
 		}
 
-		if (projectType === 'typst') {
+		if (effectiveProjectType === 'typst') {
 			return (
 				<>
 					{typstButtons[0]}
@@ -641,7 +694,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 			);
 		}
 
-		if (projectType === 'latex') {
+		if (effectiveProjectType === 'latex') {
 			return (
 				<>
 					{latexButtons[0]}
@@ -722,7 +775,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 					)}
 				</div>
 				<div className='header-right scroll-x ui-actions' ref={headerRightRef}>
-					<CompileButtons />
+					{CompileButtons()}
 
 					<ShareProjectButton
 						className='header-share-button'
@@ -757,6 +810,11 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 					/>
 				</div>
 			</header>
+			{managedBuild?.status === 'invalid' && (
+				<div className='ui-message' data-tone='error' data-density='compact'>
+					<strong>rinspace.yaml:</strong> {managedBuild.message}
+				</div>
+			)}
 
 			{doc?.documents && (
 				<FileDocumentController
@@ -778,7 +836,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 					<div className='project-type-badge ui-badge' data-variant='label'>
 						{t('Typesetter: ')}{' '}
 						<TypesetterInfo
-							type={projectType}
+							type={effectiveProjectType}
 							provider={activeTypesetterProvider}
 						/>
 					</div>

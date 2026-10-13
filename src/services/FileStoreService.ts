@@ -27,6 +27,12 @@ export interface FileStorageChange {
 	lastModified?: number;
 }
 
+export interface LocalWriteBaselineRecord {
+	fileId: string;
+	path: string;
+	content: string | ArrayBuffer | null;
+}
+
 type FileStorageListener = (change: FileStorageChange) => void;
 const listeners: FileStorageListener[] = [];
 
@@ -61,7 +67,8 @@ class FileStoreService {
 	public db: IDBPDatabase | null = null;
 	private readonly DB_PREFIX = 'texlyre-project-';
 	private readonly FILES_STORE = 'files';
-	private readonly DB_VERSION = 1;
+	private readonly LOCAL_WRITE_BASELINES_STORE = 'local-write-baselines';
+	private readonly DB_VERSION = 2;
 	private projectId = '';
 	private contentCache = new Map<string, string | ArrayBuffer | null>();
 
@@ -122,6 +129,13 @@ class FileStoreService {
 							keyPath: 'id',
 						});
 						store.createIndex('path', 'path', { unique: false });
+					}
+					if (
+						!db.objectStoreNames.contains(this.LOCAL_WRITE_BASELINES_STORE)
+					) {
+						db.createObjectStore(this.LOCAL_WRITE_BASELINES_STORE, {
+							keyPath: 'fileId',
+						});
 					}
 				},
 			});
@@ -1166,6 +1180,43 @@ class FileStoreService {
 		return this.contentCache.get(id);
 	}
 
+	async rememberLocalWriteBaseline(
+		file: Pick<FileNode, 'id' | 'path'>,
+		content: string | ArrayBuffer | null,
+	): Promise<void> {
+		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const existing = (await db.get(
+			this.LOCAL_WRITE_BASELINES_STORE,
+			file.id,
+		)) as
+			| LocalWriteBaselineRecord
+			| undefined;
+		if (!existing || existing.path !== file.path) {
+			await db.put(this.LOCAL_WRITE_BASELINES_STORE, {
+				fileId: file.id,
+				path: file.path,
+				content: content instanceof ArrayBuffer ? content.slice(0) : content,
+			});
+		}
+	}
+
+	async getLocalWriteBaselines(
+		projectId: string,
+	): Promise<LocalWriteBaselineRecord[]> {
+		if (this.projectId !== projectId || !this.db) {
+			await this.initialize(`yjs:${projectId}`);
+		}
+		return (await this.requireDb().getAll(
+			this.LOCAL_WRITE_BASELINES_STORE,
+		)) as LocalWriteBaselineRecord[];
+	}
+
+	async clearLocalWriteBaseline(fileId: string): Promise<void> {
+		if (!this.db) return;
+		await this.requireDb().delete(this.LOCAL_WRITE_BASELINES_STORE, fileId);
+	}
+
 	setFileContentCache(id: string, content: string | ArrayBuffer | null): void {
 		this.contentCache.set(id, content instanceof ArrayBuffer ? content.slice(0) : content);
 	}
@@ -1181,6 +1232,18 @@ class FileStoreService {
 
 		const wasDeleted = Boolean(file.isDeleted);
 		const previousContent = file.content;
+		const cachedDiskContent = this.contentCache.get(id);
+		const expectedDiskContent = wasDeleted
+			? null
+			: cachedDiskContent === undefined
+				? previousContent
+				: cachedDiskContent;
+		if (
+			fileHandlerService.hasWorkspacePermissionPending(this.projectId) &&
+			expectedDiskContent !== undefined
+		) {
+			await this.rememberLocalWriteBaseline(file, expectedDiskContent);
+		}
 		file.content = content;
 		file.size =
 			typeof content === 'string'
@@ -1203,10 +1266,6 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		const cachedDiskContent = this.contentCache.get(id);
-		const expectedDiskContent = wasDeleted
-			? null
-			: cachedDiskContent === undefined ? previousContent : cachedDiskContent;
 		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
 		const report = await fileHandlerService.mirrorFiles(
 			[file],
@@ -1216,6 +1275,13 @@ class FileStoreService {
 		if (diskWrite?.outcome === 'written' ||
 			(diskWrite?.reason === 'not-linked' && !fileHandlerService.hasWorkspacePermissionPending(this.projectId))) {
 			this.setFileContentCache(id, content);
+		}
+		if (diskWrite?.outcome === 'written') {
+			try {
+				await this.clearLocalWriteBaseline(id);
+			} catch (error) {
+				moduleLog.warn('Failed to clear a completed local-write baseline', error);
+			}
 		}
 
 		fileStorageEventEmitter.emitChange(

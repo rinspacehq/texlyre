@@ -18,6 +18,7 @@ import { PdfTeXEngine } from './PdfTeXEngine';
 import { XeTeXEngine } from './XeTeXEngine';
 
 const moduleLog = createNamedLogger('SwiftLaTeXService');
+const LOCAL_TEXLIVE_ENDPOINT = `${__BASE_PATH__}/core/swiftlatex/texlive`;
 
 export type SwiftEngineType = 'pdftex' | 'xetex' | 'luatex';
 type InternalEngineKey = SwiftEngineType | 'dvipdfmx';
@@ -46,7 +47,7 @@ export interface SwiftExportResult {
 class SwiftLaTeXService {
 	private engines: Map<InternalEngineKey, BaseEngine> = new Map();
 	private currentEngineType: SwiftEngineType = 'pdftex';
-	private texliveEndpoint = '';
+	private texliveEndpoint = LOCAL_TEXLIVE_ENDPOINT;
 	private storeCache = true;
 	private storeWorkingDirectory = false;
 	private flattenMainDirectory = true;
@@ -60,7 +61,9 @@ class SwiftLaTeXService {
 	}
 
 	setTexliveEndpoint(endpoint: string): void {
-		this.texliveEndpoint = endpoint;
+		// SwiftLaTeX treats an empty endpoint as its own external default.
+		// Keep an unconfigured release on the application origin instead.
+		this.texliveEndpoint = endpoint.trim() || LOCAL_TEXLIVE_ENDPOINT;
 	}
 	setStoreCache(store: boolean): void {
 		this.storeCache = store;

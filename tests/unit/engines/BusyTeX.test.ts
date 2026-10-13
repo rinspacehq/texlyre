@@ -1,12 +1,21 @@
 import { BusyTeXEngine } from '@src/extensions/texlyre-busytex/BusyTeXEngine';
-import { busyTexService, BUSYTEX_BUNDLE_URLS } from '@src/extensions/texlyre-busytex/BusyTeXService';
+import {
+    busyTexService,
+    BUSYTEX_BUNDLE_URLS,
+} from '@src/extensions/texlyre-busytex/BusyTeXService';
 import { latexSourceMapService } from '@src/services/LaTeXSourceMapService';
 import { fileStoreService } from '@src/services/FileStoreService';
 import type { FileNode } from '@src/types/files';
+import {
+    hasRinspaceCjkPackageSet,
+    loadRinspaceCjkPackageSet,
+    needsRinspaceCjkPackageSet,
+} from '@src/extensions/texlyre-busytex/RinspaceCjkPackageSet';
 
 jest.mock('texlyre-busytex');
 jest.mock('@src/services/FileStoreService');
 jest.mock('@src/services/LaTeXSourceMapService');
+jest.mock('@src/extensions/texlyre-busytex/RinspaceCjkPackageSet');
 
 const { BusyTexRunner, isPackageCached, deletePackageCache } = require('texlyre-busytex');
 
@@ -32,6 +41,7 @@ function makeFileNode(overrides: Partial<FileNode> = {}): FileNode {
 beforeEach(() => {
     jest.clearAllMocks();
     busyTexService.terminate();
+    busyTexService.setTexliveEndpoint('');
 
     (fileStoreService.getFileByPath as jest.Mock).mockResolvedValue(null);
     (fileStoreService.getFilesByPath as jest.Mock).mockResolvedValue([]);
@@ -39,6 +49,9 @@ beforeEach(() => {
     (fileStoreService.batchStoreFiles as jest.Mock).mockResolvedValue(undefined);
     (latexSourceMapService.loadFromBytes as jest.Mock) = jest.fn();
     (latexSourceMapService.clear as jest.Mock) = jest.fn();
+    (needsRinspaceCjkPackageSet as jest.Mock).mockReturnValue(false);
+    (hasRinspaceCjkPackageSet as jest.Mock).mockResolvedValue(false);
+    (loadRinspaceCjkPackageSet as jest.Mock).mockResolvedValue([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -107,6 +120,43 @@ describe('BusyTeXEngine', () => {
     });
 
     describe('compile', () => {
+		it('injects the fixed CJK set once when a blank endpoint needs it', async () => {
+			const fixedFiles = [
+				{ name: 'ctexart.cls', format: 26, content: new Uint8Array([1]) },
+			];
+			(needsRinspaceCjkPackageSet as jest.Mock).mockReturnValue(true);
+			(loadRinspaceCjkPackageSet as jest.Mock).mockResolvedValue(fixedFiles);
+			await busyTexService.initialize('busytex-xetex');
+			const runner = makeRunner();
+
+			await busyTexService.compile('main.tex', [makeFileNode()]);
+			await busyTexService.compile('main.tex', [makeFileNode()]);
+
+			expect(loadRinspaceCjkPackageSet).toHaveBeenCalledTimes(1);
+			expect(runner.writeTexliveRemoteFiles).toHaveBeenCalledWith(fixedFiles);
+			expect(runner.compile.mock.calls[0][9]).toBeUndefined();
+		});
+
+		it('reuses a complete verified persisted CJK set without fetching assets', async () => {
+			(fileStoreService.getFilesByPath as jest.Mock).mockResolvedValue([
+				{
+					name: '26_ctexart.cls',
+					content: new Uint8Array([1]).buffer,
+					isDeleted: false,
+				},
+			]);
+			(needsRinspaceCjkPackageSet as jest.Mock).mockReturnValue(true);
+			(hasRinspaceCjkPackageSet as jest.Mock).mockResolvedValue(true);
+			await busyTexService.initialize('busytex-xetex');
+
+			await busyTexService.compile('main.tex', [makeFileNode()]);
+
+			expect(hasRinspaceCjkPackageSet).toHaveBeenCalledWith([
+				expect.objectContaining({ name: 'ctexart.cls', format: 26 }),
+			]);
+			expect(loadRinspaceCjkPackageSet).not.toHaveBeenCalled();
+		});
+
         it('returns pdf and status on success', async () => {
             const engine = new BusyTeXEngine();
             await engine.initialize('busytex-xetex');

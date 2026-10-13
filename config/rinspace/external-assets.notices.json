@@ -1,0 +1,69 @@
+{
+  "schema": "texlyre-external-asset-notices/v1",
+  "stage": "source-candidate-review",
+  "productionAccepted": false,
+  "summary": "Every runtime archive is byte-locked separately. This review records the exact license source and whether the installed browser tree carries the required material; a missing artifact notice is a release blocker, not an inferred approval.",
+  "assets": [
+    {
+      "id": "drawio-embed",
+      "sourceCommit": "0e54912af644e59966900f4904eb81d59ab2d094",
+      "declaredLicense": "Apache-2.0",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/drawio-embed-mirror/0e54912af644e59966900f4904eb81d59ab2d094/README.md",
+      "reviewedNoticeSha256": "87094949e143170c1c19168cb5d0b44f5f5e85466434f381275209f6f2fe01f0",
+      "artifactNotice": "missing",
+      "releaseDecision": "blocked-until-license-text-is-included"
+    },
+    {
+      "id": "tikz-editor",
+      "sourceCommit": "b98714d3584ee849178f19cf44c7768ff9063f6e",
+      "declaredLicense": "MIT",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/tikz-editor-embed-mirror/b98714d3584ee849178f19cf44c7768ff9063f6e/LICENSE",
+      "reviewedNoticeSha256": "eb4b1d48e16267665081f49e37b4e3d1b5650d48e61a5eaae29b3042eafe2540",
+      "artifactNotice": "missing",
+      "releaseDecision": "blocked-until-license-text-is-included"
+    },
+    {
+      "id": "tex-fmt",
+      "sourceCommit": "421377cf145bd14897b9f7d5e3cc4075e913defb",
+      "declaredLicense": "MIT",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/tex-fmt/421377cf145bd14897b9f7d5e3cc4075e913defb/LICENSE",
+      "reviewedNoticeSha256": "d4f7b3c809d3a03fdd12382c6b23fb2542ef6011e15989ea8640fb8e43b870ee",
+      "artifactNotice": "public/core/texfmt/LICENSE",
+      "releaseDecision": "notice-present"
+    },
+    {
+      "id": "busytex",
+      "sourceCommit": "1d9ba827ad0da2c85d05da2ada26a4debf6df81e",
+      "declaredLicense": "AGPL-3.0-or-later; upstream BusyTeX portions retain MIT notices",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-busytex/1d9ba827ad0da2c85d05da2ada26a4debf6df81e/LICENSE",
+      "reviewedNoticeSha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "artifactNotice": "missing",
+      "releaseDecision": "blocked-until-license-and-upstream-notice-are-included"
+    },
+    {
+      "id": "grammar-assets",
+      "sourceCommit": "3562d2bb74b343dcc9d4d89f6afa7e9fa8df5deb",
+      "declaredLicense": "AGPL-3.0-or-later with per-grammar third-party licenses",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-grammar-assets/3562d2bb74b343dcc9d4d89f6afa7e9fa8df5deb/THIRD_PARTY.md",
+      "reviewedNoticeSha256": "5afc2f137dd076b0622c15c9d1a7ce40f9d55b1b532534478094f0de67c61ac0",
+      "artifactNotice": "partial-per-grammar-license-files-only",
+      "releaseDecision": "blocked-until-root-license-notice-and-third-party-index-are-included"
+    },
+    {
+      "id": "font-assets",
+      "sourceCommit": "b048ac917adba5ea448a7863a6b42a2a51eacbef",
+      "declaredLicense": "AGPL-3.0-or-later build scripts; 27 mapped third-party font license files",
+      "reviewedNoticeUrl": "https://raw.githubusercontent.com/TeXlyre/texlyre-font-assets/b048ac917adba5ea448a7863a6b42a2a51eacbef/THIRD_PARTY.md",
+      "reviewedNoticeSha256": "fdeb0a3c9812411b3d825c4b40f6bdf29a59549dcd174b0726c316c3c4a8b47f",
+      "artifactNotice": "missing",
+      "releaseDecision": "blocked-until-third-party-index-and-license-texts-are-included"
+    },
+    {
+      "id": "texlive-2026-cjk",
+      "sourceArchiveSha256": "438c997af1f851dcd87c91d3b16710ccb3620f8a7b6db488afcf458411931bcb",
+      "declaredLicense": "GPL-2.0-or-later, LPPL-1.3c-or-later and GPL with font exception as mapped in the notice",
+      "artifactNotice": "vendor/rinspace/texlive-2026-cjk/NOTICE.md",
+      "releaseDecision": "notice-present"
+    }
+  ]
+}
