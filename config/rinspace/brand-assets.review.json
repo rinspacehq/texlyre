@@ -1,0 +1,14 @@
+{
+  "schema": "rinspace-brand-assets/v1",
+  "sourceRepository": "rinspacehq/rinspace-web",
+  "sourceCommit": "be0f9d887a07a6b56af833840d59cec79b2a8655",
+  "sourceRelease": "v0.2.4",
+  "assets": [
+    { "path": "favicon.ico", "sourcePath": "public/favicon.ico", "size": 32038, "sha256": "37a530043c81981491549cad1e9040c34859820c810d4e7962fcb8d0d0195c82" },
+    { "path": "favicon-32x32.png", "sourcePath": "public/favicon-32x32.png", "size": 1511, "sha256": "2de9fc26b91134475beaef2ada598d3655f2b0a08e55beda36daaaf3fc8b8975" },
+    { "path": "favicon-192x192.png", "sourcePath": "public/favicon-192x192.png", "size": 15948, "sha256": "c46803062ae732f060b5988e85be044adf8ab2a41a9b509a92fd245f0be1e229" },
+    { "path": "favicon-512x512.png", "sourcePath": "public/favicon-512x512.png", "size": 59899, "sha256": "d06293f78cdb20f5e957c20b9ee0677e3d38a4771a6e329961ab618de8de79fd" },
+    { "path": "apple-touch-icon.png", "sourcePath": "public/apple-touch-icon.png", "size": 14792, "sha256": "c7d9f1b7de9e5b1437ce7710dea8d6405256d64da0fa4780857441b5d952bade" },
+    { "path": "assets/brand/rinspace-mark-128.png", "sourcePath": "public/assets/brand/rinspace-mark-128.png", "size": 7697, "sha256": "0b10b304a5f1a1d0861ab5d8e8b0d900fdded9f9404e769d4c01858d9cf44375" }
+  ]
+}

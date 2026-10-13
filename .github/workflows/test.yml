@@ -16,20 +16,33 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Trusted Rinspace branches use the private runner so GitHub-hosted quota
+    # cannot block releases. Keep untrusted fork PRs away from that runner.
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'rinspace-release-build' }}
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
+          # The reviewed upstream baseline is 40 commits behind this branch.
+          # Keep enough fixed history for ancestry/source gates without pulling
+          # the entire upstream repository on every self-hosted run.
+          fetch-depth: 64
+          filter: blob:none
           persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.13.1
+
+      - name: Materialize reviewed baseline audit blobs
+        shell: bash
+        run: |
+          baseline="$(node -p "require('./config/rinspace/upstream-baseline.json').upstream.commit")"
+          git show "$baseline:LICENSE" >/dev/null
+          git show "$baseline:pnpm-lock.yaml" >/dev/null
 
       - name: Install dependencies
         shell: bash
@@ -90,9 +103,3 @@ jobs:
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           nice -n 15 taskset -c "$task_cpu" pnpm check:package-assets
           git diff --exit-code
-
-      - name: Review upstream external archive bytes
-        shell: bash
-        run: |
-          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/review-external-assets.mjs

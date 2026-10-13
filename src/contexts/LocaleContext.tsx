@@ -13,6 +13,7 @@ import {
 
 import { useSettings } from '../hooks/useSettings';
 import languagesConfig from '../../translations/locales.config.json';
+import { getRinspaceApplicationTitle } from '../utils/applicationTitle';
 
 interface Locale {
 	code: string;
@@ -70,6 +71,7 @@ export const LanguageProvider: React.FC<LocaleProviderProps> = ({
 
 			await i18next.changeLanguage(languageCode);
 			document.documentElement.lang = languageCode;
+			document.title = getRinspaceApplicationTitle(languageCode);
 			setCurrentLanguage(language);
 
 			window.dispatchEvent(

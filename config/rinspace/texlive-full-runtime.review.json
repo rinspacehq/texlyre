@@ -1,0 +1,23 @@
+{
+  "schema": "rinspace-texlive-runtime-source/v1",
+  "runtimeId": "texlive-2026-rinspace.1",
+  "texliveVersion": "2026",
+  "texmfRegularFiles": 180810,
+  "repository": "TeXlyre/texlyre-busytex-build",
+  "releaseTag": "texlive-full-2026",
+  "releaseId": 362730787,
+  "tagCommit": "e70647eca1c9f44e2b582e13191fdf4aa28e36ed",
+  "archiveScope": "texmf-dist runtime tree; upstream release excludes documentation, source, scripts, native binaries and tlpkg",
+  "archive": {
+    "url": "https://github.com/TeXlyre/texlyre-busytex-build/releases/download/texlive-full-2026/texmf-dist.tar.zst",
+    "size": 1442977323,
+    "sha256": "438c997af1f851dcd87c91d3b16710ccb3620f8a7b6db488afcf458411931bcb"
+  },
+  "treeList": {
+    "url": "https://github.com/TeXlyre/texlyre-busytex-build/releases/download/texlive-full-2026/texlive-full.txt",
+    "size": 14638217,
+    "lines": 189331,
+    "sha256": "918330755445895602589cf181fe27668df8ca8774d771a82ec90f219ecb2246"
+  },
+  "endpointBasePath": "/editor/texlive/2026"
+}

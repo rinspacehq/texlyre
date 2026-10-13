@@ -15,9 +15,23 @@ test('formal release config binds route, source, artifact and complete notice fi
 	releaseModule.validateReleaseConfig(config);
 	assert.equal(config.routeBase, '/editor/');
 	assert.equal(config.productionAccepted, true);
+	assert.equal(config.texliveRuntime.runtimeId, 'texlive-2026-rinspace.1');
+	assert.equal(config.texliveRuntime.endpointBasePath, '/editor/texlive/2026');
 	assert.ok(config.externalNotices.length >= 30);
 	assert.ok(config.externalNotices.some((entry) => entry.artifactPath.endsWith('/THIRD_PARTY.md')));
 	assert.ok(config.externalNotices.some((entry) => entry.artifactPath.includes('/LICENSES/')));
+});
+
+test('trusted release work uses the self-hosted runner without exposing it to fork PRs', async () => {
+	const [releaseWorkflow, testWorkflow] = await Promise.all([
+		readFile(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8'),
+		readFile(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8'),
+	]);
+	assert.match(releaseWorkflow, /runs-on: \[self-hosted, linux, x64, rinspace-release-build\]/);
+	assert.match(releaseWorkflow, /build-texlive-runtime-stream\.cjs/);
+	assert.doesNotMatch(releaseWorkflow, /--output "\$source_dir\/texmf-dist\.tar\.zst"/);
+	assert.match(testWorkflow, /head\.repo\.full_name != github\.repository/);
+	assert.match(testWorkflow, /'ubuntu-latest' \|\| 'rinspace-release-build'/);
 });
 
 test('notice assembly rejects bytes that differ from the reviewed digest', async () => {

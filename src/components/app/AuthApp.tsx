@@ -3,7 +3,6 @@ import type React from 'react';
 import { useState } from 'react';
 
 import { t } from '@/i18n';
-import texlyreLogo from '../../assets/images/TeXlyre_notext.png';
 import { useTheme } from '../../hooks/useTheme';
 import { pushHash } from '../../utils/urlUtils';
 import ImportAccount from '../auth/ImportAccount';
@@ -19,6 +18,7 @@ interface AuthContainerProps {
 }
 
 const AuthApp: React.FC<AuthContainerProps> = ({ onAuthSuccess }) => {
+	const rinspaceLogo = `${__BASE_PATH__}/assets/brand/rinspace-mark-128.png`;
 	const { currentThemePlugin, currentVariant } = useTheme();
 	const [activeView, setActiveView] = useState<'login' | 'register' | 'import'>(
 		'login',
@@ -47,9 +47,9 @@ const AuthApp: React.FC<AuthContainerProps> = ({ onAuthSuccess }) => {
 				<div className='auth-header'>
 					<div className='auth-logo-wrapper'>
 						<img
-							src={texlyreLogo}
+							src={rinspaceLogo}
 							className='auth-logo'
-							alt={t('TeXlyre logo')}
+							alt={t('Rinspace logo')}
 						/>
 					</div>
 					<h1>{t('TeXlyre')}</h1>

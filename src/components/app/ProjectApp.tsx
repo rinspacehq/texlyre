@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import { typesetterRegistryService } from '../../services/TypesetterRegistryService';
-import texlyreLogo from '../../assets/images/TeXlyre_notext.png';
 import { useAuth } from '../../hooks/useAuth';
 import { useWheelScroll } from '../../hooks/useWheelScroll';
 import { useDiskBackup } from '../../hooks/useDiskBackup';
@@ -64,6 +63,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	onOpenManagedProject,
 	onLogout,
 }) => {
+	const rinspaceLogo = `${__BASE_PATH__}/assets/brand/rinspace-mark-128.png`;
 	const {
 		user,
 		getProjects,
@@ -467,8 +467,8 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 				</div>
 
 				<div className='header-center'>
-					<a href='https://texlyre.org' target='_blank' rel='noreferrer'>
-						<img src={texlyreLogo} className='logo' alt={t('TeXlyre logo')} />
+					<a href='https://rinspace.com/' target='_blank' rel='noreferrer'>
+						<img src={rinspaceLogo} className='logo' alt={t('Rinspace logo')} />
 					</a>
 				</div>
 

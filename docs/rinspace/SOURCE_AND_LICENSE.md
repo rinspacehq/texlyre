@@ -5,8 +5,9 @@ maintained at [rinspacehq/texlyre](https://github.com/rinspacehq/texlyre).
 Initial development starts at `d10e020a7c6452c83dedebf943615dcecfe65919`,
 four commits after upstream `v0.13.0`; it does not track mutable `main`.
 The upstream application version `0.13.2` is not itself a Rinspace release.
-The first reviewed fork release is `v0.13.2-rinspace.1` and is assembled only
-from a clean public `main` commit by the dedicated release workflow.
+The first reviewed fork release was `v0.13.2-rinspace.1`. The current reviewed
+release is `v0.13.2-rinspace.2`; releases are assembled only from a clean public
+`main` commit by the dedicated release workflow.
 
 The fork, Rinspace browser plugins and generic core modifications remain
 `AGPL-3.0-or-later`. The original LICENSE and copyright/contribution notices
@@ -23,9 +24,10 @@ asset manifest and notices by immutable identifiers/digests. A link to moving
 Coverage of integration code is assessed from its actual relationship, not
 from labels such as "plugin", "API" or "separate process".
 
-The `v0.13.2-rinspace.1` release record binds its exact public source commit and
+The `v0.13.2-rinspace.2` release record binds its exact public source commit and
 tree, a `git archive` source package, the self-contained `/editor/` static tree,
-the dependency lock and notices, every external notice, and all artifact hashes.
+the fixed TeX Live runtime inputs and outputs, the dependency lock and notices,
+every external notice, and all artifact hashes.
 Publication and private product consumption remain separate operations: a tag or
 asset does not by itself alter Rinspace production.
 No private product history, secrets, operational configuration, user repositories
@@ -160,34 +162,43 @@ commits, verifies every size and SHA-256, and packages the complete set under
 `/editor/notices/external`. Any missing or changed text fails the release; the
 runtime archive locks remain separate and unchanged.
 
-The Rinspace default profile uses the reviewed browser-only BusyTeX pdfTeX
-engine and leaves both on-demand TeX package settings blank. SwiftLaTeX remains
-selectable and resolves a blank setting to a same-origin fixed root rather than
-its library default; BusyTeX leaves its optional remote endpoint disabled and
-uses the reviewed local bundles. A missing package therefore fails locally
-instead of contacting an undeclared service. Local development retains its
-SwiftLaTeX pdfTeX default and explicit localhost endpoints, and users can still
-opt into another service. The upstream SwiftLaTeX package server is not a
-static package release: its fixed source deploys Ubuntu 20.04 `texlive-full`
-with Flask/kpathsea lookup. Rinspace does not introduce that legacy server or
-make it a production prerequisite. The userdata version is advanced so
-existing profiles do not retain the former package or mutable upstream status endpoints. Typst
+The Rinspace default profile uses the reviewed browser-only BusyTeX XeTeX
+engine. Missing TeX files are fetched by the BusyTeX worker from the fixed
+same-origin `/editor/texlive/2026` endpoint. The endpoint serves an immutable,
+indexed copy of every regular file in the reviewed TeX Live 2026 `texmf-dist`
+runtime archive: 180,810 files, including ctex, xeCJK, Fandol, Libertinus,
+TeX Gyre, Latin Modern, STIX/XITS and the other fonts and packages present in
+that archive. Files are transferred only when the browser compiler requests
+them; opening the editor does not transfer the roughly 2 GB pack. The server
+does not compile documents and limits runtime decompression to one active file,
+so document compilation and scheduling remain owned by unmodified BusyTeX in
+the user's browser.
+
+This is complete coverage of the fixed upstream runtime tree, not a promise that
+arbitrary native TeX programs, unrestricted shell escape, commercial fonts,
+system fonts or packages absent from that immutable TeX Live archive can run in
+a browser. The upstream archive intentionally excludes TeX Live documentation,
+source, scripts, native binaries and `tlpkg`; the public source review records
+that boundary and preserves the original archive and tree-list digests. TeX Live
+files retain their own package-specific licenses and are not relicensed as AGPL.
+The earlier reviewed 20-file ctex/xeCJK/Fandol set remains a fixed fallback only
+for profiles with no runtime endpoint; it is not the production package source.
+Neither path infers or changes project language, compiler choice or compile
+schedule.
+
+SwiftLaTeX remains selectable and resolves a blank setting to a same-origin
+fixed root rather than its library default. Local development retains explicit
+localhost endpoints, and users can still opt into another service. The upstream
+SwiftLaTeX Flask/kpathsea service is not introduced as a production dependency.
+The userdata version is advanced so existing profiles receive the fixed
+same-origin endpoint instead of retaining mutable upstream settings. Typst
 compiler and renderer fonts are loaded from the application origin with the
 library's remote default assets disabled. The separate mirror review records
 the actual one-byte Range and browser CORS probes plus timeout, 404, wrong-byte,
 no-Range and no-CORS decisions. Alibaba and Tencent CTAN remain build-only;
 Huawei CTAN remains disabled because its operator-index/terms and the TeXlyre
 filename protocol are not established. No unqualified mirror is requested
-before the content-addressed Rinspace tree.
-
-BusyTeX's fixed upstream bundles intentionally omit the Chinese language
-collections. Rinspace therefore vendors a reviewed 20-file TeX Live 2026
-ctex/xeCJK/Fandol subset under a content-addressed path, with its package notices,
-source archive digest and complete file inventory in
-`config/rinspace/texlive-cjk.review.json`. The application injects that exact set
-only when LaTeX source markers require it and the remote package endpoint is
-blank. It does not infer or change the project language, selected compiler or
-compile schedule.
+before the reviewed Rinspace runtime.
 
 The unmodified downloaded BusyTeX worker is still checked against SHA-256
 `80eca56a2eb015bdfbebff26e539dd793407b73b6c1cd351170e6fdb6e17c39a`.

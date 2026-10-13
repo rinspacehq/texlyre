@@ -3,13 +3,13 @@ import type React from 'react';
 import { useEffect, useState } from 'react';
 
 import { t } from '@/i18n';
-import texlyreLogo from '../../assets/images/TeXlyre_notext.png';
 
 interface SplashScreenProps {
 	isVisible: boolean;
 }
 
 const SplashScreen: React.FC<SplashScreenProps> = ({ isVisible }) => {
+	const rinspaceLogo = `${__BASE_PATH__}/assets/brand/rinspace-mark-128.png`;
 	const [themeLoaded, setThemeLoaded] = useState(false);
 
 	useEffect(() => {
@@ -26,7 +26,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ isVisible }) => {
 		<div className={`splash-screen ${themeLoaded ? 'theme-loaded' : ''}`}>
 			<div className='splash-content'>
 				<div className='splash-logo'>
-					<img src={texlyreLogo} alt={t('TeXlyre')} />
+					<img src={rinspaceLogo} alt={t('Rinspace logo')} />
 				</div>
 				<h1 className='splash-title'>{t('TeXlyre')}</h1>
 				<div className='splash-loading'>
