@@ -121,7 +121,9 @@ jobs:
           grep -q '^editor/notices/external/font-assets/LICENSES/' artifact-files.txt
           grep -qx 'editor/rinspace-release.json' artifact-files.txt
           runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
-          cp "$runtime_dir"/* "$output/"
+          # Keep the almost-2 GiB pack on the same filesystem without a
+          # second transient copy; the runtime directory is no longer used.
+          mv "$runtime_dir"/* "$output/"
           runtime_manifest="$(node -p "require('./config/rinspace/release.json').texliveRuntime.manifestFilename")"
           runtime_pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
           runtime_index="$(node -p "require('./config/rinspace/release.json').texliveRuntime.indexFilename")"
