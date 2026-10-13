@@ -127,6 +127,9 @@ jobs:
           output="$RUNNER_TEMP/texlyre-release"
           nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/assemble-release.cjs --tag "$RELEASE_TAG" --output "$output"
           artifact="$(node -p "require('./config/rinspace/release.json').artifact.filename")"
+          runtime_manifest="$(node -p "require('./config/rinspace/release.json').texliveRuntime.manifestFilename")"
+          runtime_pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
+          runtime_index="$(node -p "require('./config/rinspace/release.json').texliveRuntime.indexFilename")"
           cd "$output"
           sha256sum -c "$artifact.sha256"
           source_archive="$(find . -maxdepth 1 -type f -name 'texlyre-source-*.tar.gz' -printf '%f\n')"
@@ -140,9 +143,6 @@ jobs:
           # Keep the almost-2 GiB pack on the same filesystem without a
           # second transient copy; the runtime directory is no longer used.
           mv "$runtime_dir"/* "$output/"
-          runtime_manifest="$(node -p "require('./config/rinspace/release.json').texliveRuntime.manifestFilename")"
-          runtime_pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
-          runtime_index="$(node -p "require('./config/rinspace/release.json').texliveRuntime.indexFilename")"
           test "$(node -p "require('$output/$runtime_manifest').files")" = 180810
           test "$(node -p "require('$output/$runtime_manifest').pack.filename")" = "$runtime_pack"
           test "$(node -p "require('$output/$runtime_manifest').index.filename")" = "$runtime_index"
