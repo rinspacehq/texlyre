@@ -29,6 +29,8 @@ import type {
 	FileSyncVerification,
 } from '../types/fileSync';
 import type { YjsDocUrl } from '../types/yjs';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
+import { allowsExplicitPeerConnections } from '../workspace/StartupPolicy';
 
 const moduleLog = createNamedLogger('PeerFileSyncContext');
 
@@ -78,7 +80,8 @@ export const FileSyncProvider: React.FC<FileSyncProviderProps> = ({
 	const enableSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	const isFileSyncEnabled =
-		(getSetting('file-sync-enable')?.value as boolean) ?? false;
+		allowsExplicitPeerConnections(getStartupIntent()) &&
+		((getSetting('file-sync-enable')?.value as boolean) ?? false);
 	const autoSyncIntervalSeconds =
 		(getSetting('file-sync-auto-interval')?.value as number) ?? 10;
 	const holdTimeoutSeconds =

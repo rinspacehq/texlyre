@@ -244,6 +244,40 @@ describe('Git history panel layout', () => {
 		);
 	});
 
+	it('does not present a managed Push as completed publication', async () => {
+		mockGitSyncService.getConfig.mockReturnValue({
+			providerId: 'rinspace-gitea-session',
+			providerName: 'Rinspace Gitea',
+			repositoryId: '42/a',
+			repositoryLabel: '42/a',
+			branch: 'main',
+			credentialSource: 'history',
+			managed: true,
+		});
+		mockGitSyncService.push.mockResolvedValue({
+			providerName: 'Rinspace Gitea',
+			repositoryLabel: '42/a',
+			localBranch: 'main',
+			remoteBranch: 'main',
+			previousLocalOid: 'a'.repeat(40),
+			canonicalOid: '1234567890abcdef1234567890abcdef12345678',
+			pushedCommits: 1,
+		});
+		mockedGitService.getState.mockResolvedValue(initializedState());
+
+		render(
+			<GitHistoryPanel projectId='project-1' onOpenDiff={jest.fn()} onClearDiff={jest.fn()} />,
+		);
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Push' }));
+		await waitFor(() => expect(mockGitSyncService.push).toHaveBeenCalled());
+		expect(
+			screen.getByText(
+				'Pushed main to 42/a · main. Gitea accepted commit 1234567. Publication is processed separately.',
+			),
+		).toBeInTheDocument();
+	});
+
 	it('uses the same two-line metadata layout for branches and commits', async () => {
 		const oid = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 		const historyEntry = entry(oid, [], 1, 'Older');

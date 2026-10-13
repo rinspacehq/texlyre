@@ -57,7 +57,7 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({
 
 		const serversToUse = signalingServers.split(',').map((s) => s.trim());
 
-		const { doc } = collabService.connect(projectId, 'chat', {
+		const { doc, provider } = collabService.connect(projectId, 'chat', {
 			signalingServers: serversToUse,
 			autoReconnect,
 			awarenessTimeout: awarenessTimeout * 1000,
@@ -65,6 +65,7 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({
 
 		const messagesArray = doc.getArray<ChatMessage>('messages');
 		messagesArrayRef.current = messagesArray;
+		let active = true;
 
 		const observer = () => {
 			const currentMessages = messagesArray.toArray();
@@ -72,10 +73,15 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({
 		};
 
 		messagesArray.observe(observer);
-		setIsConnected(true);
+		if (provider !== null) {
+			queueMicrotask(() => {
+				if (active) setIsConnected(true);
+			});
+		}
 		observer();
 
 		return () => {
+			active = false;
 			messagesArray.unobserve(observer);
 			collabService.disconnect(projectId, 'chat');
 			messagesArrayRef.current = null;

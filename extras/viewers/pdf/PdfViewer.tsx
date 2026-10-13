@@ -22,6 +22,7 @@ import { formatFileSize } from '@/utils/fileUtils';
 import './styles.css';
 import { getPdfViewerSettings } from './settings';
 import { PLUGIN_NAME, PLUGIN_VERSION } from './PdfViewerPlugin';
+import { copyPdfBytesForWorker } from './PdfWorkerInput';
 import { createNamedLogger } from '@/logging';
 const moduleLog = createNamedLogger('PdfViewer');
 
@@ -70,19 +71,20 @@ const PdfViewer: React.FC<ViewerProps> = ({
 	}, [content]);
 
 	useEffect(() => {
-		if (!(content instanceof ArrayBuffer) || content.byteLength === 0) {
-			setError(t('Invalid PDF content'));
-			setIsLoading(false);
-			return;
-		}
-
 		let cancelled = false;
 
 		const load = async () => {
+			if (!(content instanceof ArrayBuffer) || content.byteLength === 0) {
+				if (!cancelled) {
+					setError(t('Invalid PDF content'));
+					setIsLoading(false);
+				}
+				return;
+			}
 			if (loadingTaskRef.current) {
 				try {
 					await loadingTaskRef.current.destroy();
-				} catch (_e) {}
+				} catch (_e) { /* The previous PDF.js worker is already gone. */ }
 				loadingTaskRef.current = null;
 				pdfDocRef.current = null;
 			}
@@ -92,7 +94,7 @@ const PdfViewer: React.FC<ViewerProps> = ({
 
 			try {
 				const task = pdfjs.getDocument({
-					data: new Uint8Array(content),
+					data: copyPdfBytesForWorker(content),
 					cMapUrl: `${BASE_PATH}/assets/cmaps/`,
 					cMapPacked: true,
 					standardFontDataUrl: `${BASE_PATH}/assets/standard_fonts/`,
@@ -119,20 +121,20 @@ const PdfViewer: React.FC<ViewerProps> = ({
 			}
 		};
 
-		load();
+		void load();
 
 		return () => {
 			cancelled = true;
 			if (renderTaskRef.current) {
 				try {
 					renderTaskRef.current.cancel();
-				} catch (_e) {}
+				} catch (_e) { /* The render task already finished. */ }
 				renderTaskRef.current = null;
 			}
 			if (loadingTaskRef.current) {
 				try {
 					void loadingTaskRef.current.destroy();
-				} catch (_e) {}
+				} catch (_e) { /* The PDF.js worker is already gone. */ }
 				loadingTaskRef.current = null;
 				pdfDocRef.current = null;
 			}
@@ -145,7 +147,7 @@ const PdfViewer: React.FC<ViewerProps> = ({
 		if (renderTaskRef.current) {
 			try {
 				renderTaskRef.current.cancel();
-			} catch (_e) {}
+			} catch (_e) { /* The render task already finished. */ }
 			renderTaskRef.current = null;
 		}
 

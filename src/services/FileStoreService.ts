@@ -27,6 +27,12 @@ export interface FileStorageChange {
 	lastModified?: number;
 }
 
+export interface LocalWriteBaselineRecord {
+	fileId: string;
+	path: string;
+	content: string | ArrayBuffer | null;
+}
+
 type FileStorageListener = (change: FileStorageChange) => void;
 const listeners: FileStorageListener[] = [];
 
@@ -61,9 +67,10 @@ class FileStoreService {
 	public db: IDBPDatabase | null = null;
 	private readonly DB_PREFIX = 'texlyre-project-';
 	private readonly FILES_STORE = 'files';
-	private readonly DB_VERSION = 1;
+	private readonly LOCAL_WRITE_BASELINES_STORE = 'local-write-baselines';
+	private readonly DB_VERSION = 2;
 	private projectId = '';
-	private contentCache: Map<string, string> = new Map();
+	private contentCache = new Map<string, string | ArrayBuffer | null>();
 
 	getCurrentProjectId(): string {
 		return this.projectId;
@@ -74,6 +81,12 @@ class FileStoreService {
 			throw new Error(t('File storage is not initialized'));
 		}
 		return this.db;
+	}
+
+	private assertDeletionScope(db: IDBPDatabase, projectId: string): void {
+		if (this.db !== db || this.projectId !== projectId) {
+			throw new Error(t('Project changed during deletion. Browser copies have been retained.'));
+		}
 	}
 
 	setProjectId(projectId: string): void {
@@ -117,6 +130,13 @@ class FileStoreService {
 						});
 						store.createIndex('path', 'path', { unique: false });
 					}
+					if (
+						!db.objectStoreNames.contains(this.LOCAL_WRITE_BASELINES_STORE)
+					) {
+						db.createObjectStore(this.LOCAL_WRITE_BASELINES_STORE, {
+							keyPath: 'fileId',
+						});
+					}
 				},
 			});
 
@@ -143,7 +163,7 @@ class FileStoreService {
 		} catch (error) {
 			if (isQuotaExceededError(error)) {
 				quotaService.markStale();
-				throw new Error(t('Not enough browser storage to save these files'));
+				throw new Error(t('Not enough browser storage to save these files'), { cause: error });
 			}
 			throw error;
 		}
@@ -432,7 +452,8 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		await fileHandlerService.mirrorFiles([file]);
+		const previousDiskContent = existingFile && !existingFile.isDeleted && existingFile.path === file.path ? existingFile.content : undefined;
+		await fileHandlerService.mirrorFiles([file], previousDiskContent === undefined ? undefined : new Map([[file.id, previousDiskContent]]));
 		fileStorageEventEmitter.emitChange();
 		return file.id;
 	}
@@ -633,15 +654,26 @@ class FileStoreService {
 			await this.guardWrite(async () => {
 				const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
 				const store = tx.objectStore(this.FILES_STORE);
-
-				for (const file of filesToStore) {
-					await store.put(file);
-					storedIds.push(file.id);
+				const requests: Array<Promise<IDBValidKey>> = [];
+				try {
+					// Queue the complete batch in the active transaction before yielding.
+					for (const file of filesToStore) requests.push(store.put(file));
+					await Promise.all([...requests, tx.done]);
+					storedIds.push(...filesToStore.map((file) => file.id));
+				} catch (error) {
+					// A synchronous cloning failure must not commit already queued files.
+					try { tx.abort(); } catch { /* Transaction may already have aborted. */ }
+					await Promise.allSettled([...requests, tx.done]);
+					throw error;
 				}
-
-				await tx.done;
 			});
-			await fileHandlerService.mirrorFiles(filesToStore);
+			const originals = new Map<string, string | ArrayBuffer>();
+			for (const candidate of filesToStore) {
+				const existing = existingByPath.get(candidate.path);
+				const previous = existing?.isDeleted ? undefined : existing?.content;
+				if (previous !== undefined) originals.set(candidate.id, previous);
+			}
+			await fileHandlerService.mirrorFiles(filesToStore, originals);
 
 			const structureChanged = filesToStore.some((file) => {
 				const existing = existingByPath.get(file.path);
@@ -692,6 +724,8 @@ class FileStoreService {
 		},
 	): Promise<void> {
 		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
 
 		const showDialog = options?.showDeleteDialog ?? true;
 		const hardDelete = options?.hardDelete ?? false;
@@ -702,6 +736,7 @@ class FileStoreService {
 
 		for (const id of fileIds) {
 			const file = await this.getFile(id);
+			this.assertDeletionScope(db, projectId);
 			if (!file || file.isDeleted) continue;
 
 			if (file.documentId && !allowLinkedFileDelete) {
@@ -729,35 +764,33 @@ class FileStoreService {
 			}
 		}
 
-		if (hardDelete) {
-			const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
-			const store = tx.objectStore(this.FILES_STORE);
+		this.assertDeletionScope(db, projectId);
+		await fileHandlerService.removeFromDisk(filesToDelete);
+		this.assertDeletionScope(db, projectId);
 
+		const tx = db.transaction(this.FILES_STORE, 'readwrite');
+		const store = tx.objectStore(this.FILES_STORE);
+		const requests: Array<Promise<unknown>> = [];
+		try {
+			// As in batchStoreFiles, queue every request before yielding so a
+			// partial or inactive transaction cannot erase only some drafts.
 			for (const file of filesToDelete) {
-				await store.delete(file.id);
+				requests.push(hardDelete ? store.delete(file.id) : store.put({
+					...file,
+					isDeleted: true,
+					content: undefined,
+					lastModified: Date.now(),
+					size: 0,
+					documentId: allowLinkedFileDelete ? file.documentId : undefined,
+				}));
 			}
-
-			await tx.done;
-		} else {
-			const filesToUpdate = filesToDelete.map((file) => ({
-				...file,
-				isDeleted: true,
-				content: undefined,
-				lastModified: Date.now(),
-				size: 0,
-				documentId: allowLinkedFileDelete ? file.documentId : undefined,
-			}));
-
-			const tx = this.requireDb().transaction(this.FILES_STORE, 'readwrite');
-			const store = tx.objectStore(this.FILES_STORE);
-			for (const file of filesToUpdate) {
-				await store.put(file);
-			}
-
-			await tx.done;
+			await Promise.all([...requests, tx.done]);
+		} catch (error) {
+			try { tx.abort(); } catch { /* Transaction may already have aborted. */ }
+			await Promise.allSettled([...requests, tx.done]);
+			throw error;
 		}
 
-		await fileHandlerService.removeFromDisk(filesToDelete);
 		fileStorageEventEmitter.emitChange();
 	}
 
@@ -1136,19 +1169,56 @@ class FileStoreService {
 
 		if (!includeContent) {
 			filteredFiles = filteredFiles.map(
-				({ content, ...rest }) => rest as FileNode,
+				({ content: _content, ...rest }) => rest as FileNode,
 			);
 		}
 
 		return filteredFiles;
 	}
 
-	getFileContentCache(id: string): string | undefined {
+	getFileContentCache(id: string): string | ArrayBuffer | null | undefined {
 		return this.contentCache.get(id);
 	}
 
-	setFileContentCache(id: string, content: string): void {
-		this.contentCache.set(id, content);
+	async rememberLocalWriteBaseline(
+		file: Pick<FileNode, 'id' | 'path'>,
+		content: string | ArrayBuffer | null,
+	): Promise<void> {
+		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const existing = (await db.get(
+			this.LOCAL_WRITE_BASELINES_STORE,
+			file.id,
+		)) as
+			| LocalWriteBaselineRecord
+			| undefined;
+		if (!existing || existing.path !== file.path) {
+			await db.put(this.LOCAL_WRITE_BASELINES_STORE, {
+				fileId: file.id,
+				path: file.path,
+				content: content instanceof ArrayBuffer ? content.slice(0) : content,
+			});
+		}
+	}
+
+	async getLocalWriteBaselines(
+		projectId: string,
+	): Promise<LocalWriteBaselineRecord[]> {
+		if (this.projectId !== projectId || !this.db) {
+			await this.initialize(`yjs:${projectId}`);
+		}
+		return (await this.requireDb().getAll(
+			this.LOCAL_WRITE_BASELINES_STORE,
+		)) as LocalWriteBaselineRecord[];
+	}
+
+	async clearLocalWriteBaseline(fileId: string): Promise<void> {
+		if (!this.db) return;
+		await this.requireDb().delete(this.LOCAL_WRITE_BASELINES_STORE, fileId);
+	}
+
+	setFileContentCache(id: string, content: string | ArrayBuffer | null): void {
+		this.contentCache.set(id, content instanceof ArrayBuffer ? content.slice(0) : content);
 	}
 
 	async updateFileContent(
@@ -1161,6 +1231,19 @@ class FileStoreService {
 		if (!file) return undefined;
 
 		const wasDeleted = Boolean(file.isDeleted);
+		const previousContent = file.content;
+		const cachedDiskContent = this.contentCache.get(id);
+		const expectedDiskContent = wasDeleted
+			? null
+			: cachedDiskContent === undefined
+				? previousContent
+				: cachedDiskContent;
+		if (
+			fileHandlerService.hasWorkspacePermissionPending(this.projectId) &&
+			expectedDiskContent !== undefined
+		) {
+			await this.rememberLocalWriteBaseline(file, expectedDiskContent);
+		}
 		file.content = content;
 		file.size =
 			typeof content === 'string'
@@ -1183,7 +1266,23 @@ class FileStoreService {
 		await this.guardWrite(async () => {
 			await this.db?.put(this.FILES_STORE, file);
 		});
-		await fileHandlerService.mirrorFiles([file]);
+		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
+		const report = await fileHandlerService.mirrorFiles(
+			[file],
+			expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]),
+		);
+		const diskWrite = report.entries[0];
+		if (diskWrite?.outcome === 'written' ||
+			(diskWrite?.reason === 'not-linked' && !fileHandlerService.hasWorkspacePermissionPending(this.projectId))) {
+			this.setFileContentCache(id, content);
+		}
+		if (diskWrite?.outcome === 'written') {
+			try {
+				await this.clearLocalWriteBaseline(id);
+			} catch (error) {
+				moduleLog.warn('Failed to clear a completed local-write baseline', error);
+			}
+		}
 
 		fileStorageEventEmitter.emitChange(
 			wasDeleted !== Boolean(file.isDeleted)
@@ -1232,12 +1331,15 @@ class FileStoreService {
 		},
 	): Promise<void> {
 		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
 
 		const showDialog = options?.showDeleteDialog ?? true;
 		const hardDelete = options?.hardDelete ?? false;
 		const allowLinkedFileDelete = options?.allowLinkedFileDelete ?? false;
 
 		const file = await this.getFile(id);
+		this.assertDeletionScope(db, projectId);
 		if (!file) return;
 
 		if (file.documentId && !allowLinkedFileDelete) {
@@ -1251,8 +1353,12 @@ class FileStoreService {
 			}
 		}
 
+		this.assertDeletionScope(db, projectId);
+		await fileHandlerService.removeFromDisk([file]);
+		this.assertDeletionScope(db, projectId);
+
 		if (hardDelete) {
-			await this.db?.delete(this.FILES_STORE, id);
+			await db.delete(this.FILES_STORE, id);
 		} else {
 			file.isDeleted = true;
 			file.content = undefined;
@@ -1262,9 +1368,8 @@ class FileStoreService {
 			}
 			file.lastModified = Date.now();
 			file.size = 0;
-			await this.db?.put(this.FILES_STORE, file);
+			await db.put(this.FILES_STORE, file);
 		}
-		await fileHandlerService.removeFromDisk([file]);
 		fileStorageEventEmitter.emitChange();
 	}
 

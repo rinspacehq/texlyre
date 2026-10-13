@@ -1,11 +1,13 @@
 // These constants are automatically generated. Do not edit directly.
-// Generated on: 2026-10-07T10:59:12.203Z
-const CACHE_NAME = `texlyre-v0.13.2`;
-const BASE_PATH = '/texlyre/';
-const FONTS_CACHE_NAME = 'fonts-cache-v1';
+// Generated on: 2026-10-12T13:50:28.033Z
+const APP_CACHE_PREFIX = 'texlyre-app-shell-v';
+const CACHE_NAME = `${APP_CACHE_PREFIX}0.13.2`;
+const BASE_PATH = '/editor/';
+const FONTS_CACHE_NAME = 'texlyre-fonts-v1';
 const AIRGAP_ALLOWED_DOMAINS = [
-	"texlyre.org",
+	"rinspace.com",
 	"texlyre.github.io",
+	"texlyre.org",
 	"typst.org"
 ];
 const AIRGAP_ALLOWED_PROTOCOLS = [
@@ -137,6 +139,25 @@ function blockedByAirgapResponse(request) {
   });
 }
 
+function isSameOriginAppUrl(url) {
+  return url.origin === self.location.origin && url.pathname.startsWith(BASE_PATH);
+}
+
+function isStaticExternalRequest(request, url = new URL(request.url)) {
+  return (
+    url.origin !== self.location.origin &&
+    isAllowedAirgapProtocol(url.protocol) &&
+    isAllowedAirgapHost(url.hostname) &&
+    ['audio', 'font', 'image', 'script', 'style', 'track', 'video', 'worker']
+      .includes(request.destination)
+  );
+}
+
+async function matchAppCache(request) {
+  const cache = await caches.open(CACHE_NAME);
+  return cache.match(request);
+}
+
 self.addEventListener('install', (event) => {
   console.log('[ServiceWorker] Installing service worker');
   event.waitUntil(
@@ -172,16 +193,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   console.log('[ServiceWorker] Activating service worker');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME && cacheName !== FONTS_CACHE_NAME) {
-            console.log('[ServiceWorker] Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => {
+    Promise.resolve().then(() => {
       console.log('[ServiceWorker] Service worker activated');
       return self.clients.claim();
     })
@@ -230,9 +242,7 @@ self.addEventListener('fetch', (event) => {
   if (airgapExternalRequests && isBlockedByAirgap(event.request)) {
     event.respondWith(
       (async () => {
-        const cachedResponse =
-          await caches.match(event.request) ||
-          await caches.match(event.request.url);
+        const cachedResponse = await matchAppCache(event.request);
 
         if (cachedResponse) {
           console.log('[ServiceWorker] Serving air-gap blocked resource from cache:', event.request.url);
@@ -268,7 +278,11 @@ self.addEventListener('fetch', (event) => {
             return response;
           } catch (error) {
             console.error('[ServiceWorker] Fetch failed for fonts:', error);
-            const fallbackCached = await caches.match(event.request);
+            const fallbackCached = await getCachedWithExpiry(
+              FONTS_CACHE_NAME,
+              event.request,
+              CACHE_MAX_AGE[FONTS_CACHE_NAME]
+            );
             if (fallbackCached) {
               return fallbackCached;
             }
@@ -283,14 +297,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const isSameOriginAppResource =
-    url.origin === self.location.origin &&
-    url.pathname.startsWith(BASE_PATH);
-
-  const isAllowedExternalResource =
-    url.origin !== self.location.origin &&
-    isAllowedAirgapProtocol(url.protocol) &&
-    isAllowedAirgapHost(url.hostname);
+  const isSameOriginAppResource = isSameOriginAppUrl(url);
+  const isAllowedExternalResource = isStaticExternalRequest(event.request, url);
 
   if (!isSameOriginAppResource && !isAllowedExternalResource) {
     return;
@@ -298,9 +306,10 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     (async () => {
-      const cachedResponse =
-        await caches.match(event.request) ||
-        await caches.match(event.request.url);
+      const cacheKey = event.request.mode === 'navigate'
+        ? APP_SHELL_URL
+        : event.request;
+      const cachedResponse = await matchAppCache(cacheKey);
 
       if (forceOfflineMode) {
         if (cachedResponse) {
@@ -310,7 +319,7 @@ self.addEventListener('fetch', (event) => {
 
         if (event.request.mode === 'navigate') {
           console.log('[ServiceWorker] Serving index.html for navigation in force offline mode');
-          return caches.match(APP_SHELL_URL);
+          return matchAppCache(APP_SHELL_URL);
         }
 
         throw new Error('Resource not available offline');
@@ -326,7 +335,7 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME)
               .then((cache) => {
                 console.log('[ServiceWorker] Caching resource:', event.request.url);
-                return cache.put(event.request, responseClone);
+                return cache.put(cacheKey, responseClone);
               })
               .catch((error) => {
                 console.warn('[ServiceWorker] Failed to cache resource:', event.request.url, error);
@@ -343,7 +352,7 @@ self.addEventListener('fetch', (event) => {
 
         if (event.request.mode === 'navigate') {
           console.log('[ServiceWorker] Serving index.html for navigation');
-          return caches.match(APP_SHELL_URL);
+          return matchAppCache(APP_SHELL_URL);
         }
 
         throw new Error('Resource not available offline');
@@ -366,17 +375,26 @@ self.addEventListener('message', (event) => {
   }
 
   if (event.data && event.data.type === 'CACHE_URLS') {
+    const urls = Array.isArray(event.data.urls) ? event.data.urls : [];
     event.waitUntil(
       caches.open(CACHE_NAME)
         .then((cache) => {
-          console.log('[ServiceWorker] Manually caching URLs:', event.data.urls);
+          console.log('[ServiceWorker] Manually caching URLs:', urls);
           return Promise.all(
-            event.data.urls.map(async (url) => {
+            urls.map(async (url) => {
               try {
-                const response = await networkFetch(url);
+                const request = new Request(
+                  new URL(url, self.location.origin).href,
+                  { credentials: 'same-origin' }
+                );
+                if (!isSameOriginAppUrl(new URL(request.url))) {
+                  console.warn('Refusing to cache URL outside the app shell:', request.url);
+                  return;
+                }
+                const response = await networkFetch(request);
                 if (response.ok) {
-                  await cache.put(url, response);
-                  console.log('[ServiceWorker] Successfully cached via message:', url);
+                  await cache.put(request, response);
+                  console.log('[ServiceWorker] Successfully cached via message:', request.url);
                 } else {
                   console.warn('Failed to fetch for message caching:', url, response.status);
                 }

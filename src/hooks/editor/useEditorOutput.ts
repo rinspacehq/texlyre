@@ -1,5 +1,5 @@
 // src/hooks/editor/useEditorOutput.ts
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../useAuth';
 import { useSettings } from '../useSettings';
@@ -12,49 +12,46 @@ export const useEditorOutput = () => {
 	const { getSetting } = useSettings();
 	const [projectType, setProjectType] = useState<ProjectType>('latex');
 	const [compilerId, setCompilerId] = useState<string | undefined>();
-	const [showLatexOutput, setShowLatexOutput] = useState(false);
-	const [showTypstOutput, setShowTypstOutput] = useState(false);
-	const [activeExternalProvider, setActiveExternalProvider] =
-		useState<TypesetterProvider | null>(null);
+	const [activeFileName, setActiveFileName] = useState<string | undefined>();
 	const [temporaryLatexExpand, setTemporaryLatexExpand] = useState(false);
 	const [temporaryTypstExpand, setTemporaryTypstExpand] = useState(false);
 	const [temporaryExternalExpand, setTemporaryExternalExpand] = useState(false);
 	const autoExpandOutput =
 		(getSetting('compilation-auto-expand-output')?.value as boolean) ?? true;
 
-	const setOutputForFileName = useCallback(
-		(name?: string) => {
-			const extension = name?.split('.').pop() ?? '';
-			const byExtension = name
-				? typesetterRegistryService.getForExtension(extension, projectType)
-				: undefined;
-			const effectiveType =
-				byExtension?.projectType ??
-				typesetterRegistryService.getForProjectType(projectType)?.projectType ??
-				projectType;
-			const provider = typesetterRegistryService.resolve(
-				effectiveType,
-				compilerId,
-			);
+	const activeOutputProvider = useMemo(() => {
+		if (!activeFileName) return undefined;
+		const extension = activeFileName.split('.').pop() ?? '';
+		const byExtension = typesetterRegistryService.getForExtension(
+			extension,
+			projectType,
+		);
+		const effectiveType =
+			byExtension?.projectType ??
+			typesetterRegistryService.getForProjectType(projectType)?.projectType ??
+			projectType;
+		return typesetterRegistryService.resolve(effectiveType, compilerId);
+	}, [activeFileName, projectType, compilerId]);
+	const showLatexOutput =
+		activeOutputProvider?.id === 'internal:latex' || temporaryLatexExpand;
+	const showTypstOutput =
+		activeOutputProvider?.id === 'internal:typst' || temporaryTypstExpand;
+	const activeExternalProvider: TypesetterProvider | null =
+		activeOutputProvider && activeOutputProvider.source !== 'builtin'
+			? activeOutputProvider
+			: null;
 
-			setShowLatexOutput(provider?.id === 'internal:latex');
-			setShowTypstOutput(provider?.id === 'internal:typst');
-			setActiveExternalProvider(
-				provider && provider.source !== 'builtin' ? provider : null,
-			);
-		},
-		[projectType, compilerId],
-	);
+	const setOutputForFileName = useCallback((name?: string) => {
+		setActiveFileName(name);
+	}, []);
 
 	const handleLatexOutputExpand = useCallback(() => {
 		if (!autoExpandOutput) return;
-		setShowLatexOutput(true);
 		setTemporaryLatexExpand(true);
 	}, [autoExpandOutput]);
 
 	const handleTypstOutputExpand = useCallback(() => {
 		if (!autoExpandOutput) return;
-		setShowTypstOutput(true);
 		setTemporaryTypstExpand(true);
 	}, [autoExpandOutput]);
 

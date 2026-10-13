@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "reason": "Frozen pnpm full application typecheck exposed missing direct types and incompatible ProseMirror model identities; fix actual dependencies without suppressing diagnostics.",
+  "failureRun": 38129628643,
+  "originalUpstreamLockSha256": "e5c7ff8d23347657db1055ffe6ab49d1e8d8badc715fac1ad361f9e9732edd5e",
+  "firstTypeRepairLockSha256": "8a6135d466d757ec910501a1a89fe558f808ae911b6f8b1a6e230114efb86112",
+  "reviewedForkLockSha256": "838c8122f8e76c6e78bcc33d2621defd0486a328ec61fbe109b287627c77f20b",
+  "typeRepairPassedRun": 38130248201,
+  "nextFailure": "Full types passed; ESLint configuration imports undeclared @eslint/js and @eslint/compat. Declare these directly and retain the lint gate.",
+  "generation": { "node": "24.13.1", "pnpm": "10.20.0", "lockfileOnly": true, "installScripts": false },
+  "changes": [
+    { "package": "@eslint/js", "version": "10.0.1", "license": "MIT", "change": "Directly declare the package imported by eslint.config.js; exact metadata integrity is locked." },
+    { "package": "@eslint/compat", "version": "2.0.2", "license": "Apache-2.0", "change": "Directly declare the package imported by eslint.config.js; exact metadata integrity is locked." },
+    { "package": "@types/lodash", "version": "4.17.24", "license": "MIT", "change": "Declare existing locked transitive type package as a direct dev dependency." },
+    { "package": "@types/mdast", "version": "4.0.4", "license": "MIT", "change": "Declare existing locked transitive type package as a direct dev dependency." },
+    { "package": "prosemirror-model", "version": "1.25.12", "license": "MIT", "change": "Use the already locked view-compatible patch version consistently instead of two model identities." },
+    { "package": "js-yaml", "version": "5.4.2", "license": "MIT", "change": "Declare the parser used by the Rinspace managed rinspace.yaml adapter as a direct production dependency; keep the direct and override specifications exact so both pnpm and npm metadata validation accept the declaration." }
+  ],
+  "otherPackageVersionsChanged": false,
+  "noticesStatus": "The production dependency graph and package-provided license texts are emitted deterministically by scripts/rinspace/generate-dependency-notices.cjs. External runtime assets have a separate review and may still block a release when their archive omits required license material. No artifact has been released."
+}

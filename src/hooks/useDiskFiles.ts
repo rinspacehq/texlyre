@@ -45,6 +45,23 @@ export const useDiskFiles = (docUrl: string | null) => {
 	}, [recordsContext]);
 
 	useEffect(() => {
+		if (!docUrl) return;
+		const projectId = docUrl.replace(/^yjs:/, '');
+		return fileHandlerService.addWriteListener((report) => {
+			if (report.projectId !== projectId || report.targetGeneration !== fileHandlerService.getWriteStatus().targetGeneration) return;
+			const failed = report.entries.filter((entry) => entry.outcome === 'failed');
+			if (failed.length === 0) return;
+			if (failed.some((entry) => entry.reason === 'disk-changed')) {
+				notificationService.showError(t('The folder file changed outside TeXlyre. The browser draft was retained. Review the folder version before saving again.'));
+				return;
+			}
+			notificationService.showError(t(
+				'Some paths were not written to the folder. Browser data has not been rolled back; review folder access or export a copy.',
+			));
+		});
+	}, [docUrl]);
+
+	useEffect(() => {
 		fileHandlerService.initialize();
 		return fileHandlerService.addLaunchListener((files) => {
 			setLaunchedFiles(

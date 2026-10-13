@@ -128,8 +128,12 @@ const LaTeXExportButton: React.FC<LaTeXExportButtonProps> = ({
 	const projectMainFile = useSharedSettings
 		? doc?.projectMetadata?.mainFile
 		: undefined;
+	const managedMainFile =
+		doc?.projectMetadata?.managedBuild?.status === 'valid'
+			? `/${doc.projectMetadata.managedBuild.entry}`
+			: undefined;
 
-	const effectiveMainFile = projectMainFile || propMainFile || autoMainFile;
+	const effectiveMainFile = managedMainFile || projectMainFile || propMainFile || autoMainFile;
 	const selectedEngine = propEngine || settingEngine;
 	const selectedFormat = propFormat || 'pdf';
 	const includeLog = propIncludeLog ?? false;

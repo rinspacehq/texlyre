@@ -6,6 +6,12 @@ jest.mock('@src/services/MergeResolutionService', () => ({
 	mergeResolutionService: { resolveConflicts: mockResolveConflicts },
 }));
 
+// Preserve explicit upstream account-mode annotation projection regressions.
+// Persistent-local defaults are exercised separately in FileHandlerLocalWrites.
+jest.mock('@src/workspace/RuntimeStartup', () => ({
+	getStartupIntent: () => ({ mode: 'local-unbound', persistentProfile: false }),
+}));
+
 type FileHandlerModule = typeof import('@src/services/FileHandlerService');
 
 interface MockHandle {
@@ -16,6 +22,7 @@ interface MockHandle {
 	requestPermission: jest.Mock;
 	write: jest.Mock;
 	close: jest.Mock;
+	abort: jest.Mock;
 }
 
 describe('FileHandlerService', () => {
@@ -30,11 +37,13 @@ describe('FileHandlerService', () => {
 	): MockHandle => {
 		const write = jest.fn().mockResolvedValue(undefined);
 		const close = jest.fn().mockResolvedValue(undefined);
+		const abort = jest.fn().mockResolvedValue(undefined);
 
 		return {
 			name,
 			write,
 			close,
+			abort,
 			getFile: jest.fn().mockResolvedValue({
 				name,
 				type: 'text/x-tex',
@@ -42,7 +51,7 @@ describe('FileHandlerService', () => {
 				text: async () => content,
 				arrayBuffer: async () => new TextEncoder().encode(content).buffer,
 			}),
-			createWritable: jest.fn().mockResolvedValue({ write, close }),
+			createWritable: jest.fn().mockResolvedValue({ write, close, abort }),
 			queryPermission: jest.fn().mockResolvedValue(permission),
 			requestPermission: jest.fn().mockResolvedValue(permission),
 		};
@@ -350,13 +359,15 @@ describe('FileHandlerService', () => {
 			const adapter = createAdapter();
 			module.fileHandlerService.attachWorkspace(adapter as never);
 
-			await module.fileHandlerService.mirrorFiles([
+			const report = await module.fileHandlerService.mirrorFiles([
 				{ ...workspaceFile(), content: 'body' },
 				{ ...workspaceFile(), id: 'ws-2', path: '/.texlyre/x', content: 'x' },
-				{ ...workspaceFile(), id: 'ws-3', content: undefined },
-				{ ...workspaceFile(), id: 'ws-4', content: 'gone', isDeleted: true },
+				{ ...workspaceFile(), id: 'ws-3', path: '/chapters/missing.tex', content: undefined },
+				{ ...workspaceFile(), id: 'ws-4', path: '/chapters/deleted.tex', content: 'gone', isDeleted: true },
 			]);
 
+			expect(report.entries.map((entry) => entry.outcome)).toEqual(['written', 'skipped', 'failed', 'skipped']);
+			expect(report.entries[2].reason).toBe('missing-content');
 			expect(adapter.writeFile).toHaveBeenCalledTimes(1);
 			expect(adapter.writeFile).toHaveBeenCalledWith(
 				'/chapters/intro.tex',

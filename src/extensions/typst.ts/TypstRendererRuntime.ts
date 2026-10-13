@@ -1,4 +1,5 @@
 // src/extensions/typst.ts/TypstRendererRuntime.ts
+import { loadFonts } from '@myriaddreamin/typst.ts';
 import { createTypstRenderer } from '@myriaddreamin/typst.ts/renderer';
 
 export const BASE_PATH = __BASE_PATH__;
@@ -36,7 +37,9 @@ export async function loadTypstFonts(): Promise<Uint8Array[]> {
 		try {
 			const response = await fetch(`${baseUrl}/fonts.json`);
 			if (response.ok) names = await response.json();
-		} catch {}
+		} catch {
+			// The reviewed fallback list remains the local source of truth.
+		}
 
 		const fonts = await Promise.all(
 			names.map(async (name) => {
@@ -56,21 +59,26 @@ export async function loadTypstFonts(): Promise<Uint8Array[]> {
 	return fontsPromise;
 }
 
+export async function createLocalTypstFontLoader() {
+	const fonts = await loadTypstFonts();
+
+	// typst.ts injects its jsDelivr default font set unless it sees a
+	// registered font loader. Mark these same-origin bytes as the complete
+	// default set so compilation never silently falls back to a remote CDN.
+	return loadFonts(fonts, { assets: false });
+}
+
 export async function getTypstRenderer(): Promise<any> {
 	if (rendererPromise) return rendererPromise;
 
 	rendererPromise = (async () => {
 		const renderer = createTypstRenderer();
-		const fonts = await loadTypstFonts();
+		const fontLoader = await createLocalTypstFontLoader();
 
 		await renderer.init({
 			getModule: () =>
 				`${BASE_PATH}/core/typst-ts-renderer/pkg/typst_ts_renderer_bg.wasm`,
-			beforeBuild: [
-				async (_: unknown, { builder }: any) => {
-					for (const font of fonts) await builder.add_raw_font(font);
-				},
-			],
+			beforeBuild: [fontLoader],
 		});
 
 		return renderer;

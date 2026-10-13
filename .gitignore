@@ -13,6 +13,7 @@ dist
 dist-ssr
 coverage
 *.local
+*.tsbuildinfo
 
 public/core/busytex/
 public/core/detypify/
@@ -29,10 +30,15 @@ public/assets/cmaps/
 public/assets/grammars/
 public/assets/fonts/
 public/assets/math-fonts/
+public/assets/texlive-2026-cjk/
 
 public/userdata*.json
+public/rinspace-package-assets.json
+public/rinspace-external-assets.json
+public/rinspace-dependency-notices.json
+public/rinspace-source-candidate.json
 
-src/plugins/
+src/plugins/*
 !src/plugins/PluginRegistry.ts
 !src/plugins/PluginInterface.ts
 

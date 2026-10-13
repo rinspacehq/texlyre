@@ -56,6 +56,10 @@ export interface User {
 	color?: string;
 	colorLight?: string;
 	isGuest?: boolean;
+	/** Persistent browser-local owner; never accepted as platform authentication. */
+	isLocalProfile?: boolean;
+	/** Browser data partition only; never grants or represents platform access. */
+	localProfileScope?: string;
 	isChelysEnrolled?: boolean;
 	sessionId?: string;
 	expiresAt?: number;

@@ -4,11 +4,13 @@ import type { TexlyreConfig } from '@/types/texlyre';
 const config: TexlyreConfig = {
     title: 'TeXlyre',
     tagline: 'A local-first LaTeX & Typst collaborative web editor',
-    url: 'https://texlyre.org',
-    baseUrl: '/texlyre/',
+    url: 'https://rinspace.com',
+    baseUrl: '/editor/',
     organizationName: 'texlyre',
     projectName: 'texlyre',
-    favicon: '/favicon.ico',
+    favicon: './favicon.ico',
+
+    startup: { profile: 'persistent-local' },
 
 
     airgap: {
@@ -61,17 +63,25 @@ const config: TexlyreConfig = {
         viewers: ['bibtex', 'image', 'media', 'pdf', 'drawio', 'tikz', 'milkdown'],
         renderers: ['pdf', 'canvas'],
         loggers: ['latex_visualizer', 'typst_visualizer'],
-        bibliography: ['zotero', 'openalex'], // 'jabref'
+        bibliography: ['zotero', 'openalex', 'rinspace'], // 'jabref'
         lsp: [],
         backup: ['github', 'gitlab', 'forgejo', 'gitea'],
         themes: ['texlyre_slim', 'texlyre_wide', 'texlyre_compact', 'texlyre_mobile'],
+        workspace: ['rinspace'],
     },
 
     // Overwrite priority is default < local < mobile for corresponding configs
     userdata: {
-        version: '1.3.5',
+        version: '1.3.6',
         forceUpdate: {
-            settings: ['statusPageUrl', 'statusJsonUrl', 'themePlugin', 'fileSyncNotifications'],
+            settings: [
+                'statusPageUrl',
+                'statusJsonUrl',
+                'latexTexliveEndpoint',
+                'latexBusytexEndpoint',
+                'themePlugin',
+                'fileSyncNotifications',
+            ],
             properties: [],
         },
         default: {
@@ -108,12 +118,15 @@ const config: TexlyreConfig = {
                 imageViewerAutoCenter: true,
                 imageViewerEnableFilters: true,
                 imageViewerQuality: 'high',
-                latexEngine: 'pdftex',
+                latexEngine: 'busytex-pdftex',
                 latexDefaultFormat: 'pdf',  // 'canvas-pdf'
                 latexStoreCache: true,
                 latexStoreWorkingDirectory: false,
-                latexTexliveEndpoint: 'https://texlive.texlyre.org',
-                latexBusytexEndpoint: 'https://texlive2026.texlyre.org',
+                // Rinspace release builds only enable reviewed, exact package
+                // endpoints. Keep upstream public services opt-in instead of
+                // sending compile-time package requests there by default.
+                latexTexliveEndpoint: '',
+                latexBusytexEndpoint: '',
                 pdfRendererAnnotations: true,
                 pdfRendererEnable: true,
                 pdfRendererInitialZoom: '100',
@@ -122,8 +135,10 @@ const config: TexlyreConfig = {
                 pdfViewerRenderingQuality: 'high',
                 repositoryProxyUrl: 'https://proxy.texlyre.org/?url=',
                 latexSourcemapEnable: true,
-                statusJsonUrl: 'https://raw.githubusercontent.com/TeXlyre/upptime/master/status.json',
-                statusPageUrl: 'https://texlyre.org/upptime',
+                // A release may provide its own status feed. Do not poll the
+                // upstream mutable GitHub file from the default local editor.
+                statusJsonUrl: '',
+                statusPageUrl: '',
                 templatesApiUrl: 'https://texlyre.github.io/texlyre-templates/api/templates.json',
                 themePlugin: 'texlyre-compact-theme',
                 themeVariant: 'system',
@@ -144,8 +159,8 @@ const config: TexlyreConfig = {
                     sidebarCollapsed: false,
                     sidebarWidth: 502,
                     sourcemapShowFloatingButtons: true,
-                    themeToggleLight: "atom_light",
-                    themeToggleDark: "tomorrow_night_blue",
+                    themeToggleLight: 'atom_light',
+                    themeToggleDark: 'tomorrow_night_blue',
                     toolbarVisible: true,
                 },
             },
@@ -166,6 +181,7 @@ const config: TexlyreConfig = {
         },
         local: {
             settings: {
+                latexEngine: 'pdftex',
                 collabSignalingServers: 'ws://localhost:4444/',
                 fileSyncServerUrl: 'http://localhost:8080',
                 latexBusytexEndpoint: 'http://localhost:8070',

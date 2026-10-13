@@ -1,6 +1,6 @@
 // scripts/copy-detypify-assets.cjs
-const fs = require('fs-extra');
 const path = require('node:path');
+const { copyVerifiedAssetFiles } = require('./rinspace/asset-integrity.cjs');
 
 const assets = [
 	{
@@ -26,21 +26,10 @@ async function copyDetypifyAssets() {
 	try {
 		const destDir = path.resolve(__dirname, '../public/core/detypify');
 
-		if (await fs.pathExists(destDir)) {
-			const files = await fs.readdir(destDir);
-			if (files.length >= assets.length) {
-				console.log('✓ Detypify assets already exist, skipping copy');
-				return;
-			}
-		}
-
-		await fs.ensureDir(destDir);
-
-		for (const asset of assets) {
-			await fs.copy(asset.source, asset.destination);
-		}
-
-		console.log('✓ Detypify assets copied to public/core/detypify');
+		const result = await copyVerifiedAssetFiles(assets.map((asset) => ({
+			source: asset.source, path: path.basename(asset.destination),
+		})), destDir);
+		console.log(`✓ Detypify assets ${result.status}`);
 	} catch (err) {
 		console.error('❌ Error copying Detypify assets:', err);
 		throw err;

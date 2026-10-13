@@ -120,11 +120,15 @@ const TypstCompileButton: React.FC<TypstCompileButtonProps> = ({
 	const projectMainFile = useSharedSettings
 		? doc?.projectMetadata?.mainFile
 		: undefined;
+	const managedMainFile =
+		doc?.projectMetadata?.managedBuild?.status === 'valid'
+			? `/${doc.projectMetadata.managedBuild.entry}`
+			: undefined;
 	const projectFormat = useSharedSettings
 		? doc?.projectMetadata?.typstOutputFormat
 		: undefined;
 
-	const effectiveMainFile = projectMainFile || propMainFile || autoMainFile;
+	const effectiveMainFile = managedMainFile || projectMainFile || propMainFile || autoMainFile;
 	const effectiveFormat =
 		projectFormat || propFormat || currentFormat || settingFormat;
 	const localPdfOptions: TypstPdfOptions = {
@@ -466,7 +470,7 @@ const TypstCompileButton: React.FC<TypstCompileButtonProps> = ({
 		});
 	};
 
-	const handleShareFormat = (checked: boolean) => {
+	const _handleShareFormat = (checked: boolean) => {
 		if (!useSharedSettings || !changeDoc) return;
 
 		changeDoc((d) => {

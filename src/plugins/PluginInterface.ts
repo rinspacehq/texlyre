@@ -6,6 +6,7 @@ import type { BackupStatus } from '../types/backup';
 import type { BibEntry } from '../types/bibliography';
 import type { GitRemoteProvider } from '../types/gitRemote';
 import type { SourceMapHighlight } from '../types/sourceMap';
+import type { WorkspaceExtensionPlugin } from '../workspace/contracts';
 
 export interface Plugin {
 	id: string;
@@ -14,6 +15,10 @@ export interface Plugin {
 	type: string;
 	settings?: Setting[];
 }
+
+export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin & {
+	gitRemote?: GitRemoteProvider;
+};
 
 export interface SupportedExtension {
 	extension: string;
@@ -148,13 +153,13 @@ export interface BibliographyPlugin extends Plugin {
 	updateServerUrl?(url: string): void;
 }
 
-export interface BibliographyPanelProps {
+export interface BibliographyPanelProps<Filters extends object = Record<string, unknown>> {
 	className?: string;
-	onItemSelect?: (item: any) => void;
+	onItemSelect?: (item: BibEntry) => void;
 	searchQuery?: string;
 	onSearchChange?: (query: string) => void;
 	pluginInstance?: BibliographyPlugin;
-	onFiltersChange?: (filters: Record<string, any>) => void;
+	onFiltersChange?: (filters: Filters) => void;
 }
 
 // Language Server Protocol (LSP) Support
@@ -180,7 +185,7 @@ export interface LSPPlugin extends Plugin {
 
 export interface LSPPanelProps {
 	className?: string;
-	onItemSelect?: (item: any) => void;
+	onItemSelect?: (item: unknown) => void;
 	searchQuery?: string;
 	onSearchChange?: (query: string) => void;
 	pluginInstance?: LSPPlugin;
@@ -269,4 +274,5 @@ export type PluginRegistry = {
 	bibliography: BibliographyPlugin[];
 	backup: BackupPlugin[];
 	themes: ThemePlugin[];
+	workspace: WorkspacePlugin[];
 };

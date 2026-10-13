@@ -5,7 +5,7 @@ import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import type { FileNode } from '../types/files';
 import { stripAnnotations } from '../utils/fileCommentUtils';
-import { getMimeType, isBinaryFile, isTemporaryFile } from '../utils/fileUtils';
+import { getMimeType, isBinaryFile } from '../utils/fileUtils';
 import { fileHandlerService } from './FileHandlerService';
 import { fileStoreService } from './FileStoreService';
 import {
@@ -17,6 +17,11 @@ import { DiskHandleStore, ensurePermission } from './DiskHandleStore';
 import { workspaceActivityService } from './WorkspaceActivityService';
 import { authService } from './AuthService';
 import { DirectoryTarget } from './WriteTargetService';
+import type { DiskWriteReport } from '../workspace/DiskWriteResults';
+import {
+	isIgnoredLocalEntry,
+	isIgnoredLocalPath,
+} from '../workspace/LocalWritePolicy';
 
 const moduleLog = createNamedLogger('WorkspaceService');
 
@@ -33,12 +38,6 @@ const getDirectoryPicker = (): DirectoryPicker | null => {
 	const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
 	return typeof picker === 'function' ? picker.bind(window) : null;
 };
-const IGNORED_DIRECTORIES = new Set([
-	'.git',
-	'.svn',
-	'node_modules',
-	'.texlyre',
-]);
 
 export interface DiskSnapshotEntry {
 	lastModified: number;
@@ -51,6 +50,7 @@ export interface WorkspaceMergeResult {
 	exported: number;
 	merged: number;
 	skipped: number;
+	writes?: DiskWriteReport;
 }
 
 export interface ReconcileResult {
@@ -84,13 +84,14 @@ class WorkspaceService {
 	private needsPermission = false;
 	private linkedCount = 0;
 	private lastSyncedAt: number | null = null;
+	private statusCache: WorkspaceStatus | null = null;
 
 	isSupported(): boolean {
 		return typeof window !== 'undefined' && getDirectoryPicker() !== null;
 	}
 
 	getStatus(): WorkspaceStatus {
-		return {
+		const status: WorkspaceStatus = {
 			isConnected: this.rootHandle !== null && !this.needsPermission,
 			needsPermission: this.needsPermission,
 			projectId: this.projectId,
@@ -98,6 +99,9 @@ class WorkspaceService {
 			fileCount: this.linkedCount,
 			lastSyncedAt: this.lastSyncedAt,
 		};
+		const keys: Array<keyof WorkspaceStatus> = ['isConnected', 'needsPermission', 'projectId', 'directoryName', 'fileCount', 'lastSyncedAt'];
+		if (!this.statusCache || keys.some((key) => this.statusCache?.[key] !== status[key])) this.statusCache = Object.freeze(status);
+		return this.statusCache;
 	}
 
 	async reconnect(): Promise<boolean> {
@@ -146,13 +150,14 @@ class WorkspaceService {
 
 		const files = await fileStoreService.getAllFiles(false, false, true);
 		const mirroredFiles = files.filter((file) => file.type === 'file');
-		await fileHandlerService.mirrorFiles(mirroredFiles);
+		const writes = await fileHandlerService.mirrorFiles(mirroredFiles);
+		const writtenPaths = writes.entries.filter((entry) => entry.outcome === 'written').map((entry) => entry.path);
 		await this.refreshLinks();
-		if (mirroredFiles.length > 0) {
+		if (writtenPaths.length > 0) {
 			await workspaceActivityService.record(projectId, {
 				type: 'exported',
 				message: t('Wrote project files to folder: {files}', {
-					files: mirroredFiles.map((file) => file.path).join(', '),
+					files: writtenPaths.join(', '),
 				}),
 			});
 		}
@@ -160,6 +165,9 @@ class WorkspaceService {
 			type: 'folder-changed',
 			message: t('Changed folder to: {folder}', { folder: handle.name }),
 		});
+		if (writes.entries.some((entry) => entry.outcome === 'failed')) {
+			throw new Error(t('Some files were not written to the folder. Browser data has not been rolled back.'));
+		}
 		return true;
 	}
 
@@ -194,6 +202,17 @@ class WorkspaceService {
 		await this.setDiskLinkedFlag(projectId, true);
 	}
 
+	async checkFolderAccess(
+		handle: FileSystemDirectoryHandle,
+		signal?: AbortSignal,
+	): Promise<void> {
+		signal?.throwIfAborted();
+		if (!(await ensurePermission(handle, 'readwrite'))) {
+			throw new Error(t('Write access to the folder was not granted'));
+		}
+		signal?.throwIfAborted();
+	}
+
 	async connect(projectId: string): Promise<boolean> {
 		const handle = await this.pickFolder();
 		if (!handle) return false;
@@ -226,7 +245,7 @@ class WorkspaceService {
 		const stored = await fileStoreService.getAllFiles(false, false, true);
 		const tracked = new Map(
 			stored
-				.filter((file) => !isTemporaryFile(file.path))
+				.filter((file) => !isIgnoredLocalPath(file.path))
 				.map((file) => [file.path, file]),
 		);
 
@@ -279,14 +298,27 @@ class WorkspaceService {
 		const projectOnly = stored.filter(
 			(file) =>
 				file.type === 'file' &&
-				!isTemporaryFile(file.path) &&
+				!isIgnoredLocalPath(file.path) &&
 				!files.some((incoming) => incoming.path === file.path),
 		);
 		const projectOnlyPaths = projectOnly.map((file) => file.path);
+		// The walk observed the folder versions used for these explicit merge choices.
+		const outgoingPaths = new Set([...toExport, ...mergedBack].map((file) => file.path));
+		for (const incoming of files) {
+			const stored = tracked.get(incoming.path);
+			const observed = { ...incoming, id: stored?.id ?? incoming.id };
+			if (outgoingPaths.has(incoming.path) && incoming.content !== undefined) fileHandlerService.rememberDiskContent(observed, incoming.content);
+			else fileHandlerService.rememberDiskMetadata(observed);
+		}
+		for (const missing of projectOnly) fileHandlerService.rememberDiskContent(missing, null);
 		const outgoing = [...projectOnly, ...toExport, ...mergedBack];
+		const writtenPaths = new Set<string>();
 		if (outgoing.length > 0) {
-			await fileHandlerService.mirrorFiles(outgoing);
-			summary.exported = outgoing.length;
+			summary.writes = await fileHandlerService.mirrorFiles(outgoing);
+			for (const entry of summary.writes.entries) {
+				if (entry.outcome === 'written') writtenPaths.add(entry.path);
+			}
+			summary.exported = writtenPaths.size;
 		}
 
 		await this.refreshLinks();
@@ -307,19 +339,21 @@ class WorkspaceService {
 					}),
 				});
 			}
-			if (keptProjectPaths.length > 0) {
+			const keptWritten = keptProjectPaths.filter((path) => writtenPaths.has(path));
+			if (keptWritten.length > 0) {
 				await workspaceActivityService.record(this.projectId, {
 					type: 'exported',
 					message: t('Kept TeXlyre version on disk: {files}', {
-						files: keptProjectPaths.join(', '),
+						files: keptWritten.join(', '),
 					}),
 				});
 			}
-			if (projectOnlyPaths.length > 0) {
+			const projectWritten = projectOnlyPaths.filter((path) => writtenPaths.has(path));
+			if (projectWritten.length > 0) {
 				await workspaceActivityService.record(this.projectId, {
 					type: 'exported',
 					message: t('Wrote project files to folder: {files}', {
-						files: projectOnlyPaths.join(', '),
+						files: projectWritten.join(', '),
 					}),
 				});
 			}
@@ -365,10 +399,16 @@ class WorkspaceService {
 			}
 		} else if (
 			existing.content instanceof ArrayBuffer &&
-			incoming.content instanceof ArrayBuffer &&
-			existing.content.byteLength === incoming.content.byteLength
+			incoming.content instanceof ArrayBuffer
 		) {
-			return 'identical';
+			const existingBytes = new Uint8Array(existing.content);
+			const incomingBytes = new Uint8Array(incoming.content);
+			if (
+				existingBytes.length === incomingBytes.length &&
+				existingBytes.every((byte, index) => byte === incomingBytes[index])
+			) {
+				return 'identical';
+			}
 		}
 
 		let resolution: ConflictResolution;
@@ -416,6 +456,7 @@ class WorkspaceService {
 		if (!handle) {
 			this.projectId = projectId;
 			this.needsPermission = true;
+			fileHandlerService.markWorkspacePermissionPending(projectId);
 			this.notify();
 			return true;
 		}
@@ -424,6 +465,7 @@ class WorkspaceService {
 			this.projectId = projectId;
 			this.rootHandle = handle;
 			this.needsPermission = true;
+			fileHandlerService.markWorkspacePermissionPending(projectId);
 			this.notify();
 			await workspaceActivityService.record(projectId, {
 				type: 'permission-lost',
@@ -483,7 +525,7 @@ class WorkspaceService {
 		const adapter = new DirectoryTarget(this.rootHandle);
 		const directories: FileNode[] = [];
 		const files: FileNode[] = [];
-		await this.walk(adapter, '', directories, files);
+		await this.walk(adapter, '', directories, files, true);
 
 		if (directories.length > 0 || files.length > 0) {
 			await fileHandlerService.withoutMirroring(() =>
@@ -492,6 +534,9 @@ class WorkspaceService {
 					preserveTimestamp: true,
 				}),
 			);
+			for (const file of files) {
+				fileHandlerService.rememberDiskMetadata(file);
+			}
 		}
 
 		await this.refreshLinks();
@@ -503,7 +548,7 @@ class WorkspaceService {
 
 		const stored = await fileStoreService.getAllFiles(false, false, false);
 		const linked = stored
-			.filter((file) => file.type === 'file' && !isTemporaryFile(file.path))
+			.filter((file) => file.type === 'file' && !isIgnoredLocalPath(file.path))
 			.map((file) => file.id);
 
 		fileHandlerService.resetLinks(linked);
@@ -535,7 +580,7 @@ class WorkspaceService {
 		this.snapshot = disk;
 
 		const stored = await fileStoreService.getAllFiles(false, false, true);
-		const tracked = stored.filter((file) => !isTemporaryFile(file.path));
+		const tracked = stored.filter((file) => !isIgnoredLocalPath(file.path));
 		const trackedPaths = new Map(tracked.map((file) => [file.path, file]));
 
 		const addedPaths = [...disk.keys()].filter(
@@ -550,8 +595,6 @@ class WorkspaceService {
 
 		const renamed = this.pairRenames(addedPaths, removedFiles, disk);
 		const toStore: FileNode[] = [];
-		const toExport: FileNode[] = [];
-		const mergedBack: FileNode[] = [];
 		const toDelete: string[] = [];
 		const addedActivityPaths: string[] = [];
 		const removedActivityPaths: string[] = [];
@@ -617,7 +660,7 @@ class WorkspaceService {
 			toStore.length > 0 || toDelete.length > 0
 				? await fileStoreService.getAllFiles(false, false, true)
 				: tracked
-		).filter((file) => file.type === 'file' && !isTemporaryFile(file.path));
+		).filter((file) => file.type === 'file' && !isIgnoredLocalPath(file.path));
 
 		fileHandlerService.resetLinks(files.map((file) => file.id));
 		this.linkedCount = files.length;
@@ -747,11 +790,10 @@ class WorkspaceService {
 		}
 
 		for (const entry of entries) {
+			if (isIgnoredLocalEntry(entry.name)) continue;
 			const entryPath = `${path}/${entry.name}`;
 
 			if (entry.isDirectory) {
-				if (IGNORED_DIRECTORIES.has(entry.name)) continue;
-				if (isTemporaryFile(entryPath)) continue;
 				into.set(entryPath, {
 					lastModified: 0,
 					size: 0,
@@ -761,7 +803,6 @@ class WorkspaceService {
 				continue;
 			}
 
-			if (isTemporaryFile(entryPath)) continue;
 			const stats = await adapter.stat(entryPath);
 			if (stats) into.set(entryPath, stats);
 		}
@@ -787,7 +828,8 @@ class WorkspaceService {
 		this.rootHandle = handle;
 		this.projectId = projectId;
 		this.needsPermission = false;
-		fileHandlerService.attachWorkspace(new DirectoryTarget(handle));
+		await fileHandlerService.restorePermissionPendingOriginals(projectId);
+		fileHandlerService.attachWorkspace(new DirectoryTarget(handle), projectId);
 		this.notify();
 	}
 
@@ -796,20 +838,22 @@ class WorkspaceService {
 		path: string,
 		directories: FileNode[],
 		files: FileNode[],
+		strict = false,
 	): Promise<void> {
 		let entries: Array<{ name: string; isDirectory: boolean }>;
 		try {
 			entries = await adapter.listEntries(path);
 		} catch (error) {
+			if (strict) throw new Error(t('Local folder could not be read completely'), { cause: error });
 			moduleLog.error(`Failed to list ${path || '/'}:`, error);
 			return;
 		}
 
 		for (const entry of entries) {
+			if (isIgnoredLocalEntry(entry.name)) continue;
 			const entryPath = `${path}/${entry.name}`;
 
 			if (entry.isDirectory) {
-				if (IGNORED_DIRECTORIES.has(entry.name)) continue;
 				directories.push({
 					id: nanoid(),
 					name: entry.name,
@@ -817,12 +861,9 @@ class WorkspaceService {
 					type: 'directory',
 					lastModified: Date.now(),
 				});
-				await this.walk(adapter, entryPath, directories, files);
+				await this.walk(adapter, entryPath, directories, files, strict);
 				continue;
 			}
-
-			if (isTemporaryFile(entryPath)) continue;
-
 			try {
 				const stats = await adapter.stat(entryPath);
 				const content = await adapter.readFile(entryPath);
@@ -838,6 +879,7 @@ class WorkspaceService {
 					isBinary: isBinaryFile(entryPath),
 				});
 			} catch (error) {
+				if (strict) throw new Error(t('Local file could not be read completely'), { cause: error });
 				moduleLog.error(`Failed to read ${entryPath}:`, error);
 			}
 		}

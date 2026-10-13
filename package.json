@@ -7,7 +7,7 @@
 	"license": "AGPL-3.0-or-later",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/texlyre/texlyre.git"
+		"url": "https://github.com/rinspacehq/texlyre.git"
 	},
 	"type": "module",
 	"packageManager": "pnpm@10.20.0",
@@ -20,9 +20,15 @@
 		"predev": "node scripts/setup-assets.cjs",
 		"dev": "node scripts/pm.cjs vite",
 		"dev:https": "node scripts/pm.cjs cross-env VITE_USE_HTTPS=true vite --host",
-		"build": "node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build",
-		"build:prod": "node scripts/pm.cjs run generate:userdata-interfaces && node scripts/pm.cjs run generate:configs && node scripts/pm.cjs run i18n:coverage && node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/pm.cjs run lint:imports:fix && node scripts/pm.cjs run lint:biome:fix",
-		"build:local": "node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build",
+		"build": "node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/rinspace/apply-runtime-overlays.cjs",
+		"prepare:source": "node scripts/pm.cjs run generate:userdata-interfaces && node scripts/pm.cjs run generate:configs && node scripts/pm.cjs run i18n:coverage && node scripts/pm.cjs tsx scripts/update-sw-version.js",
+		"build:prod": "node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/rinspace/apply-runtime-overlays.cjs",
+		"check:fork-source": "node scripts/rinspace/check-source.mjs",
+		"check:package-assets": "node scripts/rinspace/check-package-assets.cjs",
+		"check:source-candidate": "node scripts/rinspace/source-candidate.cjs",
+		"check:dependency-notices": "node scripts/rinspace/generate-dependency-notices.cjs",
+		"test:fork-foundation": "node --test --test-concurrency=1 scripts/rinspace/*.test.mjs",
+		"build:local": "node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/rinspace/apply-runtime-overlays.cjs",
 		"preview": "node scripts/pm.cjs vite preview",
 		"clean:cache": "node scripts/clean-cache.cjs",
 		"generate:userdata-interfaces": "node scripts/generate-userdata-interfaces.cjs",
@@ -45,7 +51,7 @@
 		"test:integration": "node scripts/pm.cjs jest tests/integration",
 		"test:components": "node scripts/pm.cjs jest tests/components",
 		"test:services": "node scripts/pm.cjs jest tests/services",
-		"test:ci": "node scripts/pm.cjs jest --ci --coverage --maxWorkers=2",
+		"test:ci": "node scripts/pm.cjs jest --ci --coverage --maxWorkers=1",
 		"i18n:validate": "node scripts/i18n/validate-json.cjs",
 		"i18n:validate:config": "node scripts/i18n/validate-json.cjs translations/locales.config.json",
 		"i18n:validate:file": "node scripts/i18n/validate-json.cjs",
@@ -114,6 +120,7 @@
 		"i18next": "^26.3.6",
 		"idb": "^8.0.3",
 		"isomorphic-git": "^1.41.9",
+		"js-yaml": "5.4.2",
 		"jszip": "^3.10.1",
 		"katex": "^0.19.0",
 		"lib0": "^0.2.117",
@@ -160,7 +167,7 @@
 		"glob": "^13.0.6",
 		"immutable": "^5.1.8",
 		"inflight": "npm:inflight-lru@^1.0.0",
-		"js-yaml": "^5.4.2",
+		"js-yaml": "5.4.2",
 		"katex": "^0.19.0",
 		"minimatch": "^10.2.2",
 		"nanoid": "^6.0.1",
@@ -177,7 +184,8 @@
 		"@humanfs/node@<0.16.8": "^0.16.8",
 		"source-map-js@>=1.0.0 <1.2.2": ">=1.2.2",
 		"@vue/server-renderer@<3.5.42": ">=3.5.42",
-		"prosemirror-view@<1.42.3": ">=1.42.3"
+		"prosemirror-view@<1.42.3": ">=1.42.3",
+		"prosemirror-model": "1.25.12"
 	},
 	"pnpm": {
 		"overrides": {
@@ -195,7 +203,7 @@
 			"glob": "^13.0.6",
 			"immutable": "^5.1.8",
 			"inflight": "npm:inflight-lru@^1.0.0",
-			"js-yaml": "^5.4.2",
+			"js-yaml": "5.4.2",
 			"katex": "^0.19.0",
 			"minimatch": "^10.2.2",
 			"nanoid": "^6.0.1",
@@ -212,7 +220,8 @@
 			"@humanfs/node@<0.16.8": "^0.16.8",
 			"source-map-js@>=1.0.0 <1.2.2": ">=1.2.2",
 			"@vue/server-renderer@<3.5.42": ">=3.5.42",
-			"prosemirror-view@<1.42.3": ">=1.42.3"
+			"prosemirror-view@<1.42.3": ">=1.42.3",
+			"prosemirror-model": "1.25.12"
 		},
 		"peerDependencyRules": {
 			"allowedVersions": {
@@ -237,12 +246,16 @@
 		"@emnapi/core": "1.11.3",
 		"@emnapi/runtime": "1.11.3",
 		"@emnapi/wasi-threads": "1.2.3",
+		"@eslint/compat": "2.0.2",
+		"@eslint/js": "10.0.1",
 		"@napi-rs/wasm-runtime": "1.2.3",
 		"@testing-library/dom": "^10.4.1",
 		"@testing-library/jest-dom": "^7.0.1",
 		"@testing-library/react": "^16.3.2",
 		"@testing-library/user-event": "^14.6.5",
 		"@types/jest": "^30.0.0",
+		"@types/lodash": "4.17.24",
+		"@types/mdast": "4.0.4",
 		"@types/node": "^26.2.0",
 		"@types/qrcode": "^1.5.6",
 		"@types/react": "^19.2.18",

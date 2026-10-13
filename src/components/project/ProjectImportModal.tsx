@@ -1,6 +1,6 @@
 // src/components/project/ProjectImportModal.tsx
 import type React from 'react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
 import {
@@ -10,9 +10,10 @@ import {
 } from '../../services/ProjectImportService';
 import { authService } from '../../services/AuthService';
 import { workspaceService } from '../../services/WorkspaceService';
-import type { TemplateProject } from '../../types/projects';
+import type { Project, TemplateProject } from '../../types/projects';
 import { ARCHIVE_ACCEPT, isArchiveFile } from '../../utils/archiveUtils';
 import { formatDate } from '../../utils/dateUtils';
+import { type LocalZipProject, isTeXlyreBackupZip, prepareLocalZipProject } from '../../workspace/LocalZipImport';
 import {
 	UrlIcon,
 	ShareIcon,
@@ -30,14 +31,16 @@ interface ProjectImportModalProps {
 	isOpen: boolean;
 	onClose: () => void;
 	onProjectsImported: () => void;
+	onOpenProject: (docUrl: string) => void;
 }
 
 const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 	isOpen,
 	onClose,
 	onProjectsImported,
+	onOpenProject,
 }) => {
-	const [importSource, setImportSource] = useState<'template' | 'zip' | null>(
+	const [importSource, setImportSource] = useState<'template' | 'zip' | 'folder' | null>(
 		null,
 	);
 	const [availableProjects, setAvailableProjects] = useState<
@@ -55,35 +58,65 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 	const [error, setError] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [selectedZipFile, setSelectedZipFile] = useState<File | null>(null);
+	const [localZipProject, setLocalZipProject] = useState<LocalZipProject | null>(null);
 	const [showTemplateModal, setShowTemplateModal] = useState(false);
 	const [showUrlModal, setShowUrlModal] = useState(false);
 	const [showYjsLinkModal, setShowYjsLinkModal] = useState(false);
+	const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null);
+	const [folderProject, setFolderProject] = useState<Project | null>(null);
+	const folderOperation = useRef<AbortController | null>(null);
+	useEffect(() => () => { folderOperation.current?.abort(); }, [isOpen]);
 
-	const handleFolderImport = async () => {
+	const handleFolderImport = async (retryHandle?: FileSystemDirectoryHandle) => {
+		if (folderOperation.current && !folderOperation.current.signal.aborted) return;
+		const controller = new AbortController();
+		folderOperation.current = controller;
+		let handle = retryHandle ?? null;
 		setError(null);
+		setIsScanning(true);
 		try {
-			const handle = await workspaceService.pickFolder();
-			if (!handle) return;
-
-			const project = await authService.createProject({
+			handle ??= await workspaceService.pickFolder();
+			if (!handle || controller.signal.aborted) return;
+			setFolder(handle);
+			setImportSource('folder');
+			await workspaceService.checkFolderAccess(handle, controller.signal);
+			if (controller.signal.aborted) return;
+			setIsScanning(false);
+			setIsImporting(true);
+			const previousProject = retryHandle ? folderProject : null;
+			const project = previousProject ?? await authService.createProject({
 				name: handle.name,
-				description: t('Mirrored from a folder on this device'),
-				type: 'latex',
+				description: t('Local project from an authorized folder'),
+				// Compatibility metadata, not a language or preview target.
+				type: 'files',
+				group: 'files',
 				docUrl: '',
 				tags: [],
 				isFavorite: false,
 			});
-
+			if (controller.signal.aborted) return;
+			if (!previousProject) {
+				setFolderProject(project);
+				onProjectsImported();
+			}
 			await workspaceService.link(project.id, handle);
-			// onProjectsImported();
-			// onClose();
-			window.location.hash = project.docUrl;
-			window.location.reload();
+			if (controller.signal.aborted) return;
+			setFolder(null);
+			setFolderProject(null);
+			setImportSource(null);
+			onOpenProject(project.docUrl);
+			onClose();
 		} catch (error) {
-			if ((error as Error)?.name === 'AbortError') return;
+			if (controller.signal.aborted || (!handle && error instanceof Error && error.name === 'AbortError')) return;
 			setError(
 				error instanceof Error ? error.message : t('Failed to link folder'),
 			);
+		} finally {
+			if (folderOperation.current === controller) {
+				folderOperation.current = null;
+				setIsScanning(false);
+				setIsImporting(false);
+			}
 		}
 	};
 
@@ -169,9 +202,18 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 			setError(null);
 
 			setSelectedZipFile(file);
+			setLocalZipProject(null);
 
-			const projects = await projectImportService.scanZipFile(file);
-			setAvailableProjects(projects);
+			if (file.name.toLowerCase().endsWith('.zip') && !(await isTeXlyreBackupZip(file))) {
+				setAvailableProjects([]);
+				setLocalZipProject(await prepareLocalZipProject(file));
+			} else {
+				const projects = await projectImportService.scanZipFile(file);
+				if (projects.length === 0 && file.name.toLowerCase().endsWith('.zip')) {
+					throw new Error(t('This TeXlyre backup could not be validated'));
+				}
+				setAvailableProjects(projects);
+			}
 			setImportSource('zip');
 			setSelectedProjects(new Set());
 		} catch (error) {
@@ -183,6 +225,34 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 		} finally {
 			setIsScanning(false);
 		}
+	};
+
+	const handleLocalZipImport = async () => {
+		if (!localZipProject) return;
+		setIsImporting(true);
+		setError(null);
+		try {
+			const project = await projectImportService.importLocalZipProject(localZipProject);
+			document.dispatchEvent(new CustomEvent('projects-imported'));
+			onProjectsImported();
+			onOpenProject(project.docUrl);
+			setImportSource(null);
+			setSelectedZipFile(null);
+			setLocalZipProject(null);
+			if (fileInputRef.current) fileInputRef.current.value = '';
+			onClose();
+		} catch (error) {
+			setError(error instanceof Error ? error.message : t('Import failed'));
+		} finally {
+			setIsImporting(false);
+		}
+	};
+
+	const discardLocalZip = () => {
+		setLocalZipProject(null);
+		setSelectedZipFile(null);
+		setImportSource(null);
+		if (fileInputRef.current) fileInputRef.current.value = '';
 	};
 
 	const handleProjectToggle = (projectId: string) => {
@@ -249,10 +319,15 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 	};
 
 	const handleClose = () => {
+		if (isImporting) return;
+		folderOperation.current?.abort();
+		setFolder(null);
+		setFolderProject(null);
 		setImportSource(null);
 		setAvailableProjects([]);
 		setSelectedProjects(new Set());
 		setSelectedZipFile(null);
+		setLocalZipProject(null);
 		setError(null);
 		setIsScanning(false);
 		setIsImporting(false);
@@ -284,6 +359,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 					{error && (
 						<div
 							className='ui-message'
+							role='alert'
 							data-tone='error'
 							style={{ marginBottom: '1rem' }}
 						>
@@ -297,9 +373,11 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 
 							<div className='import-options'>
 								{workspaceService.isSupported() && (
-									<label
+									<button
+										type='button'
 										className='ui-choice-card'
-										onClick={handleFolderImport}
+										onClick={() => handleFolderImport()}
+										disabled={isScanning || isImporting}
 										style={{
 											pointerEvents:
 												isScanning || isImporting ? 'none' : 'auto',
@@ -311,11 +389,16 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 											<strong>{t('From a Folder on This Device')}</strong>
 											<p>
 												{t(
-													'Mirror a folder both ways, so edits on either side stay in sync',
+												'Read and edit files from a folder you authorize on this device',
 												)}
 											</p>
 										</div>
-									</label>
+									</button>
+								)}
+								{!workspaceService.isSupported() && (
+									<p className='ui-message' data-tone='info'>
+										{t('This browser cannot save directly to a local folder. Archive import creates a browser copy; downloads do not update the original folder.')}
+									</p>
 								)}
 
 								<label
@@ -377,7 +460,7 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 										<strong>{t('From Archive File')}</strong>
 										<p>
 											{t(
-												'Import projects from a TeXlyre export archive: Supports LaTeX and Typst',
+									'Import a TeXlyre backup or open an ordinary ZIP as a browser project',
 											)}
 										</p>
 									</div>
@@ -401,7 +484,29 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 						</div>
 					)}
 
-					{importSource && availableProjects.length > 0 && (
+					{importSource === 'folder' && folder && (
+						<div className='ui-stack' data-gap='md'>
+							<h3 className='ui-section-title'>{folder.name}</h3>
+							{(isScanning || isImporting) && <p>{t('Opening...')}</p>}
+							{folderProject && (
+								<p className='ui-message' data-tone='info'>
+									{t('The browser project was created. Folder linking is not confirmed; retry or keep this project for recovery.')}
+								</p>
+							)}
+							<div className='ui-actions'>
+								<button type='button' className='button secondary' disabled={isScanning || isImporting}
+									onClick={() => { setFolder(null); setFolderProject(null); setImportSource(null); setError(null); }}>
+									{t('Choose Different Source')}
+								</button>
+								<button type='button' className='button primary' disabled={isScanning || isImporting}
+									onClick={() => handleFolderImport(folder)}>
+									{isScanning || isImporting ? t('Opening...') : t('Retry Opening Folder')}
+								</button>
+							</div>
+						</div>
+					)}
+
+					{importSource === 'zip' && availableProjects.length > 0 && (
 						<div className='ui-stack' data-gap='md'>
 							<div className='ui-section-header'>
 								<h3 className='ui-section-title'>
@@ -533,7 +638,22 @@ const ProjectImportModal: React.FC<ProjectImportModalProps> = ({
 						</div>
 					)}
 
-					{importSource && availableProjects.length === 0 && !isScanning && (
+					{importSource === 'zip' && localZipProject && !isScanning && (
+						<div className='ui-stack' data-gap='md'>
+							<h3 className='ui-section-title'>{localZipProject.name}</h3>
+							<p className='ui-message' data-tone='info'>
+								{t('This ZIP will open as a browser copy. Editing it does not change the original ZIP or a local folder; export or download your work to keep a separate copy.')}
+							</p>
+							<p>{localZipProject.fileCount} {t('files ready to import')}</p>
+							{localZipProject.skippedProtectedCount > 0 && <p>{localZipProject.skippedProtectedCount} {t('protected archive entries were skipped')}</p>}
+							<div className='ui-actions'>
+								<button type='button' className='button secondary' disabled={isImporting} onClick={discardLocalZip}>{t('Choose Different Source')}</button>
+								<button type='button' className='button primary' disabled={isImporting} onClick={handleLocalZipImport}>{isImporting ? t('Importing...') : t('Open Browser Copy')}</button>
+							</div>
+						</div>
+					)}
+
+					{importSource === 'zip' && availableProjects.length === 0 && !localZipProject && !isScanning && (
 						<div className='ui-empty-state'>
 							<p>
 								{t('No importable projects found in the selected archive.')}

@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
+  "patches": [
+    {
+      "id": "persistent-local-bootstrap",
+      "files": ["texlyre.config.ts", "src/types/texlyre.ts", "src/types/auth.ts", "src/workspace/LocalProfile.ts", "src/workspace/StartupPolicy.ts", "src/workspace/RuntimeStartup.ts", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx", "src/services/CollabService.ts", "src/contexts/ChelysContext.tsx", "src/contexts/PeerFileSyncContext.tsx"],
+      "purpose": "Optional no-login persistent browser profile; preserve guest owner IDs before expiry cleanup. Explicit managed/invalid intents fail closed, and restored connection settings do not auto-join document, account or file-sync rooms. No platform identity is synthesized.",
+      "tests": ["scripts/rinspace/local-startup.test.mjs", "tests/services/AuthServiceLocalProfile.test.ts", "tests/components/AuthLocalStartup.test.tsx"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies persistent anonymous local profiles, safe pre-cleanup migration and explicit no-upload startup policy with equivalent regressions.",
+      "integrationStatus": "45 foundation cases, 13 focused cases, application types/lint and 1043 full regressions passed exact source 52f2fa0 run 38136349644. Real browser profile migration, filesystem writing and explicit optional connection UI remain pending."
+    },
+    {
+      "id": "direct-local-folder-open",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/services/WorkspaceService.ts", "src/services/AuthService.ts", "src/types/projects.ts", "src/components/project/ProjectImportModal.tsx", "src/components/app/ProjectApp.tsx"],
+      "purpose": "Open an authorized folder directly through the existing project/link flow; no language, entry selection or preliminary inventory. Keep neutral compatibility metadata, permission/cancellation checks and recovery-project reuse on link failure. Shared path protection retains .gitignore/.gitattributes without traversing Git or dependency directories. No platform binding or compile trigger is added.",
+      "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/WorkspaceLocalFolder.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "tests/services/WorkspaceService.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream opens generic local folders directly with equivalent permission/cancellation handling, protected paths and recovery-project reuse.",
+      "integrationStatus": "N01 source 41539da passed run 38199022499: 49 foundation, 109 focused, 1095 full tests plus application types/lint and package assets. The former language/entry selection was withdrawn; generic file preview follows existing providers selected from the open file. On source 8fcf31d, actual Chromium opened a PNG-only directory without language or entry selection; the unchanged upstream Image Viewer rotated a 3x1 PNG to 1x3, wrote changed bytes to the original folder, and showed the same dimensions after reload. A later production build opened a neutral files ZIP, inferred LaTeX only from the selected main.tex, compiled a Chinese multi-file PDF, closed the whole browser, recovered the project and compiled again without a repository or language choice."
+    },
+    {
+      "id": "local-disk-write-results",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WorkspaceService.ts", "src/hooks/useDiskFiles.ts", "src/hooks/useDiskWriteStatus.ts", "src/hooks/editor/useEditorView.ts", "src/components/editor/Editor.tsx", "src/components/workspace/WorkspaceModal.tsx", "src/components/workspace/WorkspaceStatusIndicator.tsx"],
+      "purpose": "Propagate per-path write/close outcomes through real FileStore mirroring to existing folder controls; preserve source annotations by default in persistent-local mode. Copy queued bytes and targets, serialize writes, reject protected/traversing/duplicate paths, and prevent stale directory/project completions from clearing newer pending input. Count only actually completed writes in folder export activity. Directory merging compares actual binary bytes, not just equal lengths, before skipping a conflict.",
+      "tests": ["scripts/rinspace/local-write-policy.test.mjs", "tests/services/FileHandlerLocalWrites.test.ts", "tests/components/WorkspaceWriteStatus.test.tsx", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/FileHandlerService.test.ts", "tests/services/FileHandlerAnnotationMode.test.ts", "tests/services/WorkspaceService.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides equivalent structured disk-write results, safe queue/target scoping and distinct local-source preservation defaults, with actual caller/UI regressions.",
+      "integrationStatus": "Connected implementation; application checks in progress. Results are in-memory operation reports, not durable project revisions, snapshot/hash journals or native filesystem read-back certification. External edit/multi-tab protection and recoverable rename/delete remain pending."
+    },
+    {
+      "id": "bounded-local-folder-deletion",
+      "files": ["src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WriteTargetService.ts", "src/contexts/FileTreeContext.tsx", "scripts/rinspace/check-deletion-lint.mjs", ".github/workflows/test.yml"],
+      "purpose": "Remove only selected, known files and empty directories, deepest first, without recursively deleting ignored or newly added disk data. Match directory boundaries rather than prefix siblings. Capture deletion targets and guard folder/project changes; propagate actual failures before clearing browser copies. Queue the full IDB deletion batch and abort on request failure. Preserve inherited lint warnings by exact baseline source context while rejecting every current error or new warning; existing zero-warning CI remains unchanged.",
+      "tests": ["tests/services/FileHandlerLocalDeletion.test.ts", "tests/components/FileTreeLocalDeletion.test.tsx", "tests/services/FileHandlerLocalWrites.test.ts", "tests/services/FileHandlerService.test.ts", "tests/services/WorkspaceService.test.ts", "scripts/rinspace/check-deletion-lint.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides equivalent non-recursive known-entry removal, failed-delete draft retention, target scoping and segment-boundary selection with regressions.",
+      "integrationStatus": "Source de700bb passed full public CI 38209120665: application types, lint, 165 focused and 1112 full tests, package asset and archive checks. Native Chromium directory opening, text write/read-back and reload recovery also passed. Actual UI deletion and directory atomicity remain unverified."
+    },
+    {
+      "id": "local-folder-external-write-guard",
+      "files": ["src/workspace/LocalWritePolicy.ts", "src/workspace/DiskWriteResults.ts", "src/services/WriteTargetService.ts", "src/services/FileHandlerService.ts", "src/services/FileStoreService.ts", "src/services/WorkspaceService.ts", "src/services/GitService.ts", "src/services/GitSyncService.ts", "src/hooks/useDiskFiles.ts", "src/contexts/FileTreeContext.tsx"],
+      "purpose": "For persistent local folders, compare original disk bytes immediately before and during an exclusive per-file write. Keep an externally changed disk file and the browser draft, report a distinct conflict, and carry the known previous version through FileStore, directory imports, Git worktree operations and a folder-permission interruption. Each browser tab records the content it actually opened instead of substituting a newer shared IndexedDB value as its disk-write baseline. While folder permission is pending, persist only the first observed disk content for each changed file in the existing project database, restore it before reconnecting the folder, and remove it after a successful disk write. This is a narrow conditional-write baseline, not a general journal, project snapshot or cloud draft service. Preserve the inherited account-mode write behavior and the existing browser compiler scheduler.",
+      "tests": ["tests/services/FileHandlerLocalWrites.test.ts", "tests/services/GitService.test.ts", "tests/components/DiskWriteNotifications.test.tsx", "tests/services/WorkspaceService.test.ts", "real Chromium two-tab and two-process-close folder saves"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent conditional local-folder writes, external edit conflict reporting and browser draft retention across the same callers.",
+      "integrationStatus": "Source 8fcf31d passed public PR CI 38226520690: 49 foundation, 179 focused and 1126 full cases, types, lint, package assets and external archive review; 16 inherited skips remain. The current feature-branch candidate adds the narrow durable baseline and passed 68 foundation checks, both TypeScript projects, strict touched-source lint, the fixed 26-warning legacy lint baseline, and 91 suites / 1140 full tests with the same 16 inherited skips. Its v1-to-v2 IndexedDB regression retains existing project files while adding the baseline store. Actual Chromium 149 closed the whole browser twice while permission was absent, recovered the browser draft, and used the browser-owned reauthorization prompt: unchanged disk bytes accepted the recovered draft, while a synthetic external edit retained both versions and surfaced a visible conflict. Both branches made zero external requests. Actual two-tab Chromium also retained the newer tab's disk version and the stale tab's browser draft. Browser File System Access does not provide an atomic directory transaction or lock against every other program."
+    },
+    {
+      "id": "ordinary-local-zip-import",
+      "files": ["src/workspace/LocalZipImport.ts", "src/services/ProjectImportService.ts", "src/components/project/ProjectImportModal.tsx"],
+      "purpose": "Open an ordinary ZIP without a TeXlyre backup manifest as a browser-only file project using the existing project and FileStore path. Preserve mixed source/resource paths, reject unsafe or colliding entries, skip protected Git/dependency metadata and bound archive expansion. Keep the existing validated TeXlyre backup import unchanged; no folder write or language choice is implied.",
+      "tests": ["tests/unit/workspace/LocalZipImport.test.ts", "tests/components/ProjectImportLocalFolder.test.tsx", "real Firefox browser import/edit/reload/files-only export"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supports ordinary bounded ZIP import into a browser-only project while retaining backup recovery and clearly distinguishing downloaded copies from original-folder writes.",
+      "integrationStatus": "Source 398960d passed public CI 38217751877: 49 foundation, 176 focused and 1123 full tests, types, lint, package assets and external archive checks; 16 inherited skips remain. Isolated Firefox 151 UI acceptance confirmed no directory API, real file input, ordinary ZIP with mixed LaTeX/Typst/Markdown/BibTeX/PNG, edited source recovered after reload and present in files-only downloaded ZIP; original ZIP and protected Git entry unchanged. Other N02 cases remain pending."
+    },
+    {
+      "id": "pnpm-types-and-model-identity",
+      "files": ["package.json", "pnpm-lock.yaml"],
+      "purpose": "Directly declare required types and align the already locked ProseMirror model patch version; preserve original upstream lock provenance separately.",
+      "tests": ["full application typecheck and upstream Jest suite in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream fixed pnpm lock and direct type dependencies pass the full application checks without these overrides.",
+      "integrationStatus": "full application types, changed-file lint and original upstream Jest suite passed run 38131323129; no runtime compilation claim"
+    },
+    {
+      "id": "workspace-extension-contracts",
+      "files": [".gitignore", "src/plugins/PluginInterface.ts", "src/plugins/PluginRegistry.ts", "src/types/texlyre.ts", "src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "texlyre.config.ts"],
+      "purpose": "Optional build-time workspace plugin category and seven generic hooks. No Rinspace API or identity rule in core.",
+      "tests": ["scripts/rinspace/workspace-contracts.test.mjs", "tsconfig.workspace.json"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides compatible versioned host/workspace extension registration.",
+      "integrationStatus": "Legacy candidate interfaces with no live Rinspace plugin consumers. They are not an implementation prerequisite; retain only a concrete minimal plugin connection when implementing N03, not a seven-hook SDK."
+    },
+    {
+      "id": "workspace-account-project-catalog",
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/components/app/ProjectApp.tsx", "src/components/app/AppRouter.tsx", "src/components/project/WorkspaceCatalogSection.tsx", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx"],
+      "purpose": "Allow an optional packaged workspace plugin to contribute paginated read-only project metadata to the existing project page and hand an explicit open intent back to the existing host adapter. Keep local projects visible, initialize one persistent browser-local owner for both anonymous and signed-in use, and never model remote entries as deletable local Project records. Product session, repository filtering and wire formats remain outside core.",
+      "tests": ["tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/components/WorkspaceCatalogSection.test.tsx", "tests/components/AuthLocalStartup.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "real Chromium local-plus-account catalog, lazy Smart HTTP and plugin-disable acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies an optional remote project catalog that composes with local projects and delegates materialization to an existing host adapter without requiring a cloud account or eager repository download.",
+      "integrationStatus": "The N12 source candidate passed 80 foundation checks, both TypeScript projects, exact CI lint plus the 26-warning inherited deletion baseline, 99 Jest suites / 1201 tests with the 16 inherited skips, package asset verification and the production build. Actual Chromium 155 first imported and edited a local ZIP project anonymously, then showed that same project beside 24 owned/collaborator account entries and a user-loaded second page. Catalog loading requested only session, SSO, identity and user/repos metadata; repository details and Git objects appeared only after Open, which completed through real same-origin Smart HTTP. Disabling the plugin through Settings hid the account catalog and held the fixture platform request count at 166 before and after focus while the local edit recovered and BusyTeX produced a PDF. HTTP(S) external requests and browser console errors were both zero. Public PR, immutable release and production consumption remain separate gates."
+    },
+    {
+      "id": "typed-plugin-panel-callbacks",
+      "files": ["src/plugins/PluginInterface.ts", "extras/bibliography/openalex/OpenAlexPanel.tsx"],
+      "purpose": "Typed bibliography selection, generic provider-specific filters and unknown LSP payload instead of existing any callbacks in the touched interface.",
+      "tests": ["full application typecheck, core lint and upstream Jest suite in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream offers equivalent precise panel callback types.",
+      "integrationStatus": "full application types and lint passed run 38131323129"
+    },
+    {
+      "id": "bibliography-provider-disable-state",
+      "files": ["src/components/bibliography/BibliographyToggleButton.tsx", "src/components/bibliography/BibliographyPanel.tsx"],
+      "purpose": "Let an optional bibliography provider hide its toolbar entry when disabled and use provider-neutral copy for on-demand search. Provider fetching, target-file selection, import, update and undo remain in the existing bibliography path.",
+      "tests": ["tests/unit/workspace/RinspaceBibliographyPlugin.test.ts", "real Chromium Rin Cite enable/search/import/disable acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream optional bibliography providers can expose live enable state and do not label every on-demand provider as OpenAlex.",
+      "integrationStatus": "N07 real Chromium acceptance used the existing settings and bibliography panels to query the current Tag API once, import tags/19 into refs.bib, disable the provider before any further request, and retain Zotero/OpenAlex plus local editing. Application and node TypeScript checks, focused lint and nearby tests pass."
+    },
+    {
+      "id": "quiver-tikzcd-text-source",
+      "files": ["src/utils/fileUtils.ts"],
+      "purpose": "Classify Quiver .tikzcd and .pending.tikzcd sources as text so the existing editor, undo/save, Git and recovery paths preserve them as repository files instead of presenting a false binary-file screen.",
+      "tests": ["tests/unit/utils/fileUtils.test.ts", "real Chromium ordinary-ZIP and browser-Git acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream classifies TikZ-CD source files as editable text with equivalent import and Git coverage.",
+      "integrationStatus": "N07 real Chromium acceptance edited both committed Quiver source variants as raw text and committed them with the SVG and four other source files. The SVG remains a viewer-managed binary resource; no Quiver format or publishing state machine was added."
+    },
+    {
+      "id": "offline-chat-connection-state",
+      "files": ["src/contexts/ChatContext.tsx"],
+      "purpose": "Report project chat as connected only when CollabService returned a network provider. Managed and persistent local routes intentionally receive an IndexedDB-backed Y.Doc with no provider, so presenting that local document as a live collaborator connection would be false and would enable messages that cannot reach another actor.",
+      "tests": ["scripts/rinspace/local-startup.test.mjs", "tests/unit/workspace/RinspaceManagedWorkspace.test.ts", "N08 source and browser-network audit"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream chat distinguishes an IndexedDB-only document from an authorized live collaboration provider and tracks provider connection state without enabling input for a local-only room.",
+      "integrationStatus": "N08 confirms managed mode and persistent local mode fail closed to local Yjs/IndexedDB and create no public signaling provider. The existing Gitea session authorizes repository access and Git operations only; it does not authorize a collaboration room. Live managed multi-actor collaboration remains explicitly unaccepted until an authenticated transport exists."
+    },
+    {
+      "id": "immutable-source-snapshot",
+      "files": ["src/workspace/SourceSnapshot.ts"],
+      "purpose": "Copy all source bytes before awaits; content-hashed, immutable metadata and defensive reads. No live Yjs reads, automatic Push or persistence claims.",
+      "tests": ["scripts/rinspace/workspace-contracts.test.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies an equivalent immutable multi-file byte snapshot API.",
+      "integrationStatus": "Legacy isolated utility with no Git/compiler/CRDT consumers. It is not a required common foundation or a durable-save claim; use existing operation paths rather than wiring a universal snapshot protocol."
+    },
+    {
+      "id": "verified-package-asset-cache",
+      "files": ["scripts/rinspace/asset-integrity.cjs", "scripts/rinspace/check-package-assets.cjs", "scripts/copy-pdf-cmaps.cjs", "scripts/copy-mathlive-fonts.cjs", "scripts/copy-detypify-assets.cjs", "scripts/copy-typst-assets.cjs", "scripts/copy-oniguruma-wasm.cjs", "scripts/copy-wasm-latex-tools-assets.cjs"],
+      "purpose": "Hash every installed package asset and verify warm copies, rejecting incomplete, polluted, symlinked or extra cache files rather than trusting nonempty directories. Generate a content inventory from the frozen dependency input.",
+      "tests": ["scripts/rinspace/asset-integrity.test.mjs", "cold and warm installed-package asset checks in .github/workflows/test.yml"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream validates asset contents against trusted fixed inputs and publishes a complete checked inventory.",
+      "integrationStatus": "7 filesystem cases and real installed-package cold/warm verification passed run 38131778638; external archives and complete notice audit remain pending"
+    },
+    {
+      "id": "fixed-external-runtime-assets",
+      "files": ["config/rinspace/external-assets.review.json", "config/rinspace/runtime-mirrors.review.json", "config/rinspace/texlive-cjk.review.json", "scripts/download-core-assets.cjs", "scripts/rinspace/download-core-assets.test.mjs", "scripts/rinspace/install-vendored-runtime-assets.cjs", "scripts/rinspace/install-vendored-runtime-assets.test.mjs", "scripts/rinspace/review-external-assets.mjs", "scripts/rinspace/review-external-assets.test.mjs", "scripts/rinspace/runtime-assets-policy.test.mjs", "scripts/rinspace/runtime-mirrors.test.mjs", "scripts/rinspace/static-assembly.test.mjs", "src/extensions/swiftlatex/SwiftLaTeXService.ts", "src/extensions/texlyre-busytex/RinspaceCjkPackageSet.ts", "src/extensions/texlyre-busytex/BusyTeXService.ts", "src/extensions/typst.ts/TypstRendererRuntime.ts", "src/extensions/typst.ts/typst-worker.ts", "texlyre.config.ts", "vite.config.ts", "public/sw.js", "userdata.json", "userdata.mobile.json", "vendor/rinspace/texlive-2026-cjk"],
+      "purpose": "Pin every downloaded public archive by exact URL, size and SHA-256; stream into private staging, verify a reviewed extracted inventory and atomically install rather than trusting a nonempty directory. Register same-origin Typst fonts as the complete default set so typst.ts cannot inject jsDelivr fonts. Use reviewed browser-only BusyTeX for new public profiles, keep its remote packages disabled, preserve SwiftLaTeX as an optional engine without deploying its Ubuntu/Flask on-demand server, and install a content-addressed TeX Live 2026 CJK subset only when source markers require it. Assemble Vite, PWA and assets under /editor. Record real mirror qualification and failure decisions without enabling an unqualified browser endpoint.",
+      "tests": ["scripts/rinspace/download-core-assets.test.mjs", "scripts/rinspace/install-vendored-runtime-assets.test.mjs", "scripts/rinspace/review-external-assets.test.mjs", "scripts/rinspace/runtime-assets-policy.test.mjs", "scripts/rinspace/runtime-mirrors.test.mjs", "scripts/rinspace/static-assembly.test.mjs", "tests/unit/engines/BusyTeX.test.ts", "tests/unit/engines/RinspaceCjkPackageSet.test.ts", "tests/unit/engines/TypstAssets.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies exact archive and extracted-tree verification, same-origin Typst font loading and a qualified configurable asset source without implicit public-service traffic.",
+      "integrationStatus": "Seven of seven source archives have measured byte and extracted-inventory locks; all six default runtime trees pass warm verification, and the optional grammar variant was measured in an isolated target before the default tree was restored and reverified. The font tree was independently reconstructed by the fixed upstream tag commit and its official build script; the same locked Release archive remains the normal acquisition input. Both grammar archives contain 477 cross-platform-unsafe, runtime-unreferenced snippet source names which are explicitly excluded and recorded. Real Chromium Typst PDF compilation passed with 128 same-origin font requests and no external request. BusyTeX pdfTeX produced a 13,665-byte PDF from its local basic bundle with no external request. A fixed 20-file, 18,888,796-byte TeX Live 2026 CJK subset with inventory digest 2bafcd705bbff2e02567be5c0b08a86054e82d2bafccddeea189a935fed24718 supplies ctex/xeCJK/Fandol without the filename endpoint. The final /editor production build compiled ctexart with a nested source, TikZ and a local package before and after a full Chromium restart; the second compile ran in forced offline mode with zero external requests and 72 cached entries. Alibaba and Tencent failed runtime CORS qualification; Huawei passed CORS/Range but remains disabled for missing operator/terms and protocol evidence. No mirror is runtime-enabled. The current candidate passed 72 foundation checks, both TypeScript projects, strict lint, 91 suites / 1141 tests with 16 inherited skips, and the production build. productionAccepted remains false."
+    },
+    {
+      "id": "busytex-worker-offline-cache",
+      "files": ["package.json", "scripts/rinspace/apply-runtime-overlays.cjs", "scripts/rinspace/apply-runtime-overlays.test.mjs", "src/extensions/texlyre-busytex/BusyTeXEngine.ts", "src/extensions/texlyre-busytex/BusyTeXRuntimeCache.ts"],
+      "purpose": "Keep the downloaded BusyTeX tree byte-identical and verified, then add a deterministic production-artifact overlay to let its dedicated worker consume same-origin CacheStorage. Cache only the two fixed WASM engines when BusyTeX is actually initialized, fully reading each fixed response before CacheStorage to avoid Chromium's cloned large-stream failure; do not prefetch on editor open, choose an engine, change compile scheduling or add a server compile path.",
+      "tests": ["scripts/rinspace/apply-runtime-overlays.test.mjs", "tests/unit/engines/BusyTeXRuntimeCache.test.ts", "production-build Chromium online compile, process close/reopen and forced-offline compile"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream BusyTeX reliably persists and restores its worker WASM in supported production browsers without a generated-worker overlay.",
+      "integrationStatus": "The artifact step accepts only upstream busytex_worker.js SHA-256 80eca56a2eb015bdfbebff26e539dd793407b73b6c1cd351170e6fdb6e17c39a and produced reviewed artifact SHA-256 9eec8a5919d359bb7128c02b04a133ea4cf6a06296a3bff1779022a732b898fe. The /editor route first reproduced Cache.put(response.clone()) failing for the 32 MiB WASM while the same stream traversed the service worker; buffering the fixed response before the cache write succeeded in the actual browser. Chromium then compiled the same Chinese multi-file project online, closed completely, reopened the retained browser project, enabled forced-offline mode and compiled again; no external request occurred and the two cache namespaces held 72 entries."
+    },
+    {
+      "id": "scoped-pwa-cache-ownership",
+      "files": ["public/sw.js", "scripts/update-sw-version.js", "scripts/rinspace/service-worker-policy.test.mjs", "scripts/rinspace/static-assembly.test.mjs"],
+      "purpose": "Keep the /editor service worker inside its own cache and URL boundary. Preserve other same-origin applications, old shells that may still serve open tabs and the independent BusyTeX WASM cache; never use a global CacheStorage match. Cache managed navigation under the parameter-free app shell key, reject manual precache outside /editor, and treat allowed remote API fetches as network-only unless the browser classifies them as static media or code.",
+      "tests": ["scripts/rinspace/service-worker-policy.test.mjs", "scripts/rinspace/static-assembly.test.mjs", "real production-build Chromium update/offline acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream service-worker cache ownership is scoped, does not delete or read unrelated CacheStorage entries, excludes private/API URLs and safely preserves open clients across updates.",
+      "integrationStatus": "N09 policy tests cover activation preservation, /editor-only manual precache, private/API bypass, parameter-free navigation caching and isolation from foreign cache entries. A fresh production-build Chromium profile opened and edited a local ZIP, rendered Markdown, re-registered the service worker, retained its draft and the foreign, BusyTeX and old-shell cache entries, closed completely, reopened with browser networking disabled, rendered Markdown again, continued editing and downloaded the exact 164-byte file. Across 383 observed requests, external and platform API requests were both zero."
+    },
+    {
+      "id": "explicit-local-peer-transfer",
+      "files": ["src/workspace/StartupPolicy.ts", "src/contexts/PeerFileSyncContext.tsx", "userdata.json", "userdata.mobile.json", "userdata.local.json", "userdata.local.mobile.json"],
+      "purpose": "Keep persistent local workspaces network-silent by default while preserving TeXlyre's existing FilePizza peer transfer after the user explicitly enables file synchronization. Managed repositories remain ineligible because their room transport has no Gitea ACL. Migrate existing profiles once to the safe disabled default instead of inheriting upstream's enabled setting.",
+      "tests": ["scripts/rinspace/local-startup.test.mjs", "scripts/rinspace/static-assembly.test.mjs", "real fresh-profile Chromium zero-external-request acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream distinguishes automatic room startup from explicit peer-file-transfer consent and provides a safe disabled default for persistent local profiles.",
+      "integrationStatus": "N09 policy tests prove explicit peer transfer is eligible only on local-unbound routes, including persistent /editor profiles, while managed and invalid routes remain blocked. All four profile defaults are versioned to 1.3.7, force file-sync-enable to false once and leave the existing setting/provider available for a later user opt-in."
+    },
+    {
+      "id": "non-mutating-production-build",
+      "files": ["package.json", "scripts/rinspace/check-source.mjs", ".github/workflows/deploy.yml"],
+      "purpose": "Separate reviewed source preparation from artifact construction; no source fixers or authoring generators in production build. Restrict inherited Pages deployment to upstream, not this source-stage fork.",
+      "tests": ["scripts/rinspace/check-source.test.mjs"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream separates formatting from artifact generation and verifies clean source after build.",
+      "integrationStatus": "declaration-tested; complete isolated build pending"
+    },
+    {
+      "id": "candidate-source-and-production-notices",
+      "files": [".gitignore", "package.json", "config/rinspace/external-assets.notices.json", "scripts/setup-assets.cjs", "scripts/rinspace/generate-dependency-notices.cjs", "scripts/rinspace/source-candidate.cjs"],
+      "purpose": "Bind a build to its exact clean commit or base-plus-changed-file manifest, and emit the installed production dependency graph with package-provided license texts. Keep external runtime-asset notices separate and fail release review when the installed browser tree omits required material.",
+      "tests": ["scripts/rinspace/source-and-notices.test.mjs", "scripts/rinspace/review-external-assets.test.mjs", "production build static assembly"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream emits an equivalent deterministic source identity and complete artifact notices for its installed production graph and downloaded runtime assets.",
+      "integrationStatus": "N10 source-stage review records 447 reachable production packages and 170 unique package-provided notice texts. The candidate remains an uncommitted source-stage worktree, and external asset notice omissions remain explicit release blockers; productionAccepted is false."
+    }
+  ]
+}

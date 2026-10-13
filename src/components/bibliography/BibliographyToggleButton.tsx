@@ -28,7 +28,7 @@ const BibliographyToggleButton: React.FC<BibliographyToggleButtonProps> = ({
 		: (availableProviders.find((p) => p.id === pluginId) ?? null);
 	const plugin = lspPlugin || bibPlugin;
 
-	if (!plugin) return null;
+	if (!plugin || !plugin.isEnabled()) return null;
 
 	const panelVisible = bibPlugin
 		? bibliographyPanelVisible && selectedProvider === pluginId

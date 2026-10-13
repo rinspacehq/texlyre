@@ -6,6 +6,11 @@ import type { TexliveRemoteFile } from 'texlyre-busytex';
 import { createNamedLogger } from '@/logging';
 import { busyTeXEngine, BUSYTEX_CACHE_DIR, MISSES_KEY } from './BusyTeXEngine';
 import type { BusyTeXEngineType } from './BusyTeXEngine';
+import {
+	hasRinspaceCjkPackageSet,
+	loadRinspaceCjkPackageSet,
+	needsRinspaceCjkPackageSet,
+} from './RinspaceCjkPackageSet';
 import type { CompileResult } from '../../types/compilation';
 import type { FileNode } from '../../types/files';
 import { fileStoreService } from '../../services/FileStoreService';
@@ -42,14 +47,15 @@ class BusyTeXService {
 	private flattenMainDirectory = true;
 	private texliveEndpoint = '';
 	private selectedBundles: string[] = ['recommended'];
+	private rinspaceCjkPackageSetLoaded = false;
 
 	setFlattenMainDirectory(flatten: boolean): void {
 		this.flattenMainDirectory = flatten;
 	}
 
 	setTexliveEndpoint(endpoint: string): void {
-		this.texliveEndpoint = endpoint;
-		busyTeXEngine.setTexliveEndpoint(endpoint);
+		this.texliveEndpoint = endpoint.trim();
+		busyTeXEngine.setTexliveEndpoint(this.texliveEndpoint);
 	}
 
 	setStoreCache(store: boolean): void {
@@ -131,7 +137,19 @@ class BusyTeXService {
 		}
 
 		const cachedMisses = await this.loadCachedMisses();
-		await this.loadCachedRemoteFiles();
+		const cachedRemoteFiles = await this.loadCachedRemoteFiles();
+		if (
+			!this.texliveEndpoint &&
+			!this.rinspaceCjkPackageSetLoaded &&
+			needsRinspaceCjkPackageSet(fileNodes)
+		) {
+			if (!(await hasRinspaceCjkPackageSet(cachedRemoteFiles))) {
+				await busyTeXEngine.writeRemoteFiles(
+					await loadRinspaceCjkPackageSet(),
+				);
+			}
+			this.rinspaceCjkPackageSetLoaded = true;
+		}
 
 		const cleanedNodes = fileNodes
 			.filter((node) => !isTemporaryFile(node.path))
@@ -186,6 +204,7 @@ class BusyTeXService {
 
 	terminate(): void {
 		busyTeXEngine.terminate();
+		this.rinspaceCjkPackageSetLoaded = false;
 	}
 
 	async isBundleCached(bundleId: string): Promise<boolean> {
@@ -245,15 +264,15 @@ class BusyTeXService {
 		}
 	}
 
-	private async loadCachedRemoteFiles(): Promise<void> {
-		if (!this.storeCache) return;
+	private async loadCachedRemoteFiles(): Promise<TexliveRemoteFile[]> {
+		if (!this.storeCache) return [];
 		try {
 			const cached = await fileStoreService.getFilesByPath(
 				`${REMOTE_FILES_DIR}/`,
 				true,
 				{ excludeDirectories: true },
 			);
-			if (!cached.length) return;
+			if (!cached.length) return [];
 
 			const files: TexliveRemoteFile[] = [];
 			for (const file of cached) {
@@ -274,8 +293,10 @@ class BusyTeXService {
 			if (files.length > 0) {
 				await busyTeXEngine.writeRemoteFiles(files);
 			}
+			return files;
 		} catch (error) {
 			moduleLog.warn('Failed to load cached remote files:', error);
+			return [];
 		}
 	}
 

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 const mockGetGitRemoteProviders = jest.fn();
+const mockHttpRequest = jest.fn();
 
 const mockFileSystem = {
 	fs: {},
@@ -40,7 +41,10 @@ const mockGit = {
 	branch: jest.fn(async () => undefined),
 	deleteBranch: jest.fn(async () => undefined),
 	writeRef: jest.fn(async () => undefined),
+	addRemote: jest.fn(async () => undefined),
 	checkout: jest.fn(async () => undefined),
+	fetch: jest.fn(),
+	push: jest.fn(),
 };
 
 const mockGitService = {
@@ -53,6 +57,7 @@ const mockGitService = {
 };
 
 jest.mock('isomorphic-git', () => mockGit);
+jest.mock('isomorphic-git/http/web', () => ({ request: mockHttpRequest }));
 jest.mock('../../src/plugins/PluginRegistry', () => ({
 	pluginRegistry: {
 		getGitRemoteProviders: mockGetGitRemoteProviders,
@@ -125,6 +130,19 @@ const provider = {
 	}),
 	applyApiConfiguration: jest.fn(),
 	historyTransport: transport,
+};
+
+const smartProvider = {
+	...provider,
+	id: 'rinspace-gitea-session',
+	displayName: 'Rinspace Gitea',
+	usesBrowserSession: true,
+	hiddenFromPicker: true,
+	isEnabled: jest.fn(() => true),
+	smartHttp: {
+		repositoryUrl: (repositoryId: string) =>
+			`https://rinspace.test/repos/${repositoryId}.git`,
+	},
 };
 
 const config = {
@@ -423,7 +441,11 @@ describe('GitSyncService API transport', () => {
 			gitSyncService.adoptFetched('project-1', fetched!),
 		).resolves.toBeUndefined();
 		expect(mockGit.checkout).toHaveBeenCalledWith(
-			expect.objectContaining({ ref: 'main', force: true }),
+			expect.objectContaining({
+				ref: fetched!.temporaryBranch,
+				noUpdateHead: true,
+				force: true,
+			}),
 		);
 	});
 
@@ -1232,6 +1254,171 @@ describe('GitSyncService API transport', () => {
 			gitSyncService.fetchForMerge('project-1', secrets),
 		).rejects.toThrow(
 			'cannot be reconstructed exactly from the provider API',
+		);
+	});
+});
+
+describe('GitSyncService same-origin Smart HTTP transport', () => {
+	const managedConfig = {
+		providerId: smartProvider.id,
+		providerName: smartProvider.displayName,
+		repositoryId: 'owner/repo',
+		repositoryLabel: 'owner/repo',
+		branch: 'main',
+		credentialSource: 'history' as const,
+		managed: true,
+		syncBase: { localOid: 'remote-base', remoteOid: 'remote-base' },
+	};
+
+	beforeEach(() => {
+		jest.clearAllMocks();
+		resetLocalHistory();
+		localStorage.clear();
+		localStorage.setItem(
+			'texlyre-git-remote:project-1',
+			JSON.stringify(managedConfig),
+		);
+		mockGetGitRemoteProviders.mockReturnValue([smartProvider]);
+		mockGitService.isInitialized.mockResolvedValue(true);
+		mockGitService.getCurrentBranch.mockResolvedValue('main');
+		mockGitService.getHeadOid.mockResolvedValue('local-head');
+		mockGitService.getWorktreeBaseOid.mockResolvedValue('local-head');
+		mockGitService.getChanges.mockResolvedValue([]);
+		transport.preservesCommitOids = true;
+		transport.supportsMergeCommits = true;
+		smartProvider.testConnection.mockResolvedValue(true);
+		smartProvider.isEnabled.mockReturnValue(true);
+		mockGit.fetch.mockResolvedValue({
+			defaultBranch: 'main',
+			fetchHead: 'remote-base',
+			fetchHeadDescription: 'branch main',
+		});
+		mockGit.push.mockResolvedValue({ ok: true, error: null, refs: {} });
+	});
+
+	it('binds the fixed repository without creating or reading a browser token', async () => {
+		localStorage.clear();
+		await gitSyncService.bindBrowserSessionRemote('project-1', {
+			providerId: smartProvider.id,
+			repositoryId: 'owner/repo',
+			repositoryLabel: 'owner/repo',
+			branch: 'main',
+			readOnly: false,
+		});
+
+		expect(gitSyncService.getConfig('project-1')).toEqual(
+			expect.objectContaining({
+				providerId: smartProvider.id,
+				managed: true,
+			}),
+		);
+		expect(gitSyncService.getConfig('project-1')).not.toHaveProperty(
+			'credentialRef',
+		);
+	});
+
+	it('fails before any session or Git network call when the owning plugin is disabled', async () => {
+		smartProvider.isEnabled.mockReturnValue(false);
+
+		await expect(gitSyncService.push('project-1', secrets)).rejects.toThrow(
+			'Rinspace Gitea integration is disabled',
+		);
+		expect(transport.getHead).not.toHaveBeenCalled();
+		expect(mockGit.push).not.toHaveBeenCalled();
+		expect((secrets as any).getSecret).not.toHaveBeenCalled();
+
+		localStorage.clear();
+		await expect(
+			gitSyncService.bindBrowserSessionRemote('project-1', {
+				providerId: smartProvider.id,
+				repositoryId: 'owner/repo',
+				repositoryLabel: 'owner/repo',
+				branch: 'main',
+				readOnly: false,
+			}),
+		).rejects.toThrow('Rinspace Gitea integration is disabled');
+		expect(smartProvider.testConnection).not.toHaveBeenCalled();
+	});
+
+	it('fetches exact Git objects with same-origin cookies and no credential lookup', async () => {
+		transport.getHead.mockResolvedValue('remote-base');
+		mockGit.fetch.mockImplementation(async ({ http }) => {
+			await http.request({ url: 'https://rinspace.test/info/refs' });
+			return {
+				defaultBranch: 'main',
+				fetchHead: 'remote-base',
+				fetchHeadDescription: 'branch main',
+			};
+		});
+		mockHttpRequest.mockResolvedValue({ statusCode: 200 });
+
+		const fetched = await gitSyncService.fetchForMerge('project-1', secrets);
+
+		expect(fetched?.localOid).toBe('remote-base');
+		expect(mockGit.addRemote).toHaveBeenCalledWith(
+			expect.objectContaining({
+				remote: 'rinspace',
+				url: 'https://rinspace.test/repos/owner/repo.git',
+				force: true,
+			}),
+		);
+		expect(mockGit.fetch).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: 'https://rinspace.test/repos/owner/repo.git',
+				ref: 'main',
+				remoteRef: 'main',
+			}),
+		);
+		expect(mockHttpRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				fetchOptions: expect.objectContaining({
+					credentials: 'include',
+					cache: 'no-store',
+				}),
+			}),
+		);
+		expect((secrets as any).getSecret).not.toHaveBeenCalled();
+	});
+
+	it('pushes the existing commit graph without force and confirms the exact remote OID', async () => {
+		transport.getHead
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('local-head');
+
+		const result = await gitSyncService.push('project-1', secrets);
+
+		expect(mockGit.push).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'main',
+				remoteRef: 'main',
+				force: false,
+			}),
+		);
+		expect(result.canonicalOid).toBe('local-head');
+		expect(result.pushedCommits).toBe(1);
+		expect(gitSyncService.getConfig('project-1')?.syncBase).toEqual({
+			localOid: 'local-head',
+			remoteOid: 'local-head',
+		});
+	});
+
+	it('rejects a stale remote ref before sending a Push', async () => {
+		transport.getHead.mockResolvedValue('someone-else');
+
+		await expect(gitSyncService.push('project-1', secrets)).rejects.toThrow(
+			'Remote branch changed',
+		);
+		expect(mockGit.push).not.toHaveBeenCalled();
+	});
+
+	it('verifies an accepted remote commit after the HTTP result becomes unknown', async () => {
+		transport.getHead
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('local-head');
+		mockGit.push.mockRejectedValue(new TypeError('connection closed'));
+
+		await expect(gitSyncService.push('project-1', secrets)).resolves.toEqual(
+			expect.objectContaining({ canonicalOid: 'local-head', pushedCommits: 1 }),
 		);
 	});
 });

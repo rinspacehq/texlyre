@@ -17,8 +17,7 @@ export function useRegisterLatexSettings() {
 		const initialEngine =
 			(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'pdftex';
 		const initialTexliveEndpoint =
-			(getSetting('latex-texlive-endpoint')?.value as string) ??
-			'http://texlive.localhost:8082';
+			(getSetting('latex-texlive-endpoint')?.value as string) ?? '';
 		const initialStoreCache =
 			(getSetting('latex-store-cache')?.value as boolean) ?? true;
 		const initialStoreWorkingDirectory =
@@ -33,8 +32,7 @@ export function useRegisterLatexSettings() {
 			(getSetting('latex-auto-navigate-to-main')?.value as string) ??
 			'conditional';
 		const initialBusyTeXEndpoint =
-			(getSetting('latex-busytex-endpoint')?.value as string) ??
-			'http://texlive2026.localhost:8082';
+			(getSetting('latex-busytex-endpoint')?.value as string) ?? '';
 		const initialBusyTeXBundles =
 			(getSetting('latex-busytex-bundles')?.value as string) ?? 'recommended';
 
@@ -70,7 +68,7 @@ export function useRegisterLatexSettings() {
 			type: 'text',
 			label: t('TeX Live 2020 remote endpoint (SwiftLaTeX)'),
 			description: t(
-				'URL endpoint for on-demand TeX Live 2020 package downloads used by SwiftLaTeX engines. Leave blank to disable.',
+				'URL endpoint for on-demand TeX Live 2020 package downloads used by SwiftLaTeX engines. Leave blank to use the fixed same-origin package path.',
 			),
 			defaultValue: initialTexliveEndpoint,
 		});
@@ -82,7 +80,7 @@ export function useRegisterLatexSettings() {
 			type: 'text',
 			label: t('TeX Live 2026 remote endpoint (BusyTeX)'),
 			description: t(
-				'URL endpoint for on-demand TeX Live 2026 package downloads used by BusyTeX engines beyond preloaded bundles. Leave blank to disable.',
+				'URL endpoint for on-demand TeX Live 2026 package downloads used by BusyTeX engines beyond preloaded bundles. Leave blank to use the fixed same-origin Rinspace package set.',
 			),
 			defaultValue: initialBusyTeXEndpoint,
 		});

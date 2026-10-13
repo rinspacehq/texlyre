@@ -14,27 +14,61 @@ import type {
 } from '../types/projects';
 import { generateRandomColor } from '../utils/colorUtils';
 import { cleanupProjectDatabases } from '../utils/dbDeleteUtils';
-import { generateYjsProjectId } from '../utils/urlUtils';
+import { generateYjsProjectId, isValidYjsProjectId } from '../utils/urlUtils';
 import { getUserDataKey } from '../utils/userDataUtils';
 import { diskBackupService } from './DiskBackupService';
+import {
+	createLocalProfile,
+	managedLocalProfileScope,
+	preserveGuestAsLocalProfile,
+} from '../workspace/LocalProfile';
+import { getStartupIntent } from '../workspace/RuntimeStartup';
+import { allowsAutomaticConnections } from '../workspace/StartupPolicy';
 
 const moduleLog = createNamedLogger('AuthService');
 
 const shouldAutoSync = (): boolean => {
-	return localStorage.getItem('texlyre-auto-sync') === 'true';
+	return allowsAutomaticConnections(getStartupIntent()) && localStorage.getItem('texlyre-auto-sync') === 'true';
 };
 
-class AuthService {
+export class AuthService {
 	public db: IDBPDatabase | null = null;
 	private readonly DB_NAME = 'texlyre-auth';
 	private readonly USER_STORE = 'users';
 	private readonly PROJECT_STORE = 'projects';
 	private readonly DB_VERSION = 1;
 	private currentUser: User | null = null;
+	private persistentLocalProfile = false;
+	private initialization: Promise<void> | null = null;
 
-	async initialize(): Promise<void> {
+	initialize(
+		options: {
+			persistentLocalProfile?: boolean;
+			managedActorId?: string;
+		} = {},
+	): Promise<void> {
+		if (this.initialization) return this.initialization;
+		const intent = getStartupIntent();
+		if (intent.mode === 'invalid') {
+			return Promise.reject(new Error('Local profile unavailable for this workspace mode.'));
+		}
+		this.persistentLocalProfile =
+			intent.mode === 'managed' ||
+			(options.persistentLocalProfile ?? intent.persistentProfile);
+		this.initialization = (async () => {
+			const profileScope = options.managedActorId
+				? await managedLocalProfileScope(options.managedActorId)
+				: 'standalone';
+			await this.initializeDatabase(profileScope);
+		})().finally(() => {
+			this.initialization = null;
+		});
+		return this.initialization;
+	}
+
+	private async initializeDatabase(profileScope: string): Promise<void> {
 		try {
-			this.db = await openDB(this.DB_NAME, this.DB_VERSION, {
+			this.db ??= await openDB(this.DB_NAME, this.DB_VERSION, {
 				upgrade: (db, _oldVersion, _newVersion) => {
 					if (!db.objectStoreNames.contains(this.USER_STORE)) {
 						const userStore = db.createObjectStore(this.USER_STORE, {
@@ -57,6 +91,12 @@ class AuthService {
 					}
 				},
 			});
+
+			// Preserve guests before either restoration or the upstream expiry sweep.
+			if (this.persistentLocalProfile) {
+				await this.restorePersistentLocalProfile(profileScope);
+				return;
+			}
 
 			const userId = localStorage.getItem('texlyre-current-user');
 			if (userId) {
@@ -91,6 +131,57 @@ class AuthService {
 		}
 	}
 
+	private async restorePersistentLocalProfile(
+		profileScope = 'standalone',
+	): Promise<void> {
+		if (!this.db) throw new Error(t('Database not initialized'));
+		const currentId = localStorage.getItem('texlyre-current-user');
+		const localId = localStorage.getItem('texlyre-local-profile');
+		const tx = this.db.transaction(this.USER_STORE, 'readwrite');
+		// Handle an abort even when an individual request rejects before tx.done.
+		void tx.done.catch(() => {});
+		const users: User[] = await tx.store.getAll();
+		const preserved = users.map(preserveGuestAsLocalProfile);
+		for (let index = 0; index < users.length; index++) {
+			if (users[index].isGuest) await tx.store.put(preserved[index]);
+		}
+		// Keep owner IDs, preferences, registered profiles and project databases intact.
+		const matchesScope = (entry: User) =>
+			entry.isLocalProfile &&
+			(entry.localProfileScope ?? 'standalone') === profileScope;
+		let user = preserved.find(
+			(entry) =>
+				entry.id === currentId &&
+				(matchesScope(entry) ||
+					(profileScope === 'standalone' &&
+						!entry.isGuest &&
+						!entry.isLocalProfile)),
+		)
+			?? (profileScope === 'standalone'
+				? preserved.find(
+					(entry) => entry.id === localId && matchesScope(entry),
+				)
+				: undefined)
+			?? preserved.find(matchesScope);
+		if (!user) {
+			const baseId = `local_${crypto.randomUUID()}`;
+			let candidateId = baseId;
+			let suffix = 1;
+			while (preserved.some((entry) => entry.id === candidateId)) {
+				candidateId = `${baseId}_${suffix++}`;
+			}
+			user = createLocalProfile(candidateId, Date.now(), profileScope);
+		}
+		if (!preserved.some((entry) => entry.id === user.id)) await tx.store.add(user);
+		await tx.done;
+		// A durable transaction, not an individual request, acknowledges the profile.
+		if (user.isLocalProfile && profileScope === 'standalone') {
+			localStorage.setItem('texlyre-local-profile', user.id);
+		}
+		localStorage.setItem('texlyre-current-user', user.id);
+		this.currentUser = user;
+	}
+
 	private async getDatabase(): Promise<IDBPDatabase> {
 		if (!this.db) await this.initialize();
 		if (!this.db) throw new Error(t('Database not initialized'));
@@ -121,6 +212,11 @@ class AuthService {
 		if (!this.db) {
 			moduleLog.info('Database not initialized, initializing...');
 			await this.initialize();
+		}
+		if (this.persistentLocalProfile) {
+			await this.restorePersistentLocalProfile();
+			if (!this.currentUser) throw new Error(t('Database not initialized'));
+			return this.currentUser;
 		}
 
 		await this.cleanupExpiredGuests();
@@ -163,6 +259,7 @@ class AuthService {
 				t(
 					'Failed to create guest session. Please refresh the page and try again',
 				),
+				{ cause: error },
 			);
 		}
 	}
@@ -267,6 +364,7 @@ class AuthService {
 	}
 
 	async cleanupExpiredGuests(): Promise<void> {
+		if (this.persistentLocalProfile) return;
 		if (!this.db) return;
 
 		try {
@@ -294,6 +392,7 @@ class AuthService {
 	}
 
 	async cleanupExpiredGuest(guestUser: User): Promise<void> {
+		if (this.persistentLocalProfile || guestUser.isLocalProfile) return;
 		if (!this.db) return;
 
 		try {
@@ -388,7 +487,7 @@ class AuthService {
 			'username',
 			username,
 		);
-		if (!user || this.isGuestUser(user)) {
+		if (!user || this.isGuestUser(user) || user.isLocalProfile) {
 			throw new Error(t('User not found'));
 		}
 
@@ -501,7 +600,7 @@ class AuthService {
 		if (!this.db) await this.initialize();
 
 		const user = await this.getUserById(userId);
-		if (!user) return false;
+		if (!user || user.isLocalProfile) return false;
 
 		const passwordHash = await this.hashPassword(password);
 		return user.passwordHash === passwordHash;
@@ -529,6 +628,7 @@ class AuthService {
 		projectDescription = '',
 		projectType: ProjectType = 'latex',
 		projectGroup: ProjectGroup = 'tex',
+		entry: Pick<Project, 'compilerId' | 'mainFile'> = {},
 	): Promise<string> {
 		try {
 			const dbName = `texlyre-project-${projectId}`;
@@ -549,6 +649,8 @@ class AuthService {
 					description: projectDescription,
 					type: projectType,
 					group: projectGroup,
+					...(entry.compilerId ? { compilerId: entry.compilerId } : {}),
+					...(entry.mainFile ? { mainFile: entry.mainFile } : {}),
 				});
 			});
 
@@ -571,7 +673,7 @@ class AuthService {
 			return `yjs:${projectId}`;
 		} catch (error) {
 			moduleLog.error('Error creating new document:', error);
-			throw new Error(t('Failed to create document for project'));
+			throw new Error(t('Failed to create document for project'), { cause: error });
 		}
 	}
 
@@ -582,11 +684,17 @@ class AuthService {
 			throw new Error('User not authenticated');
 		}
 
-		const projectId = project.docUrl
+		const projectId = project.id ?? (project.docUrl
 			? project.docUrl.startsWith('yjs:')
 				? project.docUrl.slice(4)
 				: project.docUrl
-			: generateYjsProjectId();
+			: generateYjsProjectId());
+		if (project.id && !isValidYjsProjectId(projectId)) {
+			throw new Error('Invalid project identity');
+		}
+		if (project.id && (await db.get(this.PROJECT_STORE, projectId))) {
+			throw new Error('Project already exists');
+		}
 
 		const docUrl =
 			project.docUrl ||
@@ -596,6 +704,7 @@ class AuthService {
 				project.description,
 				project.type,
 				project.group,
+				project,
 			));
 
 		const now = Date.now();

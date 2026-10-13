@@ -1,5 +1,10 @@
 # TeXlyre
 
+> Rinspace's history-preserving fork. Fork, plugins and core modifications remain
+> **AGPL-3.0-or-later**. See [source and license policy](docs/rinspace/SOURCE_AND_LICENSE.md)
+> for fixed provenance, Corresponding Source obligations and acceptance boundaries.
+> This development fork is not an accepted Rinspace release or deployment.
+
 A **[local-first](https://www.inkandswitch.com/essay/local-first/)** real-time [LaTeX](https://www.latex-project.org/) and [Typst](https://typst.app) collaboration platform with offline editing capabilities. Built with React, TypeScript, and Yjs for collaborative document editing.
 
 [![TeXlyre](https://img.shields.io/website?url=https%3A%2F%2Ftexlyre.org%2Ftexlyre%2F&label=TeXlyre&up_message=%F0%9F%9F%A2%20online&down_message=%F0%9F%94%B4%20offline&up_color=555&down_color=555)](https://texlyre.github.io/texlyre/)
@@ -294,4 +299,3 @@ See [LICENSE](LICENSE) for the complete license text.
 </p>
 
 ---
-

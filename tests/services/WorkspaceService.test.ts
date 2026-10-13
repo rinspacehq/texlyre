@@ -1,10 +1,14 @@
-import { mergeResolutionService } from '@src/services/MergeResolutionService';
 import { fileConflictPromptService } from '@src/services/FileConflictPromptService';
 import { fileHandlerService } from '@src/services/FileHandlerService';
 import { fileStoreService } from '@src/services/FileStoreService';
 import { authService } from '@src/services/AuthService';
 import { workspaceService } from '@src/services/WorkspaceService';
 import type { FileNode } from '@src/types/files';
+
+// Existing projection/merge cases explicitly exercise upstream account-mode defaults.
+jest.mock('@src/workspace/RuntimeStartup', () => ({
+	getStartupIntent: () => ({ mode: 'local-unbound', persistentProfile: false }),
+}));
 
 jest.mock('@src/services/DiskHandleStore', () => ({
 	...jest.requireActual('@src/services/DiskHandleStore'),
@@ -64,6 +68,11 @@ describe('WorkspaceService', () => {
 
 		expect(workspaceService.isSupported()).toBe(false);
 	});
+	it('keeps external-store status snapshots stable until the folder state changes', () => {
+		const status = workspaceService.getStatus();
+		expect(workspaceService.getStatus()).toBe(status);
+		expect(Object.isFrozen(status)).toBe(true);
+	});
 
 	it('should link a folder without importing before the project opens', async () => {
 		await workspaceService.link('project-9', rootHandle);
@@ -113,6 +122,35 @@ describe('WorkspaceService', () => {
 			'/chapters/intro.tex',
 			'/main.tex',
 		]);
+	});
+
+	it('preserves attributes and prefix-named folders but excludes Git pointer files', async () => {
+		setDirectory({
+			'': [
+				{ name: '.git', isDirectory: false },
+				{ name: '.gitignore', isDirectory: false },
+				{ name: '.gitattributes', isDirectory: false },
+				{ name: 'node_modules-not-dependencies', isDirectory: true },
+			],
+			'/node_modules-not-dependencies': [{ name: 'notes.md', isDirectory: false }],
+		});
+		await workspaceService.link('local-path-protection', rootHandle);
+		await workspaceService.restore('local-path-protection');
+		const stored = jest.mocked(fileStoreService.batchStoreFiles).mock.calls[0][0];
+		expect(stored.map((file) => file.path).sort()).toEqual([
+			'/.gitattributes', '/.gitignore', '/node_modules-not-dependencies', '/node_modules-not-dependencies/notes.md',
+		]);
+	});
+
+	it('retains pending import and does not store a partial folder when reading fails', async () => {
+		setDirectory({ '': [{ name: 'main.tex', isDirectory: false }, { name: 'asset.dat', isDirectory: false }] });
+		mockAdapter.readFile.mockResolvedValueOnce('source').mockRejectedValueOnce(new Error('Disk read failed'));
+		await workspaceService.link('local-partial-import', rootHandle);
+		await expect(workspaceService.restore('local-partial-import')).rejects.toThrow('could not be read completely');
+		expect(fileStoreService.batchStoreFiles).not.toHaveBeenCalled();
+		mockAdapter.readFile.mockResolvedValue('source');
+		await workspaceService.restore('local-partial-import');
+		expect(fileStoreService.batchStoreFiles).toHaveBeenCalledTimes(1);
 	});
 
 	it('should preserve disk timestamps on import', async () => {
@@ -175,7 +213,10 @@ describe('WorkspaceService', () => {
 			"intro\n`<### comment id: c1, user: a, time: 1, content64: 'aGk=', responses: [], resolved: false ###>`flagged`</### comment id: c1 ###>`\ntail";
 
 		beforeEach(() => {
-			jest.spyOn(fileHandlerService, 'mirrorFiles').mockResolvedValue();
+			jest.spyOn(fileHandlerService, 'mirrorFiles').mockImplementation(async (files) => ({
+				projectId: 'project-1', targetGeneration: 1, sequence: 1,
+				entries: files.map((file) => ({ fileId: file.id, path: file.path, type: file.type, lastModified: file.lastModified, sequence: 1, outcome: 'written' as const })),
+			}));
 			jest
 				.spyOn(fileConflictPromptService, 'resolveConflict')
 				.mockResolvedValue('overwrite');
@@ -255,6 +296,41 @@ describe('WorkspaceService', () => {
 			const stored = (fileStoreService.batchStoreFiles as jest.Mock).mock
 				.calls[0][0];
 			expect(stored[0]).toMatchObject({ id: 'a', content: 'a different body' });
+		});
+
+		it.each([
+			{ name: 'different bytes with the same binary length', local: [0, 255, 128, 13, 10], disk: [0, 254, 128, 13, 10], conflict: true },
+			{ name: 'identical binary bytes', local: [0, 255, 128, 13, 10], disk: [0, 255, 128, 13, 10], conflict: false },
+			{ name: 'two empty binary files', local: [], disk: [], conflict: false },
+			{ name: 'different binary lengths', local: [0, 255], disk: [0, 255, 128], conflict: true },
+		])('compares actual bytes for $name', async ({ local, disk, conflict }) => {
+			const localContent = Uint8Array.from(local).buffer;
+			const diskContent = Uint8Array.from(disk).buffer;
+			const existing: FileNode = {
+				id: 'binary-file', name: '资源.png', path: '/资源.png', type: 'file',
+				content: localContent, isBinary: true, size: local.length, lastModified: 500,
+			};
+			setDirectory({ '': [{ name: existing.name, isDirectory: false }] });
+			mockAdapter.stat.mockResolvedValue({ lastModified: 500, size: disk.length });
+			mockAdapter.readFile.mockResolvedValue(diskContent);
+			jest.mocked(fileStoreService.getAllFiles).mockResolvedValue([existing]);
+
+			await workspaceService.connect('project-1');
+
+			if (conflict) {
+				expect(fileConflictPromptService.resolveConflict).toHaveBeenCalledTimes(1);
+				expect(fileConflictPromptService.resolveConflict).toHaveBeenCalledWith(
+					existing, expect.objectContaining({ path: existing.path, content: diskContent }),
+				);
+				const stored = jest.mocked(fileStoreService.batchStoreFiles).mock.calls[0][0];
+				expect(stored[0].id).toBe(existing.id);
+				expect(new Uint8Array(stored[0].content as ArrayBuffer)).toEqual(Uint8Array.from(disk));
+			} else {
+				expect(fileConflictPromptService.resolveConflict).not.toHaveBeenCalled();
+				expect(fileStoreService.batchStoreFiles).not.toHaveBeenCalled();
+				expect(fileHandlerService.mirrorFiles).not.toHaveBeenCalled();
+			}
+			expect(new Uint8Array(existing.content as ArrayBuffer)).toEqual(Uint8Array.from(local));
 		});
 
 		it('should push the project version to disk when the user keeps it', async () => {
