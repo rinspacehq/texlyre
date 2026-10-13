@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Source-development acquisition evidence, never an artifact acceptance claim.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -56,6 +57,7 @@ export function validateReview(review) {
 }
 
 export async function measureAsset(asset, request = fetch) {
+	const useCurlTransport = request === fetch;
 	let url = validateAssetUrl(asset.url);
 	// This verifier also streams the fixed 522 MB BusyTeX archive.
 	const signal = AbortSignal.timeout(45 * 60 * 1000);
@@ -71,6 +73,45 @@ export async function measureAsset(asset, request = fetch) {
 	}
 	assert.equal(response.status, 200, `asset ${asset.id} download failed`);
 	assert.ok(response.body, 'empty asset response');
+	if (useCurlTransport) {
+		// Node's direct HTTPS path is unusually slow on mainland routes. The
+		// allowlisted redirect is already resolved above; curl may not follow a
+		// second redirect and the streamed bytes retain the same size/hash gates.
+		await response.body.cancel();
+		const child = spawn('curl', [
+			'--fail', '--silent', '--show-error', '--proto', '=https',
+			'--max-redirs', '0', '--connect-timeout', '30', '--max-time',
+			String(45 * 60), '--max-filesize', String(asset.maxBytes),
+			'--url', url.href,
+		], { stdio: ['ignore', 'pipe', 'pipe'] });
+		child.stderr.resume();
+		const completed = new Promise((resolve, reject) => {
+			child.once('error', reject);
+			child.once('close', (code, signal) => code === 0
+				? resolve()
+				: reject(new Error(`curl failed (${code ?? signal})`)));
+		});
+		const hash = createHash('sha256');
+		let size = 0;
+		try {
+			for await (const chunk of child.stdout) {
+				size += chunk.byteLength;
+				assert.ok(size <= asset.maxBytes, 'asset exceeds reviewed byte limit');
+				hash.update(chunk);
+			}
+			await completed;
+		} catch (error) {
+			child.kill('SIGTERM');
+			await completed.catch(() => {});
+			throw error;
+		}
+		const sha256 = hash.digest('hex');
+		assert.ok(size > 0, 'empty asset download');
+		assert.equal(size, asset.size, `asset ${asset.id} size mismatch`);
+		assert.equal(sha256, asset.sha256, `asset ${asset.id} digest mismatch`);
+		return { id: asset.id, version: asset.version, size, sha256,
+			previouslyPinned: true, stage: 'inventory-review', productionAccepted: false };
+	}
 	const hash = createHash('sha256');
 	let size = 0;
 	for await (const chunk of response.body) {
