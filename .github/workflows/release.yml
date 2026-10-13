@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 64
+          filter: blob:none
           persist-credentials: false
 
       - name: Fix and verify release identity
@@ -44,6 +45,13 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.13.1
+
+      - name: Materialize reviewed baseline audit blobs
+        shell: bash
+        run: |
+          baseline="$(node -p "require('./config/rinspace/upstream-baseline.json').upstream.commit")"
+          git show "$baseline:LICENSE" >/dev/null
+          git show "$baseline:pnpm-lock.yaml" >/dev/null
 
       - name: Install frozen dependencies on one CPU
         shell: bash
