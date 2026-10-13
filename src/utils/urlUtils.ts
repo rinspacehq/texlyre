@@ -1,5 +1,6 @@
 // src/utils/urlUtils.ts
 import type { UrlFragments } from '../types/yjs';
+import { isRinspaceApplicationTitle } from './applicationTitle';
 
 const LEGACY_YJS_PROJECT_ID_RE = /^[a-z0-9]{20,32}$/;
 const UUID_PROJECT_ID_RE =
@@ -67,7 +68,11 @@ export function buildUrlWithFragments(
 }
 
 export function getProjectName(fallback = 'TeXlyre'): string {
-	if (document.title && document.title !== 'TeXlyre') {
+	if (
+		document.title &&
+		document.title !== 'TeXlyre' &&
+		!isRinspaceApplicationTitle(document.title)
+	) {
 		return document.title;
 	}
 

@@ -1,7 +1,7 @@
 {
   "schema": "rinspace-texlyre-release/v1",
-  "releaseTag": "v0.13.2-rinspace.1",
-  "version": "0.13.2-rinspace.1",
+  "releaseTag": "v0.13.2-rinspace.2",
+  "version": "0.13.2-rinspace.2",
   "canonicalRepository": "rinspacehq/texlyre",
   "routeBase": "/editor/",
   "license": "AGPL-3.0-or-later",
@@ -13,10 +13,19 @@
     "sourceArchiveRequired": true
   },
   "artifact": {
-    "filename": "texlyre-editor-v0.13.2-rinspace.1.tar.gz",
+    "filename": "texlyre-editor-v0.13.2-rinspace.2.tar.gz",
     "archiveRoot": "editor",
     "includesDependencyNotices": true,
     "includesExternalNotices": true
+  },
+  "texliveRuntime": {
+    "runtimeId": "texlive-2026-rinspace.1",
+    "sourceReview": "config/rinspace/texlive-full-runtime.review.json",
+    "endpointBasePath": "/editor/texlive/2026",
+    "packFilename": "texlive-2026-rinspace.1.pack",
+    "indexFilename": "texlive-2026-rinspace.1.index.json",
+    "manifestFilename": "texlive-2026-rinspace.1.manifest.json",
+    "maximumPackBytes": 2147483648
   },
   "externalNotices": [
     {

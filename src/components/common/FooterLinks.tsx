@@ -3,7 +3,6 @@ import type React from 'react';
 import { useRef, useState } from 'react';
 
 import { t } from '@/i18n';
-import texlyreLogo from '../../assets/images/TeXlyre_notext.png';
 import { useSettings } from '../../hooks/useSettings';
 import Popover from './Popover';
 
@@ -19,6 +18,7 @@ const FooterLinks: React.FC<FooterLinksProps> = ({
 	const { getSetting } = useSettings();
 	const [showLinks, setShowLinks] = useState(false);
 	const containerRef = useRef<HTMLParagraphElement>(null);
+	const rinspaceLogo = `${__BASE_PATH__}/assets/brand/rinspace-mark-128.png`;
 	const statusPageUrl = (getSetting('status-page-url')?.value as string) ?? '';
 
 	const links = (
@@ -67,8 +67,8 @@ const FooterLinks: React.FC<FooterLinksProps> = ({
 				{t('Privacy')}
 			</button>{' '}
 			•
-			<a href='https://texlyre.org' target='_blank' rel='noreferrer'>
-				<img src={texlyreLogo} className='logo' alt={t('TeXlyre logo')} />
+			<a href='https://rinspace.com/' target='_blank' rel='noreferrer'>
+				<img src={rinspaceLogo} className='logo' alt={t('Rinspace logo')} />
 			</a>{' '}
 			{`v${__APP_VERSION__}`}
 		</span>

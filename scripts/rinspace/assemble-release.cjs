@@ -40,6 +40,13 @@ function validateReleaseConfig(config = releaseConfig) {
 	assert.equal(config.artifact.includesDependencyNotices, true);
 	assert.equal(config.artifact.includesExternalNotices, true);
 	checkedRelative(config.artifact.filename);
+	assert.match(config.texliveRuntime.runtimeId, /^texlive-[0-9]{4}-rinspace\.[0-9]+$/);
+	assert.equal(config.texliveRuntime.endpointBasePath, '/editor/texlive/2026');
+	assert.equal(config.texliveRuntime.sourceReview, 'config/rinspace/texlive-full-runtime.review.json');
+	assert.equal(config.texliveRuntime.packFilename, `${config.texliveRuntime.runtimeId}.pack`);
+	assert.equal(config.texliveRuntime.indexFilename, `${config.texliveRuntime.runtimeId}.index.json`);
+	assert.equal(config.texliveRuntime.manifestFilename, `${config.texliveRuntime.runtimeId}.manifest.json`);
+	assert.equal(config.texliveRuntime.maximumPackBytes, 2 * 1024 * 1024 * 1024);
 
 	const outputs = new Set();
 	for (const notice of config.externalNotices) {

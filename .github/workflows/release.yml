@@ -18,8 +18,8 @@ concurrency:
 jobs:
   release:
     if: github.repository == 'rinspacehq/texlyre' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: [self-hosted, linux, x64, rinspace-release-build]
+    timeout-minutes: 240
     steps:
       - name: Checkout exact public main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -73,6 +73,35 @@ jobs:
           test -f dist/index.html
           test -f dist/rinspace-source-candidate.json
 
+      - name: Fetch and verify the fixed TeX Live 2026 runtime source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/texlyre-texlive-source"
+          mkdir -p "$source_dir"
+          archive_url="$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.url")"
+          tree_url="$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.url")"
+          curl --fail --location --retry 5 --retry-all-errors --output "$source_dir/texmf-dist.tar.zst" "$archive_url"
+          curl --fail --location --retry 5 --retry-all-errors --output "$source_dir/texlive-full.txt" "$tree_url"
+          test "$(stat -c %s "$source_dir/texmf-dist.tar.zst")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.size")"
+          test "$(sha256sum "$source_dir/texmf-dist.tar.zst" | cut -d' ' -f1)" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.sha256")"
+          test "$(stat -c %s "$source_dir/texlive-full.txt")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.size")"
+          test "$(sha256sum "$source_dir/texlive-full.txt" | cut -d' ' -f1)" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.sha256")"
+
+      - name: Build the complete on-demand TeX Live runtime on one CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          source_dir="$RUNNER_TEMP/texlyre-texlive-source"
+          runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
+          mkdir -p "$runtime_dir"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/build-texlive-runtime.cjs \
+            "$source_dir/texmf-dist.tar.zst" "$source_dir/texlive-full.txt" "$runtime_dir"
+          pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
+          maximum="$(node -p "require('./config/rinspace/release.json').texliveRuntime.maximumPackBytes")"
+          test "$(stat -c %s "$runtime_dir/$pack")" -lt "$maximum"
+
       - name: Assemble exact source, notices and static artifacts
         shell: bash
         env:
@@ -91,6 +120,15 @@ jobs:
           test "$(sed -n '1p' artifact-files.txt)" = editor/
           grep -q '^editor/notices/external/font-assets/LICENSES/' artifact-files.txt
           grep -qx 'editor/rinspace-release.json' artifact-files.txt
+          runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
+          cp "$runtime_dir"/* "$output/"
+          runtime_manifest="$(node -p "require('./config/rinspace/release.json').texliveRuntime.manifestFilename")"
+          runtime_pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
+          runtime_index="$(node -p "require('./config/rinspace/release.json').texliveRuntime.indexFilename")"
+          test "$(node -p "require('$output/$runtime_manifest').files")" = 180810
+          test "$(node -p "require('$output/$runtime_manifest').pack.filename")" = "$runtime_pack"
+          test "$(node -p "require('$output/$runtime_manifest').index.filename")" = "$runtime_index"
+          (cd "$output" && sha256sum "$runtime_pack" "$runtime_index" "$runtime_manifest" > texlive-2026-rinspace.1.sha256)
 
       - name: Publish immutable public release
         shell: bash
@@ -107,7 +145,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Rinspace TeXlyre $RELEASE_TAG" \
-            --notes $'Self-contained browser editor for the `/editor/` route.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. The attached manifest binds the exact source commit/tree, complete source archive, static artifact, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
+            --notes $'Self-contained browser editor for the `/editor/` route, plus the fixed TeX Live 2026 runtime used for same-origin on-demand package and font delivery. Browser workers still perform compilation; the server only returns immutable files.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. TeX Live files retain their package-specific licenses. The attached manifests bind the exact source commit/tree, complete application source archive, static artifact, runtime inputs and outputs, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
 
       - name: Verify published assets
         shell: bash

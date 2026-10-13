@@ -13,6 +13,7 @@ const { downloadCoreAssets } = require('./download-core-assets.cjs');
 const {
 	installVendoredRuntimeAssets,
 } = require('./rinspace/install-vendored-runtime-assets.cjs');
+const { installBrandAssets } = require('./rinspace/install-brand-assets.cjs');
 const {
 	writeDependencyNotices,
 } = require('./rinspace/generate-dependency-notices.cjs');
@@ -50,6 +51,7 @@ async function setupAssets() {
 		await copyWasmLatexToolsAssets();
 		await downloadCoreAssets();
 		await installVendoredRuntimeAssets();
+		await installBrandAssets();
 		await copyUserdataFiles();
 		await writeDependencyNotices(path.resolve(__dirname, '..'));
 		await writeSourceCandidate(path.resolve(__dirname, '..'));

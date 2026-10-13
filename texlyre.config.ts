@@ -2,7 +2,7 @@
 import type { TexlyreConfig } from '@/types/texlyre';
 
 const config: TexlyreConfig = {
-    title: 'TeXlyre',
+    title: 'Rinspace Online Editor',
     tagline: 'A local-first LaTeX & Typst collaborative web editor',
     url: 'https://rinspace.com',
     baseUrl: '/editor/',
@@ -44,7 +44,7 @@ const config: TexlyreConfig = {
         },
         icons: [
             {
-                src: './assets/images/TeXlyre_notext_192.png',
+                src: './favicon-192x192.png',
                 sizes: '192x192',
                 type: 'image/png',
                 purpose: 'any maskable',
@@ -118,15 +118,14 @@ const config: TexlyreConfig = {
                 imageViewerAutoCenter: true,
                 imageViewerEnableFilters: true,
                 imageViewerQuality: 'high',
-                latexEngine: 'busytex-pdftex',
+                latexEngine: 'busytex-xetex',
                 latexDefaultFormat: 'pdf',  // 'canvas-pdf'
                 latexStoreCache: true,
                 latexStoreWorkingDirectory: false,
-                // Rinspace release builds only enable reviewed, exact package
-                // endpoints. Keep upstream public services opt-in instead of
-                // sending compile-time package requests there by default.
+                // The complete fixed TeX Live tree is served by Rinspace as
+                // immutable files. Compilation remains in the browser.
                 latexTexliveEndpoint: '',
-                latexBusytexEndpoint: '',
+                latexBusytexEndpoint: '/editor/texlive/2026',
                 pdfRendererAnnotations: true,
                 pdfRendererEnable: true,
                 pdfRendererInitialZoom: '100',

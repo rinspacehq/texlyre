@@ -7,12 +7,12 @@ async function read(relative) {
 	return readFile(new URL(`../../${relative}`, import.meta.url), 'utf8');
 }
 
-test('default browser profiles do not contact TeXlyre runtime services', async () => {
+test('default browser profiles use only the fixed same-origin TeX Live runtime', async () => {
 	for (const filename of ['userdata.json', 'userdata.mobile.json']) {
 		const data = JSON.parse(await read(filename));
 		assert.equal(data.version, '1.3.7');
 		assert.equal(data.settings['latex-texlive-endpoint'], '');
-		assert.equal(data.settings['latex-busytex-endpoint'], '');
+		assert.equal(data.settings['latex-busytex-endpoint'], '/editor/texlive/2026');
 		assert.equal(data.settings['status-json-url'], '');
 		assert.equal(data.settings['status-page-url'], '');
 		assert.ok(
@@ -48,7 +48,7 @@ test('Typst compiler and renderer share the same-origin font loader', async () =
 	assert.ok(!worker.includes('cdn.jsdelivr.net'));
 });
 
-test('blank LaTeX package settings resolve only to fixed same-origin paths', async () => {
+test('LaTeX package settings resolve only to fixed same-origin paths', async () => {
 	const swift = await read(
 		'src/extensions/swiftlatex/SwiftLaTeXService.ts',
 	);
@@ -62,6 +62,7 @@ test('blank LaTeX package settings resolve only to fixed same-origin paths', asy
 	assert.match(swift, /endpoint\.trim\(\) \|\| LOCAL_TEXLIVE_ENDPOINT/);
 	assert.match(busy, /loadRinspaceCjkPackageSet/);
 	assert.match(busy, /!this\.texliveEndpoint/);
+	assert.match(await read('texlyre.config.ts'), /latexBusytexEndpoint:\s*'\/editor\/texlive\/2026'/);
 	assert.match(cjk, /RINSPACE_BUSY_TEXLIVE_ASSET_ROOT/);
 	assert.match(cjk, /crypto\.subtle\.digest\('SHA-256'/);
 	assert.match(cjk, /credentials: 'same-origin'/);
