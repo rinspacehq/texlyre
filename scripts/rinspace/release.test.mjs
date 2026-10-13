@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import releaseModule from './assemble-release.cjs';
+import config from '../../config/rinspace/release.json' with { type: 'json' };
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+test('formal release config binds route, source, artifact and complete notice files', () => {
+	releaseModule.validateReleaseConfig(config);
+	assert.equal(config.routeBase, '/editor/');
+	assert.equal(config.productionAccepted, true);
+	assert.ok(config.externalNotices.length >= 30);
+	assert.ok(config.externalNotices.some((entry) => entry.artifactPath.endsWith('/THIRD_PARTY.md')));
+	assert.ok(config.externalNotices.some((entry) => entry.artifactPath.includes('/LICENSES/')));
+});
+
+test('notice assembly rejects bytes that differ from the reviewed digest', async () => {
+	const bytes = Buffer.from('reviewed notice\n');
+	const target = await mkdtemp(path.join(tmpdir(), 'texlyre-release-notices-'));
+	const fixture = {
+		...config,
+		externalNotices: [{
+			id: 'fixture',
+			sourcePath: 'LICENSE',
+			sourceUrl: 'https://raw.githubusercontent.com/example/project/0123456789012345678901234567890123456789/LICENSE',
+			size: bytes.length,
+			sha256: sha256(bytes),
+			artifactPath: 'notices/external/fixture/LICENSE',
+		}],
+	};
+	const response = (body) => async () => new Response(body, { status: 200 });
+
+	try {
+		await releaseModule.assembleExternalNotices(target, fixture, response(bytes));
+		assert.deepEqual(await readFile(path.join(target, fixture.externalNotices[0].artifactPath)), bytes);
+		await assert.rejects(
+			releaseModule.assembleExternalNotices(target, fixture, response(Buffer.from('tampered notice\n'))),
+			/(size|digest) mismatch/,
+		);
+	} finally {
+		await rm(target, { recursive: true, force: true });
+	}
+});
