@@ -31,13 +31,6 @@ jobs:
         with:
           node-version: 24.13.1
 
-      - name: Check source foundation
-        shell: bash
-        run: |
-          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
-          nice -n 15 taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
-
       - name: Install dependencies
         shell: bash
         run: |
@@ -45,6 +38,13 @@ jobs:
           nice -n 15 taskset -c "$task_cpu" corepack enable pnpm
           nice -n 15 taskset -c "$task_cpu" corepack prepare pnpm@10.20.0 --activate
           nice -n 15 taskset -c "$task_cpu" pnpm install --frozen-lockfile
+
+      - name: Check source foundation
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/check-source.mjs
+          nice -n 15 taskset -c "$task_cpu" node --test --test-concurrency=1 scripts/rinspace/*.test.mjs
 
       - name: Generate plugins
         shell: bash
@@ -63,7 +63,7 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" pnpm exec eslint src/workspace src/services/AuthService.ts src/services/WorkspaceService.ts src/services/FileHandlerService.ts src/hooks/useDiskFiles.ts src/hooks/useDiskWriteStatus.ts src/types/projects.ts src/components/project/ProjectImportModal.tsx src/components/workspace/WorkspaceModal.tsx src/components/workspace/WorkspaceStatusIndicator.tsx tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/WorkspaceService.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/services/FileHandlerLocalDeletion.test.ts tests/components/FileTreeLocalDeletion.test.tsx tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts texlyre.config.ts extras/bibliography/openalex/OpenAlexPanel.tsx --max-warnings 0
+          nice -n 15 taskset -c "$task_cpu" pnpm exec eslint src/workspace src/services/AuthService.ts src/services/WorkspaceService.ts src/services/FileHandlerService.ts src/hooks/useDiskFiles.ts src/hooks/useDiskWriteStatus.ts src/types/projects.ts src/components/project/ProjectImportModal.tsx src/components/project/WorkspaceCatalogSection.tsx src/components/workspace/WorkspaceModal.tsx src/components/workspace/WorkspaceStatusIndicator.tsx tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/WorkspaceService.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/services/FileHandlerLocalDeletion.test.ts tests/components/FileTreeLocalDeletion.test.tsx tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceCatalogSection.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx tests/unit/workspace/RinspaceProjectCatalog.test.ts src/plugins/PluginInterface.ts src/plugins/PluginRegistry.ts src/types/texlyre.ts texlyre.config.ts extras/bibliography/openalex/OpenAlexPanel.tsx extras/workspace/rinspace --max-warnings 0
           nice -n 15 taskset -c "$task_cpu" pnpm exec eslint src/hooks/editor/useEditorOutput.ts src/extensions/texlyre-busytex/BusyTeXEngine.ts src/extensions/texlyre-busytex/BusyTeXRuntimeCache.ts src/extensions/texlyre-busytex/RinspaceCjkPackageSet.ts tests/unit/engines/BusyTeXRuntimeCache.test.ts tests/unit/engines/RinspaceCjkPackageSet.test.ts --max-warnings 0
 
       - name: Check deletion modules without new lint diagnostics
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" pnpm exec jest tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/WorkspaceService.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/services/FileHandlerLocalDeletion.test.ts tests/services/FileHandlerService.test.ts tests/services/FileHandlerAnnotationMode.test.ts tests/components/FileTreeLocalDeletion.test.tsx tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx tests/unit/workspace/LocalZipImport.test.ts --ci --runInBand
+          nice -n 15 taskset -c "$task_cpu" pnpm exec jest tests/services/AuthServiceLocalProfile.test.ts tests/services/WorkspaceLocalFolder.test.ts tests/services/WorkspaceService.test.ts tests/services/FileHandlerLocalWrites.test.ts tests/services/FileHandlerLocalDeletion.test.ts tests/services/FileHandlerService.test.ts tests/services/FileHandlerAnnotationMode.test.ts tests/components/FileTreeLocalDeletion.test.tsx tests/components/AuthLocalStartup.test.tsx tests/components/ProjectImportLocalFolder.test.tsx tests/components/WorkspaceCatalogSection.test.tsx tests/components/WorkspaceWriteStatus.test.tsx tests/components/DiskWriteNotifications.test.tsx tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx tests/unit/workspace/LocalZipImport.test.ts tests/unit/workspace/RinspaceProjectCatalog.test.ts --ci --runInBand
 
       - name: Run tests
         shell: bash

@@ -49,14 +49,17 @@ function createPatchedBusytexWorker(
 	return `${BUSYTEX_CACHE_FETCH_OVERLAY}${source}`;
 }
 
-async function applyRuntimeOverlays(distDir = path.resolve(__dirname, '../../dist')) {
+async function applyRuntimeOverlays(
+	distDir = path.resolve(__dirname, '../../dist'),
+	expectedSha256 = BUSYTEX_WORKER_UPSTREAM_SHA256,
+) {
 	const workerPath = path.join(distDir, BUSYTEX_WORKER_RELATIVE_PATH);
 	const source = await readFile(workerPath, 'utf8');
-	const patched = createPatchedBusytexWorker(source);
+	const patched = createPatchedBusytexWorker(source, expectedSha256);
 	await writeFile(workerPath, patched, 'utf8');
 	return {
 		file: BUSYTEX_WORKER_RELATIVE_PATH,
-		upstreamSha256: BUSYTEX_WORKER_UPSTREAM_SHA256,
+		upstreamSha256: expectedSha256,
 		artifactSha256: sha256(patched),
 	};
 }

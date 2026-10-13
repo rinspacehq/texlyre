@@ -38,18 +38,16 @@ test('worker overlay rejects unreviewed upstream bytes', () => {
 test('artifact overlay changes only the reviewed worker', async () => {
 	const distDir = await mkdtemp(path.join(tmpdir(), 'texlyre-overlay-test-'));
 	const workerPath = path.join(distDir, BUSYTEX_WORKER_RELATIVE_PATH);
-	const upstreamPath = new URL(
-		'../../public/core/busytex/busytex_worker.js',
-		import.meta.url,
-	);
+	const upstream = "importScripts('busytex_pipeline.js');\n";
 
 	try {
 		await mkdir(path.dirname(workerPath), { recursive: true });
-		await writeFile(workerPath, await readFile(upstreamPath));
-		const result = await applyRuntimeOverlays(distDir);
+		await writeFile(workerPath, upstream);
+		const result = await applyRuntimeOverlays(distDir, digest(upstream));
 		const patched = await readFile(workerPath, 'utf8');
 
 		assert.equal(result.file, BUSYTEX_WORKER_RELATIVE_PATH);
+		assert.equal(result.upstreamSha256, digest(upstream));
 		assert.match(patched, new RegExp(BUSYTEX_CACHE_FETCH_MARKER));
 		assert.equal(result.artifactSha256, digest(patched));
 	} finally {
