@@ -73,18 +73,14 @@ jobs:
           test -f dist/index.html
           test -f dist/rinspace-source-candidate.json
 
-      - name: Fetch and verify the fixed TeX Live 2026 runtime source
+      - name: Fetch and verify the fixed TeX Live 2026 tree list
         shell: bash
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/texlyre-texlive-source"
           mkdir -p "$source_dir"
-          archive_url="$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.url")"
           tree_url="$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.url")"
-          curl --fail --location --retry 5 --retry-all-errors --output "$source_dir/texmf-dist.tar.zst" "$archive_url"
           curl --fail --location --retry 5 --retry-all-errors --output "$source_dir/texlive-full.txt" "$tree_url"
-          test "$(stat -c %s "$source_dir/texmf-dist.tar.zst")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.size")"
-          test "$(sha256sum "$source_dir/texmf-dist.tar.zst" | cut -d' ' -f1)" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.sha256")"
           test "$(stat -c %s "$source_dir/texlive-full.txt")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.size")"
           test "$(sha256sum "$source_dir/texlive-full.txt" | cut -d' ' -f1)" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.sha256")"
 
@@ -96,8 +92,20 @@ jobs:
           source_dir="$RUNNER_TEMP/texlyre-texlive-source"
           runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
           mkdir -p "$runtime_dir"
-          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/build-texlive-runtime.cjs \
-            "$source_dir/texmf-dist.tar.zst" "$source_dir/texlive-full.txt" "$runtime_dir"
+          archive_url="$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.url")"
+          archive_sha_file="$source_dir/archive.sha256"
+          archive_size_file="$source_dir/archive.size"
+          curl --fail --location --retry 5 --retry-all-errors "$archive_url" \
+            | tee >(sha256sum | awk '{print $1}' > "$archive_sha_file") >(wc -c | tr -d ' ' > "$archive_size_file") \
+            | zstd -dc \
+            | nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/build-texlive-runtime-stream.cjs \
+                "$source_dir/texlive-full.txt" "$runtime_dir"
+          for attempt in 1 2 3 4 5; do
+            [[ -s "$archive_sha_file" && -s "$archive_size_file" ]] && break
+            sleep 1
+          done
+          test "$(cat "$archive_size_file")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.size")"
+          test "$(cat "$archive_sha_file")" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').archive.sha256")"
           pack="$(node -p "require('./config/rinspace/release.json').texliveRuntime.packFilename")"
           maximum="$(node -p "require('./config/rinspace/release.json').texliveRuntime.maximumPackBytes")"
           test "$(stat -c %s "$runtime_dir/$pack")" -lt "$maximum"
