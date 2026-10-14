@@ -155,7 +155,7 @@ test('curl retries stalled transfers without relaxing source or size limits', ()
 	assert.equal(valueAfter('--url'), asset.url);
 });
 
-test('large release assets use at most eight bounded ranges and exact ordered assembly', () =>
+test('large release assets use at most eight bounded lanes and exact ordered assembly', () =>
 	temporaryFile(async (filename) => {
 		const url = validateAssetUrl(asset.url);
 		const observed = [];
@@ -188,6 +188,49 @@ test('large release assets use at most eight bounded ranges and exact ordered as
 				{ start: 12, end: 14 },
 				{ start: 15, end: 17 },
 				{ start: 18, end: 20 },
+			],
+		);
+	}));
+
+test('each range lane uses bounded sequential chunks so a retry cannot discard a whole lane', () =>
+	temporaryFile(async (filename) => {
+		const body = Buffer.from('abcdefghijklmnopqrstuvwxyz');
+		const entry = {
+			...asset,
+			size: body.length,
+			maxBytes: body.length,
+			sha256: createHash('sha256').update(body).digest('hex'),
+		};
+		const url = validateAssetUrl(entry.url);
+		const observed = [];
+		await downloadRangeArchive(
+			entry,
+			filename,
+			url,
+			async (_command, args) => {
+				const range = args[args.indexOf('--range') + 1];
+				const output = args[args.indexOf('--output') + 1];
+				const [start, end] = range.split('-').map(Number);
+				observed.push({ start, end });
+				assert.ok(end - start + 1 <= 4);
+				await writeFile(output, body.subarray(start, end + 1));
+				return { stdout: '206', stderr: '' };
+			},
+			2,
+			4,
+		);
+		assert.deepEqual(await readFile(filename), body);
+		assert.deepEqual(
+			observed.sort((left, right) => left.start - right.start),
+			[
+				{ start: 0, end: 3 },
+				{ start: 4, end: 7 },
+				{ start: 8, end: 11 },
+				{ start: 12, end: 12 },
+				{ start: 13, end: 16 },
+				{ start: 17, end: 20 },
+				{ start: 21, end: 24 },
+				{ start: 25, end: 25 },
 			],
 		);
 	}));
