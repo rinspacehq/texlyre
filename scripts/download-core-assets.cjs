@@ -207,6 +207,105 @@ async function requestHeadWithCurl(url, options = {}, execute = execFileAsync) {
 	};
 }
 
+async function resolveArchiveResponse(
+	entry,
+	request,
+	useCurlTransport,
+	signal,
+) {
+	let url = validateAssetUrl(entry.url);
+	let response;
+
+	for (let redirects = 0; redirects <= 5; redirects++) {
+		response = await requestWithRetries(request, url.href, {
+			credentials: 'omit',
+			method: useCurlTransport ? 'HEAD' : 'GET',
+			redirect: 'manual',
+			signal,
+		});
+		if (![301, 302, 303, 307, 308].includes(response.status)) break;
+		assert.ok(redirects < 5, 'too many asset redirects');
+		const location = response.headers.get('location');
+		assert.ok(location, 'asset redirect is missing a location');
+		await response.body?.cancel();
+		url = validateAssetUrl(new URL(location, url).href);
+	}
+
+	assert.equal(response?.status, 200, `asset ${entry.id} download failed`);
+	return { response, url };
+}
+
+async function lstatIfExists(filename) {
+	try {
+		return await fs.lstat(filename);
+	} catch (error) {
+		if (error.code === 'ENOENT') return null;
+		throw error;
+	}
+}
+
+async function resolveArchiveCache(entry, cacheDirectory) {
+	if (!cacheDirectory) return null;
+	assert.ok(
+		path.isAbsolute(cacheDirectory),
+		'asset archive cache must be absolute',
+	);
+	await fs.ensureDir(cacheDirectory, 0o700);
+	const cacheStat = await fs.lstat(cacheDirectory);
+	assert.ok(
+		cacheStat.isDirectory() && !cacheStat.isSymbolicLink(),
+		'asset archive cache must be a real directory',
+	);
+	assert.equal(
+		await fs.realpath(cacheDirectory),
+		path.resolve(cacheDirectory),
+		'asset archive cache cannot traverse a symlink',
+	);
+	assert.equal(
+		cacheStat.mode & 0o022,
+		0,
+		'asset archive cache cannot be group/world writable',
+	);
+	return {
+		archive: path.join(cacheDirectory, `${entry.sha256}.archive`),
+		parts: path.join(cacheDirectory, `${entry.sha256}.parts`),
+	};
+}
+
+async function linkOrCopy(source, destination) {
+	try {
+		await fs.link(source, destination);
+	} catch (error) {
+		if (error.code !== 'EXDEV') throw error;
+		await fs.copyFile(source, destination, fs.constants.COPYFILE_EXCL);
+	}
+	await fs.chmod(destination, 0o600);
+}
+
+async function materializeCachedArchive(entry, cache, filename) {
+	const cacheStat = await lstatIfExists(cache.archive);
+	if (!cacheStat) return null;
+	assert.ok(
+		cacheStat.isFile() && !cacheStat.isSymbolicLink(),
+		'asset archive cache entry must be a regular file',
+	);
+	const verified = await verifyDownloadedArchive(entry, cache.archive);
+	await linkOrCopy(cache.archive, filename);
+	return verified;
+}
+
+async function promoteCachedArchive(entry, cache, filename) {
+	const temporary = `${cache.archive}.tmp-${process.pid}`;
+	await fs.remove(temporary);
+	try {
+		await linkOrCopy(filename, temporary);
+		await verifyDownloadedArchive(entry, temporary);
+		await fs.rename(temporary, cache.archive);
+	} finally {
+		await fs.remove(temporary);
+	}
+}
+
 function buildCurlArguments(entry, filename, url, range) {
 	const args = [
 		'--fail',
@@ -253,12 +352,14 @@ async function downloadRangeArchive(
 	execute = execFileAsync,
 	partCount = 8,
 	maxChunkBytes = 8 * 1024 * 1024,
+	options = {},
 ) {
 	assert.ok(
 		Number.isSafeInteger(partCount) && partCount >= 2 && partCount <= 8,
 	);
 	assert.ok(Number.isSafeInteger(maxChunkBytes) && maxChunkBytes > 0);
-	const directory = `${filename}.parts`;
+	const directory = options.partDirectory ?? `${filename}.parts`;
+	const resolveUrl = options.resolveUrl ?? (async () => url);
 	await fs.ensureDir(directory, 0o700);
 	const chunkSize = Math.ceil(entry.size / partCount);
 	const parts = [];
@@ -281,9 +382,19 @@ async function downloadRangeArchive(
 						filename: part,
 						size: chunkEnd - chunkStart + 1,
 					});
+					const existing = await lstatIfExists(part);
+					if (existing) {
+						assert.ok(
+							existing.isFile() && !existing.isSymbolicLink(),
+							`asset ${entry.id} cached range must be a regular file`,
+						);
+						if (existing.size === chunkEnd - chunkStart + 1) continue;
+						await fs.remove(part);
+					}
+					const chunkUrl = validateAssetUrl((await resolveUrl()).href);
 					const { stdout } = await execute(
 						'curl',
-						buildCurlArguments(entry, part, url, {
+						buildCurlArguments(entry, part, chunkUrl, {
 							start: chunkStart,
 							end: chunkEnd,
 						}),
@@ -318,35 +429,35 @@ async function downloadRangeArchive(
 		await fs.remove(filename);
 		throw error;
 	} finally {
-		await fs.remove(directory);
+		if (!options.preserveParts) await fs.remove(directory);
 	}
 }
 
-async function downloadArchive(entry, filename, request) {
+async function downloadArchive(entry, filename, request, options = {}) {
 	const useCurlTransport = request === undefined;
 	request ??= requestHeadWithCurl;
-	let url = validateAssetUrl(entry.url);
-	let response;
+	const cache = await resolveArchiveCache(
+		entry,
+		options.cacheDirectory ??
+			(useCurlTransport
+				? process.env.RINSPACE_ASSET_ARCHIVE_CACHE_DIR
+				: undefined),
+	);
+	const cached = cache
+		? await materializeCachedArchive(entry, cache, filename)
+		: null;
+	if (cached) return cached;
 	// The fixed BusyTeX archive is about 522 MB. A ten-minute total timeout
-	// made a valid acquisition impossible on slower mainland routes.
-	const signal = AbortSignal.timeout(45 * 60 * 1000);
-
-	for (let redirects = 0; redirects <= 5; redirects++) {
-		response = await requestWithRetries(request, url.href, {
-			credentials: 'omit',
-			method: useCurlTransport ? 'HEAD' : 'GET',
-			redirect: 'manual',
-			signal,
-		});
-		if (![301, 302, 303, 307, 308].includes(response.status)) break;
-		assert.ok(redirects < 5, 'too many asset redirects');
-		const location = response.headers.get('location');
-		assert.ok(location, 'asset redirect is missing a location');
-		await response.body?.cancel();
-		url = validateAssetUrl(new URL(location, url).href);
-	}
-
-	assert.equal(response?.status, 200, `asset ${entry.id} download failed`);
+	// made a valid acquisition impossible on slower mainland routes. Range
+	// chunks refresh their short-lived release URL inside this bounded window.
+	const signal = AbortSignal.timeout(180 * 60 * 1000);
+	const initial = await resolveArchiveResponse(
+		entry,
+		request,
+		useCurlTransport,
+		signal,
+	);
+	const { response, url } = initial;
 
 	if (useCurlTransport) {
 		// Node's direct HTTPS path can be orders of magnitude slower than the
@@ -358,16 +469,53 @@ async function downloadArchive(entry, filename, request) {
 				url.hostname === 'release-assets.githubusercontent.com' &&
 				entry.size >= 8 * 1024 * 1024
 			) {
-				await downloadRangeArchive(entry, filename, url);
+				let initialUrl = url;
+				await downloadRangeArchive(
+					entry,
+					filename,
+					url,
+					options.execute ?? execFileAsync,
+					8,
+					8 * 1024 * 1024,
+					{
+						partDirectory: cache?.parts,
+						preserveParts: Boolean(cache),
+						resolveUrl: async () => {
+							if (initialUrl) {
+								const first = initialUrl;
+								initialUrl = null;
+								return first;
+							}
+							const resolved = await resolveArchiveResponse(
+								entry,
+								request,
+								true,
+								signal,
+							);
+							await resolved.response.body?.cancel();
+							return resolved.url;
+						},
+					},
+				);
 			} else {
-				await execFileAsync('curl', buildCurlArguments(entry, filename, url), {
-					maxBuffer: 1024 * 1024,
-				});
+				await (options.execute ?? execFileAsync)(
+					'curl',
+					buildCurlArguments(entry, filename, url),
+					{ maxBuffer: 1024 * 1024 },
+				);
 			}
 			await fs.chmod(filename, 0o600);
-			return await verifyDownloadedArchive(entry, filename);
+			const verified = await verifyDownloadedArchive(entry, filename);
+			if (cache) {
+				await promoteCachedArchive(entry, cache, filename);
+				await fs.remove(cache.parts);
+			}
+			return verified;
 		} catch (error) {
 			await fs.remove(filename);
+			if (cache && /digest mismatch|size mismatch/.test(error.message)) {
+				await fs.remove(cache.parts);
+			}
 			throw error;
 		}
 	}

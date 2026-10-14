@@ -3,7 +3,14 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -233,6 +240,137 @@ test('each range lane uses bounded sequential chunks so a retry cannot discard a
 				{ start: 25, end: 25 },
 			],
 		);
+	}));
+
+test('persistent range cache skips complete chunks, replaces partial chunks and refreshes URLs', () =>
+	temporaryFile(async (filename) => {
+		const body = Buffer.from('abcdefghijklmnopqrstuvwxyz');
+		const entry = {
+			...asset,
+			size: body.length,
+			maxBytes: body.length,
+			sha256: createHash('sha256').update(body).digest('hex'),
+		};
+		const url = validateAssetUrl(entry.url);
+		const partDirectory = `${filename}.persistent-parts`;
+		await mkdir(partDirectory, { mode: 0o700 });
+		await writeFile(path.join(partDirectory, 'part-0-0'), body.subarray(0, 4));
+		await writeFile(path.join(partDirectory, 'part-0-1'), body.subarray(4, 6));
+		const observed = [];
+		let resolvedUrls = 0;
+		await downloadRangeArchive(
+			entry,
+			filename,
+			url,
+			async (_command, args) => {
+				const range = args[args.indexOf('--range') + 1];
+				const output = args[args.indexOf('--output') + 1];
+				const [start, end] = range.split('-').map(Number);
+				observed.push(range);
+				await writeFile(output, body.subarray(start, end + 1));
+				return { stdout: '206', stderr: '' };
+			},
+			2,
+			4,
+			{
+				partDirectory,
+				preserveParts: true,
+				resolveUrl: async () => {
+					resolvedUrls++;
+					return url;
+				},
+			},
+		);
+		assert.deepEqual(await readFile(filename), body);
+		assert.ok(!observed.includes('0-3'));
+		assert.ok(observed.includes('4-7'));
+		assert.equal(observed.length, 7);
+		assert.equal(resolvedUrls, 7);
+		assert.deepEqual(
+			await readFile(path.join(partDirectory, 'part-0-0')),
+			body.subarray(0, 4),
+		);
+		await stat(partDirectory);
+	}));
+
+test('an exact full archive cache is verified before network access', () =>
+	temporaryFile(async (filename) => {
+		const cacheDirectory = `${filename}.cache`;
+		await mkdir(cacheDirectory, { mode: 0o700 });
+		await writeFile(
+			path.join(cacheDirectory, `${asset.sha256}.archive`),
+			Buffer.from(bytes),
+			{ mode: 0o600 },
+		);
+		let requests = 0;
+		const result = await downloadArchive(
+			asset,
+			filename,
+			async () => {
+				requests++;
+				throw new Error('network must not be used');
+			},
+			{ cacheDirectory },
+		);
+		assert.equal(requests, 0);
+		assert.deepEqual(await readFile(filename), Buffer.from(bytes));
+		assert.deepEqual(result, {
+			size: bytes.length,
+			sha256: asset.sha256,
+		});
+	}));
+
+test('a changed full archive cache is rejected without network fallback', () =>
+	temporaryFile(async (filename) => {
+		const cacheDirectory = `${filename}.cache`;
+		await mkdir(cacheDirectory, { mode: 0o700 });
+		await writeFile(
+			path.join(cacheDirectory, `${asset.sha256}.archive`),
+			Buffer.alloc(bytes.length, 0),
+			{ mode: 0o600 },
+		);
+		let requests = 0;
+		await assert.rejects(
+			downloadArchive(
+				asset,
+				filename,
+				async () => {
+					requests++;
+					throw new Error('network must not be used');
+				},
+				{ cacheDirectory },
+			),
+			/digest mismatch/,
+		);
+		assert.equal(requests, 0);
+	}));
+
+test('persistent range cache retains completed peer chunks after a failed lane', () =>
+	temporaryFile(async (filename) => {
+		const partDirectory = `${filename}.persistent-parts`;
+		const url = validateAssetUrl(asset.url);
+		await assert.rejects(
+			downloadRangeArchive(
+				asset,
+				filename,
+				url,
+				async (_command, args) => {
+					const range = args[args.indexOf('--range') + 1];
+					const output = args[args.indexOf('--output') + 1];
+					const [start, end] = range.split('-').map(Number);
+					if (start === 0) throw new Error('range failed');
+					await writeFile(output, Buffer.from(bytes).subarray(start, end + 1));
+					return { stdout: '206', stderr: '' };
+				},
+				4,
+				8 * 1024 * 1024,
+				{ partDirectory, preserveParts: true },
+			),
+			/range failed/,
+		);
+		const entries = await stat(partDirectory);
+		assert.ok(entries.isDirectory());
+		await stat(path.join(partDirectory, 'part-1-0'));
 	}));
 
 test('a failed range waits for peers and removes every partial file', () =>
