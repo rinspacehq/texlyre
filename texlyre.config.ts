@@ -72,13 +72,14 @@ const config: TexlyreConfig = {
 
     // Overwrite priority is default < local < mobile for corresponding configs
     userdata: {
-        version: '1.3.6',
+        version: '1.3.8',
         forceUpdate: {
             settings: [
                 'statusPageUrl',
                 'statusJsonUrl',
                 'latexTexliveEndpoint',
                 'latexBusytexEndpoint',
+                'latexEngine',
                 'themePlugin',
                 'fileSyncNotifications',
             ],
@@ -180,7 +181,7 @@ const config: TexlyreConfig = {
         },
         local: {
             settings: {
-                latexEngine: 'pdftex',
+                latexEngine: 'busytex-xetex',
                 collabSignalingServers: 'ws://localhost:4444/',
                 fileSyncServerUrl: 'http://localhost:8080',
                 latexBusytexEndpoint: 'http://localhost:8070',

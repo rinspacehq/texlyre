@@ -59,18 +59,20 @@ test('new public profiles use the verified browser-only compiler by default', as
 	assert.match(config, /title:\s*'Rinspace Online Editor'/);
 	assert.match(config, /latexEngine:\s*'busytex-xetex'/);
 	assert.match(config, /latexBusytexEndpoint:\s*'\/editor\/texlive\/2026'/);
-	assert.match(config, /local:\s*\{[\s\S]*latexEngine:\s*'pdftex'/);
+	assert.match(config, /local:\s*\{[\s\S]*latexEngine:\s*'busytex-xetex'/);
 	for (const profile of [desktop, mobile]) {
 		const parsed = JSON.parse(profile);
 		assert.equal(parsed.settings['latex-engine'], 'busytex-xetex');
 		assert.equal(parsed.settings['latex-busytex-endpoint'], '/editor/texlive/2026');
 		assert.equal(parsed.settings['file-sync-enable'], false);
+		assert.ok(parsed.forceUpdate.settings.includes('latex-engine'));
 		assert.ok(parsed.forceUpdate.settings.includes('file-sync-enable'));
 	}
 	for (const profile of [localDesktop, localMobile]) {
 		const parsed = JSON.parse(profile);
-		assert.equal(parsed.settings['latex-engine'], 'pdftex');
+		assert.equal(parsed.settings['latex-engine'], 'busytex-xetex');
 		assert.equal(parsed.settings['file-sync-enable'], false);
+		assert.ok(parsed.forceUpdate.settings.includes('latex-engine'));
 		assert.ok(parsed.forceUpdate.settings.includes('file-sync-enable'));
 	}
 });

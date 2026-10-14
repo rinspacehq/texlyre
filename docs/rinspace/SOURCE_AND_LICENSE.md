@@ -186,12 +186,14 @@ for profiles with no runtime endpoint; it is not the production package source.
 Neither path infers or changes project language, compiler choice or compile
 schedule.
 
-SwiftLaTeX remains selectable and resolves a blank setting to a same-origin
-fixed root rather than its library default. Local development retains explicit
-localhost endpoints, and users can still opt into another service. The upstream
-SwiftLaTeX Flask/kpathsea service is not introduced as a production dependency.
-The userdata version is advanced so existing profiles receive the fixed
-same-origin endpoint instead of retaining mutable upstream settings. Typst
+The upstream SwiftLaTeX implementation remains in source for compatibility, but
+the Rinspace engine selectors expose only BusyTeX engines backed by the complete
+fixed runtime. Userdata version 1.3.8 migrates saved global engine choices to
+BusyTeX XeTeX, and legacy per-project `pdftex` or `xetex` metadata is normalized
+when compiling or exporting. This prevents an apparently equivalent legacy XeTeX choice from
+bypassing the complete package endpoint. The SwiftLaTeX Flask/kpathsea service
+is not introduced as a production dependency. Local development retains its
+explicit localhost endpoints. Typst
 compiler and renderer fonts are loaded from the application origin with the
 library's remote default assets disabled. The separate mirror review records
 the actual one-byte Range and browser CORS probes plus timeout, 404, wrong-byte,

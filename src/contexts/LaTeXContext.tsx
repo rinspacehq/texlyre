@@ -55,7 +55,7 @@ export const LaTeXProvider: React.FC<LaTeXProviderProps> = ({ children }) => {
 	const requestRef = useRef(0);
 
 	const latexEngine =
-		(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'pdftex';
+		(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'busytex-xetex';
 	const currentFormat =
 		(getSetting('latex-default-format')?.value as LaTeXOutputFormat) ?? 'pdf';
 	const texliveEndpoint =
