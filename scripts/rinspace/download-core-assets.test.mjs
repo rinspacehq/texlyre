@@ -18,6 +18,7 @@ const {
 	downloadCoreAssets,
 	downloadRangeArchive,
 	getReviewEntry,
+	requestHeadWithCurl,
 	requestWithRetries,
 	resolveRequestedId,
 	validateAssetUrl,
@@ -107,6 +108,31 @@ test('retries transient archive metadata failures with bounded backoff', async (
 	assert.equal(response.status, 200);
 	assert.equal(requests, 3);
 	assert.deepEqual(waits, [1000, 2000]);
+});
+
+test('curl resolves release redirects without using the Node network stack', async () => {
+	const redirect =
+		'https://release-assets.githubusercontent.com/github-production-release-asset/1/fixed';
+	const response = await requestHeadWithCurl(
+		asset.url,
+		{ signal: AbortSignal.timeout(1000) },
+		async (command, args, options) => {
+			assert.equal(command, 'curl');
+			assert.ok(args.includes('--head'));
+			assert.equal(args[args.indexOf('--proto') + 1], '=https');
+			assert.equal(args[args.indexOf('--max-redirs') + 1], '0');
+			assert.equal(args[args.indexOf('--connect-timeout') + 1], '30');
+			assert.equal(args[args.indexOf('--retry') + 1], '4');
+			assert.ok(args.includes('--retry-all-errors'));
+			assert.equal(args[args.indexOf('--url') + 1], asset.url);
+			assert.ok(options.signal);
+			return { stdout: `302\n${redirect}`, stderr: '' };
+		},
+	);
+
+	assert.equal(response.status, 302);
+	assert.equal(response.headers.get('location'), redirect);
+	assert.equal(response.headers.get('content-type'), null);
 });
 
 test('curl retries stalled transfers without relaxing source or size limits', () => {
