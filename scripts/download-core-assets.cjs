@@ -161,6 +161,52 @@ async function requestWithRetries(
 	}
 }
 
+async function requestHeadWithCurl(url, options = {}, execute = execFileAsync) {
+	const args = [
+		'--head',
+		'--silent',
+		'--show-error',
+		'--proto',
+		'=https',
+		'--max-redirs',
+		'0',
+		'--connect-timeout',
+		'30',
+		'--max-time',
+		'300',
+		'--retry',
+		'4',
+		'--retry-all-errors',
+		'--retry-max-time',
+		'300',
+		'--output',
+		'/dev/null',
+		'--write-out',
+		'%{http_code}\n%{redirect_url}',
+		'--url',
+		url,
+	];
+	const { stdout } = await execute('curl', args, {
+		maxBuffer: 1024 * 1024,
+		signal: options.signal,
+	});
+	const [statusLine, ...redirectLines] = stdout.trimEnd().split(/\r?\n/);
+	const status = Number(statusLine);
+	assert.ok(Number.isInteger(status) && status >= 100 && status <= 599);
+	const redirectUrl = redirectLines.join('\n').trim();
+	return {
+		status,
+		headers: {
+			get(name) {
+				return name.toLowerCase() === 'location' && redirectUrl
+					? redirectUrl
+					: null;
+			},
+		},
+		body: null,
+	};
+}
+
 function buildCurlArguments(entry, filename, url, range) {
 	const args = [
 		'--fail',
@@ -254,7 +300,7 @@ async function downloadRangeArchive(
 
 async function downloadArchive(entry, filename, request) {
 	const useCurlTransport = request === undefined;
-	request ??= fetch;
+	request ??= requestHeadWithCurl;
 	let url = validateAssetUrl(entry.url);
 	let response;
 	// The fixed BusyTeX archive is about 522 MB. A ten-minute total timeout
@@ -551,6 +597,7 @@ module.exports = {
 	downloadCoreAssets,
 	getReviewEntry,
 	resolveRequestedId,
+	requestHeadWithCurl,
 	requestWithRetries,
 	summarizeInventory,
 	validateAssetUrl,
