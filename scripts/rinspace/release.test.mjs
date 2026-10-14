@@ -28,6 +28,10 @@ test('trusted release work uses the self-hosted runner without exposing it to fo
 		readFile(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8'),
 	]);
 	assert.match(releaseWorkflow, /runs-on: \[self-hosted, linux, x64, rinspace-release-build\]/);
+	assert.match(
+		releaseWorkflow,
+		/RINSPACE_ASSET_ARCHIVE_CACHE_DIR: \/repositories\/data\/texlyre-asset-cache/,
+	);
 	assert.match(releaseWorkflow, /build-texlive-runtime-stream\.cjs/);
 	assert.doesNotMatch(releaseWorkflow, /--output "\$source_dir\/texmf-dist\.tar\.zst"/);
 	const outputDirectoryChange = releaseWorkflow.indexOf('cd "$output"');

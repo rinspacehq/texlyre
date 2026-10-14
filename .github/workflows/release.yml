@@ -20,6 +20,8 @@ jobs:
     if: github.repository == 'rinspacehq/texlyre' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, rinspace-release-build]
     timeout-minutes: 240
+    env:
+      RINSPACE_ASSET_ARCHIVE_CACHE_DIR: /repositories/data/texlyre-asset-cache
     steps:
       - name: Checkout exact public main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
