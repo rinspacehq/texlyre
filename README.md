@@ -52,6 +52,8 @@ TeXlyre supports inline **comments** and **tracked changes** for collaborative r
 
 The platform integrates **[SwiftLaTeX](https://github.com/SwiftLaTeX/SwiftLaTeX (TeX Live 2020)) and [BusyTeX (TeX Live 2026)](https://github.com/busytex/busytex) WASM engines** to provide in-browser LaTeX compilation without server dependencies. Currently supports **pdfTeX**, **XeTeX**, and **LuaTeX** engines for document processing. TeXlyre supports real-time syntax highlighting and error detection, with an integrated PDF viewer that offers zoom, navigation, and side-by-side editing capabilities.
 
+The Rinspace distribution exposes the BusyTeX 2026 variants in its engine selectors so every visible engine uses the fixed complete same-origin TeX Live runtime. The SwiftLaTeX implementation remains in source for upstream compatibility.
+
 <p align="center">
 <img src="showcase/error_parser_zoomed_latex.png" alt="LaTeX compilation in progress with error panel and PDF output" width="600">
 </p>

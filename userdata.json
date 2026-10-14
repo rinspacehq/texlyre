@@ -1,5 +1,5 @@
 {
-  "version": "1.3.7",
+  "version": "1.3.8",
   "settings": {
     "bibtex-viewer-auto-tidy": false,
     "bibtex-viewer-tidy-options": "standard",
@@ -78,6 +78,7 @@
       "status-json-url",
       "latex-texlive-endpoint",
       "latex-busytex-endpoint",
+      "latex-engine",
       "theme-plugin",
       "file-sync-enable",
       "file-sync-notifications"

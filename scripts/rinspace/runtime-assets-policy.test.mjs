@@ -7,10 +7,11 @@ async function read(relative) {
 	return readFile(new URL(`../../${relative}`, import.meta.url), 'utf8');
 }
 
-test('default browser profiles use only the fixed same-origin TeX Live runtime', async () => {
+test('default browser profiles migrate to the fixed same-origin TeX Live runtime', async () => {
 	for (const filename of ['userdata.json', 'userdata.mobile.json']) {
 		const data = JSON.parse(await read(filename));
-		assert.equal(data.version, '1.3.7');
+		assert.equal(data.version, '1.3.8');
+		assert.equal(data.settings['latex-engine'], 'busytex-xetex');
 		assert.equal(data.settings['latex-texlive-endpoint'], '');
 		assert.equal(data.settings['latex-busytex-endpoint'], '/editor/texlive/2026');
 		assert.equal(data.settings['status-json-url'], '');
@@ -24,6 +25,7 @@ test('default browser profiles use only the fixed same-origin TeX Live runtime',
 		assert.ok(!JSON.stringify(data).includes('raw.githubusercontent.com'));
 		assert.ok(data.forceUpdate.settings.includes('latex-texlive-endpoint'));
 		assert.ok(data.forceUpdate.settings.includes('latex-busytex-endpoint'));
+		assert.ok(data.forceUpdate.settings.includes('latex-engine'));
 		assert.ok(data.forceUpdate.settings.includes('status-json-url'));
 		assert.ok(data.forceUpdate.settings.includes('status-page-url'));
 	}
@@ -58,11 +60,29 @@ test('LaTeX package settings resolve only to fixed same-origin paths', async () 
 	const cjk = await read(
 		'src/extensions/texlyre-busytex/RinspaceCjkPackageSet.ts',
 	);
+	const settings = await read('src/settings/registerLatexSettings.ts');
+	const compileButton = await read(
+		'src/components/output/LaTeXCompileButton.tsx',
+	);
+	const exportButton = await read(
+		'src/components/output/LaTeXExportButton.tsx',
+	);
 	assert.match(swift, /LOCAL_TEXLIVE_ENDPOINT/);
 	assert.match(swift, /endpoint\.trim\(\) \|\| LOCAL_TEXLIVE_ENDPOINT/);
 	assert.match(busy, /loadRinspaceCjkPackageSet/);
 	assert.match(busy, /!this\.texliveEndpoint/);
 	assert.match(await read('texlyre.config.ts'), /latexBusytexEndpoint:\s*'\/editor\/texlive\/2026'/);
+	assert.doesNotMatch(settings, /value:\s*'pdftex'/);
+	assert.doesNotMatch(settings, /value:\s*'xetex'/);
+	assert.match(settings, /value:\s*'busytex-pdftex'/);
+	assert.match(settings, /value:\s*'busytex-xetex'/);
+	assert.match(settings, /value:\s*'busytex-luatex'/);
+	assert.doesNotMatch(compileButton, /const SWIFT_ENGINES/);
+	assert.match(compileButton, /engine === 'pdftex'[\s\S]*'busytex-pdftex'/);
+	assert.match(compileButton, /engine === 'xetex'[\s\S]*'busytex-xetex'/);
+	assert.doesNotMatch(exportButton, /const SWIFT_ENGINES/);
+	assert.match(exportButton, /engine === 'pdftex'[\s\S]*'busytex-pdftex'/);
+	assert.match(exportButton, /engine === 'xetex'[\s\S]*'busytex-xetex'/);
 	assert.match(cjk, /RINSPACE_BUSY_TEXLIVE_ASSET_ROOT/);
 	assert.match(cjk, /crypto\.subtle\.digest\('SHA-256'/);
 	assert.match(cjk, /credentials: 'same-origin'/);

@@ -53,16 +53,19 @@ interface LaTeXCompileButtonProps {
 	useSharedSettings?: boolean;
 }
 
-const SWIFT_ENGINES: Array<{ label: string; value: LaTeXEngine }> = [
-	{ label: 'pdfTeX (SwiftLaTeX)', value: 'pdftex' },
-	{ label: 'XeTeX (SwiftLaTeX)', value: 'xetex' },
-];
-
 const BUSYTEX_ENGINES: Array<{ label: string; value: LaTeXEngine }> = [
 	{ label: 'pdfTeX (BusyTeX)', value: 'busytex-pdftex' },
 	{ label: 'XeTeX (BusyTeX)', value: 'busytex-xetex' },
 	{ label: 'LuaTeX (BusyTeX)', value: 'busytex-luatex' },
 ];
+
+function normalizeRinspaceLatexEngine(
+	engine: LaTeXEngine,
+): LaTeXEngine {
+	if (engine === 'pdftex') return 'busytex-pdftex';
+	if (engine === 'xetex') return 'busytex-xetex';
+	return engine;
+}
 
 const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 	dropdownKey,
@@ -113,7 +116,7 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 	const projectId = fileStoreService.getCurrentProjectId() || undefined;
 
 	const settingEngine =
-		(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'pdftex';
+		(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'busytex-xetex';
 	const settingFormat =
 		(getSetting('latex-default-format')?.value as LaTeXOutputFormat) ?? 'pdf';
 	const settingBundle =
@@ -152,7 +155,9 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 		: undefined;
 
 	const effectiveMainFile = managedMainFile || projectMainFile || propMainFile || autoMainFile;
-	const effectiveEngine = projectEngine || propEngine || settingEngine;
+	const effectiveEngine = normalizeRinspaceLatexEngine(
+		projectEngine || propEngine || settingEngine,
+	);
 	const effectiveFormat = projectFormat || propFormat || settingFormat;
 	const effectiveBundle = propBundle || settingBundle;
 	const effectiveAutoCompileOnSave = useSharedSettings
@@ -189,7 +194,7 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 			id: 'latex-engine',
 			category: 'Compilation',
 			subcategory: 'LaTeX',
-			defaultValue: 'pdftex',
+			defaultValue: 'busytex-xetex',
 		});
 
 		registerProperty({
@@ -296,8 +301,9 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 
 	useEffect(() => {
 		if (!useSharedSettings || !projectEngine) return;
-		if (projectEngine === latexService.getCurrentEngineType()) return;
-		latexService.setEngine(projectEngine as LaTeXEngine).catch((err) => {
+		const normalizedEngine = normalizeRinspaceLatexEngine(projectEngine);
+		if (normalizedEngine === latexService.getCurrentEngineType()) return;
+		latexService.setEngine(normalizedEngine).catch((err) => {
 			moduleLog.error('Failed to sync shared engine:', err);
 		});
 	}, [projectEngine, useSharedSettings]);
@@ -844,13 +850,6 @@ const LaTeXCompileButton: React.FC<LaTeXCompileButtonProps> = ({
 							className='ui-field-control'
 							disabled={isChangingEngine || isCompiling}
 						>
-							<optgroup label={t('SwiftLaTeX (TeX Live 2020)')}>
-								{SWIFT_ENGINES.map(({ label, value }) => (
-									<option key={value} value={value}>
-										{t(label)}
-									</option>
-								))}
-							</optgroup>
 							<optgroup label={t('BusyTeX (TeX Live 2026)')}>
 								{BUSYTEX_ENGINES.map(({ label, value }) => (
 									<option key={value} value={value}>

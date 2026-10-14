@@ -15,7 +15,7 @@ export function useRegisterLatexSettings() {
 		settingsRegistered.current = true;
 
 		const initialEngine =
-			(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'pdftex';
+			(getSetting('latex-engine')?.value as LaTeXEngine) ?? 'busytex-xetex';
 		const initialTexliveEndpoint =
 			(getSetting('latex-texlive-endpoint')?.value as string) ?? '';
 		const initialStoreCache =
@@ -47,13 +47,14 @@ export function useRegisterLatexSettings() {
 			}),
 			defaultValue: initialEngine,
 			options: [
-				{ label: t('pdfTeX (SwiftLaTeX / TeX Live 2020)'), value: 'pdftex' },
-				{ label: t('XeTeX (SwiftLaTeX / TeX Live 2020)'), value: 'xetex' },
 				{
 					label: t('pdfTeX (BusyTeX / TeX Live 2026)'),
 					value: 'busytex-pdftex',
 				},
-				{ label: t('XeTeX (BusyTeX / TeX Live 2026)'), value: 'busytex-xetex' },
+				{
+					label: t('XeTeX (BusyTeX / TeX Live 2026)'),
+					value: 'busytex-xetex',
+				},
 				{
 					label: t('LuaTeX (BusyTeX / TeX Live 2026)'),
 					value: 'busytex-luatex',

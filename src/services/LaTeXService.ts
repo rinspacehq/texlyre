@@ -39,7 +39,7 @@ function isBusyTeXEngine(engine: EngineType): engine is BusyTeXEngineType {
 }
 
 class LaTeXService {
-	private currentEngineType: EngineType = 'pdftex';
+	private currentEngineType: EngineType = 'busytex-xetex';
 	private statusListeners: Set<() => void> = new Set();
 	private currentOperationId: string | null = null;
 	private compileGeneration = 0;
@@ -84,7 +84,7 @@ class LaTeXService {
 		await busyTexService.deleteBundle(bundleId);
 	}
 
-	async initialize(engineType: EngineType = 'pdftex'): Promise<void> {
+	async initialize(engineType: EngineType = 'busytex-xetex'): Promise<void> {
 		this.currentEngineType = engineType;
 		if (isBusyTeXEngine(engineType)) {
 			await busyTexService.initialize(engineType);
