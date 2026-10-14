@@ -251,7 +251,7 @@ async function downloadRangeArchive(
 	filename,
 	url,
 	execute = execFileAsync,
-	partCount = 4,
+	partCount = 8,
 ) {
 	assert.ok(Number.isSafeInteger(partCount) && partCount >= 2 && partCount <= 8);
 	const directory = `${filename}.parts`;

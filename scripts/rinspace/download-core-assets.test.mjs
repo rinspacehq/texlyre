@@ -155,7 +155,7 @@ test('curl retries stalled transfers without relaxing source or size limits', ()
 	assert.equal(valueAfter('--url'), asset.url);
 });
 
-test('large release assets use bounded parallel ranges and exact ordered assembly', () =>
+test('large release assets use at most eight bounded ranges and exact ordered assembly', () =>
 	temporaryFile(async (filename) => {
 		const url = validateAssetUrl(asset.url);
 		const observed = [];
@@ -176,15 +176,17 @@ test('large release assets use bounded parallel ranges and exact ordered assembl
 				await writeFile(output, Buffer.from(bytes).subarray(start, end + 1));
 				return { stdout: '206', stderr: '' };
 			},
-			4,
 		);
 		assert.deepEqual(await readFile(filename), Buffer.from(bytes));
 		assert.deepEqual(
 			observed.sort((left, right) => left.start - right.start),
 			[
-				{ start: 0, end: 5 },
-				{ start: 6, end: 11 },
-				{ start: 12, end: 17 },
+				{ start: 0, end: 2 },
+				{ start: 3, end: 5 },
+				{ start: 6, end: 8 },
+				{ start: 9, end: 11 },
+				{ start: 12, end: 14 },
+				{ start: 15, end: 17 },
 				{ start: 18, end: 20 },
 			],
 		);
