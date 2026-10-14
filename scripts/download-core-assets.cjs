@@ -252,8 +252,12 @@ async function downloadRangeArchive(
 	url,
 	execute = execFileAsync,
 	partCount = 8,
+	maxChunkBytes = 8 * 1024 * 1024,
 ) {
-	assert.ok(Number.isSafeInteger(partCount) && partCount >= 2 && partCount <= 8);
+	assert.ok(
+		Number.isSafeInteger(partCount) && partCount >= 2 && partCount <= 8,
+	);
+	assert.ok(Number.isSafeInteger(maxChunkBytes) && maxChunkBytes > 0);
 	const directory = `${filename}.parts`;
 	await fs.ensureDir(directory, 0o700);
 	const chunkSize = Math.ceil(entry.size / partCount);
@@ -265,30 +269,50 @@ async function downloadRangeArchive(
 				const start = index * chunkSize;
 				if (start >= entry.size) return;
 				const end = Math.min(entry.size - 1, start + chunkSize - 1);
-				const part = path.join(directory, `part-${index}`);
-				parts[index] = { filename: part, size: end - start + 1 };
-				const { stdout } = await execute(
-					'curl',
-					buildCurlArguments(entry, part, url, { start, end }),
-					{ maxBuffer: 1024 * 1024 },
-				);
-				assert.equal(stdout, '206', `asset ${entry.id} range request was not partial`);
-				assert.equal(
-					(await fs.stat(part)).size,
-					end - start + 1,
-					`asset ${entry.id} range size mismatch`,
-				);
+				parts[index] = [];
+				for (
+					let chunkStart = start, chunkIndex = 0;
+					chunkStart <= end;
+					chunkStart += maxChunkBytes, chunkIndex++
+				) {
+					const chunkEnd = Math.min(end, chunkStart + maxChunkBytes - 1);
+					const part = path.join(directory, `part-${index}-${chunkIndex}`);
+					parts[index].push({
+						filename: part,
+						size: chunkEnd - chunkStart + 1,
+					});
+					const { stdout } = await execute(
+						'curl',
+						buildCurlArguments(entry, part, url, {
+							start: chunkStart,
+							end: chunkEnd,
+						}),
+						{ maxBuffer: 1024 * 1024 },
+					);
+					assert.equal(
+						stdout,
+						'206',
+						`asset ${entry.id} range request was not partial`,
+					);
+					assert.equal(
+						(await fs.stat(part)).size,
+						chunkEnd - chunkStart + 1,
+						`asset ${entry.id} range size mismatch`,
+					);
+				}
 			}),
 		);
 		const failed = results.find((result) => result.status === 'rejected');
 		if (failed) throw failed.reason;
 
 		await fs.writeFile(filename, Buffer.alloc(0), { flag: 'wx', mode: 0o600 });
-		for (const part of parts.filter(Boolean)) {
-			await pipeline(
-				createReadStream(part.filename),
-				createWriteStream(filename, { flags: 'a', mode: 0o600 }),
-			);
+		for (const lane of parts.filter(Boolean)) {
+			for (const part of lane) {
+				await pipeline(
+					createReadStream(part.filename),
+					createWriteStream(filename, { flags: 'a', mode: 0o600 }),
+				);
+			}
 		}
 	} catch (error) {
 		await fs.remove(filename);
