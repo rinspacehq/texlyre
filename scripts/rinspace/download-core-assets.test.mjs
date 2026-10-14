@@ -9,6 +9,7 @@ import {
 	readFile,
 	rm,
 	stat,
+	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -371,6 +372,31 @@ test('persistent range cache retains completed peer chunks after a failed lane',
 		const entries = await stat(partDirectory);
 		assert.ok(entries.isDirectory());
 		await stat(path.join(partDirectory, 'part-1-0'));
+	}));
+
+test('persistent range cache rejects a symlink before downloading', () =>
+	temporaryFile(async (filename) => {
+		const targetDirectory = `${filename}.target-parts`;
+		const partDirectory = `${filename}.persistent-parts`;
+		await mkdir(targetDirectory, { mode: 0o700 });
+		await symlink(targetDirectory, partDirectory, 'dir');
+		let requests = 0;
+		await assert.rejects(
+			downloadRangeArchive(
+				asset,
+				filename,
+				validateAssetUrl(asset.url),
+				async () => {
+					requests++;
+					throw new Error('network must not be used');
+				},
+				4,
+				8 * 1024 * 1024,
+				{ partDirectory, preserveParts: true },
+			),
+			/asset range cache must be a real directory/,
+		);
+		assert.equal(requests, 0);
 	}));
 
 test('a failed range waits for peers and removes every partial file', () =>

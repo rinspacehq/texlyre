@@ -272,6 +272,25 @@ async function resolveArchiveCache(entry, cacheDirectory) {
 	};
 }
 
+async function validatePersistentPartDirectory(directory) {
+	await fs.ensureDir(directory, 0o700);
+	const directoryStat = await fs.lstat(directory);
+	assert.ok(
+		directoryStat.isDirectory() && !directoryStat.isSymbolicLink(),
+		'asset range cache must be a real directory',
+	);
+	assert.equal(
+		await fs.realpath(directory),
+		path.resolve(directory),
+		'asset range cache cannot traverse a symlink',
+	);
+	assert.equal(
+		directoryStat.mode & 0o022,
+		0,
+		'asset range cache cannot be group/world writable',
+	);
+}
+
 async function linkOrCopy(source, destination) {
 	try {
 		await fs.link(source, destination);
@@ -360,7 +379,11 @@ async function downloadRangeArchive(
 	assert.ok(Number.isSafeInteger(maxChunkBytes) && maxChunkBytes > 0);
 	const directory = options.partDirectory ?? `${filename}.parts`;
 	const resolveUrl = options.resolveUrl ?? (async () => url);
-	await fs.ensureDir(directory, 0o700);
+	if (options.partDirectory) {
+		await validatePersistentPartDirectory(directory);
+	} else {
+		await fs.ensureDir(directory, 0o700);
+	}
 	const chunkSize = Math.ceil(entry.size / partCount);
 	const parts = [];
 
