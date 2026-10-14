@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/* global AbortSignal, Response */
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
+import { TextEncoder } from 'node:util';
 
 const require = createRequire(import.meta.url);
 const {
@@ -13,6 +16,7 @@ const {
 	buildCurlArguments,
 	downloadArchive,
 	downloadCoreAssets,
+	downloadRangeArchive,
 	getReviewEntry,
 	requestWithRetries,
 	resolveRequestedId,
@@ -124,6 +128,68 @@ test('curl retries stalled transfers without relaxing source or size limits', ()
 	assert.equal(valueAfter('--output'), filename);
 	assert.equal(valueAfter('--url'), asset.url);
 });
+
+test('large release assets use bounded parallel ranges and exact ordered assembly', () =>
+	temporaryFile(async (filename) => {
+		const url = validateAssetUrl(asset.url);
+		const observed = [];
+		await downloadRangeArchive(
+			asset,
+			filename,
+			url,
+			async (command, args) => {
+				assert.equal(command, 'curl');
+				const range = args[args.indexOf('--range') + 1];
+				const output = args[args.indexOf('--output') + 1];
+				const [start, end] = range.split('-').map(Number);
+				observed.push({ start, end });
+				assert.equal(
+					args[args.indexOf('--max-filesize') + 1],
+					String(end - start + 1),
+				);
+				await writeFile(output, Buffer.from(bytes).subarray(start, end + 1));
+				return { stdout: '206', stderr: '' };
+			},
+			4,
+		);
+		assert.deepEqual(await readFile(filename), Buffer.from(bytes));
+		assert.deepEqual(
+			observed.sort((left, right) => left.start - right.start),
+			[
+				{ start: 0, end: 5 },
+				{ start: 6, end: 11 },
+				{ start: 12, end: 17 },
+				{ start: 18, end: 20 },
+			],
+		);
+	}));
+
+test('a failed range waits for peers and removes every partial file', () =>
+	temporaryFile(async (filename) => {
+		const url = validateAssetUrl(asset.url);
+		let completedPeers = 0;
+		await assert.rejects(
+			downloadRangeArchive(
+				asset,
+				filename,
+				url,
+				async (_command, args) => {
+					const range = args[args.indexOf('--range') + 1];
+					const output = args[args.indexOf('--output') + 1];
+					const [start, end] = range.split('-').map(Number);
+					if (start === 0) throw new Error('range failed');
+					await writeFile(output, Buffer.from(bytes).subarray(start, end + 1));
+					completedPeers++;
+					return { stdout: '206', stderr: '' };
+				},
+				4,
+			),
+			/range failed/,
+		);
+		assert.equal(completedPeers, 3);
+		await assert.rejects(stat(filename), { code: 'ENOENT' });
+		await assert.rejects(stat(`${filename}.parts`), { code: 'ENOENT' });
+	}));
 
 test('requires an exact extracted inventory lock for warm caches', () => {
 	const summary = {

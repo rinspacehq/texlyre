@@ -2,7 +2,7 @@
 // Fixed public runtime assets. Never use this path for user documents.
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { createWriteStream } = require('node:fs');
+const { createReadStream, createWriteStream } = require('node:fs');
 const fs = require('fs-extra');
 const path = require('node:path');
 const { Readable, Transform } = require('node:stream');
@@ -161,8 +161,8 @@ async function requestWithRetries(
 	}
 }
 
-function buildCurlArguments(entry, filename, url) {
-	return [
+function buildCurlArguments(entry, filename, url, range) {
+	const args = [
 		'--fail',
 		'--silent',
 		'--show-error',
@@ -184,12 +184,72 @@ function buildCurlArguments(entry, filename, url) {
 		'--speed-time',
 		'60',
 		'--max-filesize',
-		String(entry.maxBytes),
+		String(range ? range.end - range.start + 1 : entry.maxBytes),
 		'--output',
 		filename,
-		'--url',
-		url.href,
 	];
+	if (range) {
+		args.push(
+			'--range',
+			`${range.start}-${range.end}`,
+			'--write-out',
+			'%{http_code}',
+		);
+	}
+	args.push('--url', url.href);
+	return args;
+}
+
+async function downloadRangeArchive(
+	entry,
+	filename,
+	url,
+	execute = execFileAsync,
+	partCount = 4,
+) {
+	assert.ok(Number.isSafeInteger(partCount) && partCount >= 2 && partCount <= 8);
+	const directory = `${filename}.parts`;
+	await fs.ensureDir(directory, 0o700);
+	const chunkSize = Math.ceil(entry.size / partCount);
+	const parts = [];
+
+	try {
+		const results = await Promise.allSettled(
+			Array.from({ length: partCount }, async (_, index) => {
+				const start = index * chunkSize;
+				if (start >= entry.size) return;
+				const end = Math.min(entry.size - 1, start + chunkSize - 1);
+				const part = path.join(directory, `part-${index}`);
+				parts[index] = { filename: part, size: end - start + 1 };
+				const { stdout } = await execute(
+					'curl',
+					buildCurlArguments(entry, part, url, { start, end }),
+					{ maxBuffer: 1024 * 1024 },
+				);
+				assert.equal(stdout, '206', `asset ${entry.id} range request was not partial`);
+				assert.equal(
+					(await fs.stat(part)).size,
+					end - start + 1,
+					`asset ${entry.id} range size mismatch`,
+				);
+			}),
+		);
+		const failed = results.find((result) => result.status === 'rejected');
+		if (failed) throw failed.reason;
+
+		await fs.writeFile(filename, Buffer.alloc(0), { flag: 'wx', mode: 0o600 });
+		for (const part of parts.filter(Boolean)) {
+			await pipeline(
+				createReadStream(part.filename),
+				createWriteStream(filename, { flags: 'a', mode: 0o600 }),
+			);
+		}
+	} catch (error) {
+		await fs.remove(filename);
+		throw error;
+	} finally {
+		await fs.remove(directory);
+	}
 }
 
 async function downloadArchive(entry, filename, request) {
@@ -204,6 +264,7 @@ async function downloadArchive(entry, filename, request) {
 	for (let redirects = 0; redirects <= 5; redirects++) {
 		response = await requestWithRetries(request, url.href, {
 			credentials: 'omit',
+			method: useCurlTransport ? 'HEAD' : 'GET',
 			redirect: 'manual',
 			signal,
 		});
@@ -216,17 +277,23 @@ async function downloadArchive(entry, filename, request) {
 	}
 
 	assert.equal(response?.status, 200, `asset ${entry.id} download failed`);
-	assert.ok(response.body, 'empty asset response');
 
 	if (useCurlTransport) {
 		// Node's direct HTTPS path can be orders of magnitude slower than the
 		// host's configured HTTPS transport. Redirects were already resolved
 		// and allowlisted above; curl is forbidden from following another one.
-		await response.body.cancel();
+		await response.body?.cancel();
 		try {
-			await execFileAsync('curl', buildCurlArguments(entry, filename, url), {
-				maxBuffer: 1024 * 1024,
-			});
+			if (
+				url.hostname === 'release-assets.githubusercontent.com' &&
+				entry.size >= 8 * 1024 * 1024
+			) {
+				await downloadRangeArchive(entry, filename, url);
+			} else {
+				await execFileAsync('curl', buildCurlArguments(entry, filename, url), {
+					maxBuffer: 1024 * 1024,
+				});
+			}
 			await fs.chmod(filename, 0o600);
 			return await verifyDownloadedArchive(entry, filename);
 		} catch (error) {
@@ -235,6 +302,7 @@ async function downloadArchive(entry, filename, request) {
 		}
 	}
 
+	assert.ok(response.body, 'empty asset response');
 	const hash = createHash('sha256');
 	let size = 0;
 	const meter = new Transform({
@@ -479,6 +547,7 @@ module.exports = {
 	ASSETS,
 	buildCurlArguments,
 	downloadArchive,
+	downloadRangeArchive,
 	downloadCoreAssets,
 	getReviewEntry,
 	resolveRequestedId,
