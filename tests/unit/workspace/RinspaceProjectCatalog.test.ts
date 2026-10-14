@@ -25,7 +25,7 @@ function enabledRuntime(): RinspaceManagedWorkspaceRuntime {
 }
 
 describe('Rinspace project catalog', () => {
-	it('treats a missing Native session as anonymous without contacting Gitea', async () => {
+	it('treats an unauthenticated Editor BFF response as anonymous', async () => {
 		const request = jest.fn(async () => response({}, 401)) as jest.MockedFunction<typeof fetch>;
 		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
 
@@ -34,78 +34,75 @@ describe('Rinspace project catalog', () => {
 		).resolves.toEqual({ status: 'anonymous', projects: [] });
 		expect(request).toHaveBeenCalledTimes(1);
 		expect(request).toHaveBeenCalledWith(
-			'/api/identity/v1/session',
+			'/rinspace/api/editor/v1/projects?page=1&limit=24',
 			expect.objectContaining({ credentials: 'include', cache: 'no-store' }),
 		);
 	});
 
-	it('does not bind Gitea when Native returns a non-authenticated session', async () => {
-		const request = jest.fn(async () =>
-			response({ status: 'anonymous' }),
-		) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
-
-		await expect(
-			catalog.listPage({ page: 1, pageSize: 24 }, new AbortController().signal),
-		).resolves.toEqual({ status: 'anonymous', projects: [] });
-		expect(request).toHaveBeenCalledTimes(1);
-	});
-
-	it('lists owned and collaborator Rinspace projections without fetching repository content', async () => {
+	it('lists every accessible repository without fetching repository content', async () => {
 		const queue = [
-			response({ status: 'authenticated' }),
-			response(null, 204),
-			response({ id: 17, login: 'alice' }),
-			response([
+			response({
+				schemaVersion: 'rinspace-editor-projects/v1',
+				account: { id: 17, login: 'alice' },
+				page: 2,
+				pageSize: 24,
+				hasMore: false,
+				projects: [
 				{
 					id: 41,
 					name: '41',
-					full_name: 'a/41',
+					fullName: 'a/41',
 					description: 'Owned article',
 					private: false,
-					default_branch: 'main',
-					updated_at: '2026-10-13T01:00:00Z',
-					rinspace_title: 'Owned title',
-					rinspace_content_type: 'article',
-					rinspace_projection_version: 2,
-					rinspace_content_owner_ids: [17],
-					permissions: { pull: true, push: true },
+					archived: false,
+					defaultBranch: 'main',
+					objectFormat: 'sha1',
+					updatedAt: '2026-10-13T01:00:00Z',
+					rinspaceTitle: 'Owned title',
+					rinspaceContentType: 'article',
+					access: 'owner',
+					permissions: { pull: true, push: true, admin: false },
 				},
 				{
 					id: 73,
 					name: '73',
-					full_name: 'b/73',
+					fullName: 'b/73',
 					description: '',
 					private: true,
-					default_branch: 'draft',
-					rinspace_title: 'Collaborative book',
-					rinspace_content_type: 'book',
-					rinspace_projection_version: 5,
-					rinspace_content_owner_ids: [23],
-					permissions: { pull: true, push: false },
+					archived: false,
+					defaultBranch: 'draft',
+					objectFormat: 'sha1',
+					rinspaceTitle: 'Collaborative book',
+					rinspaceContentType: 'book',
+					access: 'collaborator',
+					permissions: { pull: true, push: false, admin: false },
 				},
 				{
 					id: 99,
 					name: 'notes',
-					full_name: 'alice/notes',
+					fullName: 'alice/notes',
+					description: '',
 					private: false,
-					default_branch: 'main',
-					owner: { login: 'alice' },
-					permissions: { pull: true, push: true },
+					archived: false,
+					defaultBranch: 'main',
+					objectFormat: 'sha1',
+					access: 'owner',
+					permissions: { pull: true, push: true, admin: true },
 				},
 				{
 					id: 100,
 					name: '100',
-					full_name: 'a/100',
+					fullName: 'a/100',
+					description: '',
 					private: false,
-					default_branch: 'main',
-					rinspace_title: 'No access projection',
-					rinspace_content_type: 'article',
-					rinspace_projection_version: 2,
-					rinspace_content_owner_ids: [17],
+					archived: false,
+					defaultBranch: 'main',
+					objectFormat: 'sha1',
+					access: 'owner',
 					permissions: { pull: false, push: false, admin: false },
 				},
-			]),
+				],
+			}),
 		];
 		const request = jest.fn(async () => {
 			const next = queue.shift();
@@ -140,12 +137,15 @@ describe('Rinspace project catalog', () => {
 				private: true,
 				openIntent: { mode: 'managed', owner: 'b', repository: '73', ref: 'draft' },
 			}),
+			expect.objectContaining({
+				id: '99',
+				name: 'alice/notes',
+				contentType: 'repository',
+				openIntent: { mode: 'managed', owner: 'alice', repository: 'notes', ref: 'main' },
+			}),
 		]);
 		expect(request.mock.calls.map(([url]) => url)).toEqual([
-			'/api/identity/v1/session',
-			'/rinspace/api/gitea/sso',
-			'/repos/api/v1/user',
-			'/repos/api/v1/user/repos?page=2&limit=24',
+			'/rinspace/api/editor/v1/projects?page=2&limit=24',
 		]);
 		expect(JSON.stringify(request.mock.calls)).not.toMatch(
 			/archive|git-upload-pack|authorization|token/i,

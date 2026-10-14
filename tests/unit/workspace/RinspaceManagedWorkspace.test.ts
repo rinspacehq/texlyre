@@ -35,6 +35,7 @@ function responses(options: {
 	const result = [
 		jsonResponse({
 			status: 'authenticated',
+			csrfToken: 'csrf-proof',
 			user: {
 				id: options.actor ?? 'rin-user-1',
 				sessionEpoch: 7,
@@ -42,31 +43,38 @@ function responses(options: {
 			},
 			currentSession: { sid: 'session-1', version: 13 },
 		}),
-		jsonResponse(null, 204),
-		jsonResponse({
-			login: options.actor === 'rin-user-2' ? 'bob' : 'alice',
-			full_name: options.actor === 'rin-user-2' ? 'Bob' : 'Alice',
-		}),
 		jsonResponse(
 			{
-				id: 73,
-				name: '42',
-				full_name: 'a/42',
-				default_branch: 'main',
-				object_format_name: 'sha1',
-				permissions,
+				schemaVersion: 'rinspace-editor-projects/v1',
+				account: {
+					id: options.actor === 'rin-user-2' ? 18 : 17,
+					login: options.actor === 'rin-user-2' ? 'bob' : 'alice',
+					fullName: options.actor === 'rin-user-2' ? 'Bob' : 'Alice',
+				},
+				project: {
+					id: 73,
+					name: '42',
+					fullName: 'a/42',
+					defaultBranch: 'main',
+					objectFormat: 'sha1',
+					permissions,
+				},
+				ref: options.ref ?? 'main',
+				remoteHead: commit,
+				...((permissions.push || permissions.admin) && options.verifiedEmail !== false
+					? {
+						commitIdentity: {
+							name: options.actor === 'rin-user-2' ? 'Bob' : 'Alice',
+							email: options.actor === 'rin-user-2'
+								? 'bob@example.test'
+								: 'alice@example.test',
+						},
+					}
+					: {}),
 			},
 			options.repositoryStatus ?? 200,
 		),
-		jsonResponse({ name: options.ref ?? 'main', commit: { id: commit } }),
 	];
-	if (permissions.push || permissions.admin) {
-		result.push(jsonResponse([{
-			email: options.actor === 'rin-user-2' ? 'bob@example.test' : 'alice@example.test',
-			verified: options.verifiedEmail !== false,
-			primary: true,
-		}]));
-	}
 	return result;
 }
 
@@ -92,7 +100,7 @@ describe('Rinspace managed workspace', () => {
 		});
 	});
 
-	it('uses only the existing same-origin Native and Gitea session paths', async () => {
+	it('uses only Native identity and the token-hiding Editor BFF', async () => {
 		const request = queuedFetch(responses());
 		const resolved = await resolveRinspaceWorkspace(
 			{ owner: 'a', repository: '42', ref: 'main' },
@@ -104,11 +112,7 @@ describe('Rinspace managed workspace', () => {
 		expect(resolved.remoteHead).toBe(commit);
 		expect(request.mock.calls.map(([url]) => url)).toEqual([
 			'/api/identity/v1/session',
-			'/rinspace/api/gitea/sso',
-			'/repos/api/v1/user',
-			'/repos/api/v1/repos/a/42',
-			'/repos/api/v1/repos/a/42/branches/main',
-			'/repos/api/v1/user/emails',
+			'/rinspace/api/editor/v1/projects/a/42?ref=main',
 		]);
 		for (const [, init] of request.mock.calls) {
 			expect(init?.credentials).toBe('include');
