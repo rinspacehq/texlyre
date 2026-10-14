@@ -7,39 +7,38 @@ import type {
 
 import type { RinspaceManagedWorkspaceRuntime } from './RinspaceManagedWorkspace';
 
-const CONTENT_TYPES = new Set(['article', 'book', 'pdf', 'tag-wiki']);
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const CATALOG_SCHEMA = 'rinspace-editor-projects/v1';
 
-interface NativeSession {
-	status?: unknown;
-}
-
-interface GiteaUser {
+interface CatalogAccount {
 	id: number;
 	login: string;
 }
 
-interface RepositoryWire {
+interface ProjectWire {
 	id: number;
 	name: string;
-	// Gitea public API wire names are intentionally preserved.
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	full_name: string;
-	description?: string;
+	fullName: string;
+	description: string;
 	private: boolean;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	default_branch: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	updated_at?: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	rinspace_title?: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	rinspace_content_type?: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	rinspace_projection_version?: number;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	rinspace_content_owner_ids?: number[];
-	permissions?: { pull?: boolean; push?: boolean; admin?: boolean };
+	archived: boolean;
+	defaultBranch: string;
+	objectFormat: 'sha1' | 'sha256';
+	updatedAt?: string;
+	rinspaceTitle?: string;
+	rinspaceContentType?: string;
+	rinspaceProjectionVersion?: number;
+	access: 'owner' | 'collaborator';
+	permissions: { pull: boolean; push: boolean; admin: boolean };
+}
+
+interface CatalogWire {
+	schemaVersion: string;
+	account: CatalogAccount;
+	projects: ProjectWire[];
+	page: number;
+	pageSize: number;
+	hasMore: boolean;
 }
 
 function requestOptions(
@@ -67,43 +66,36 @@ async function responseJSON<T>(response: Response, label: string): Promise<T> {
 }
 
 function catalogProject(
-	repository: RepositoryWire,
-	account: GiteaUser,
+	repository: ProjectWire,
 ): WorkspaceCatalogProject | null {
-	const parts = repository.full_name.split('/');
-	const contentType = repository.rinspace_content_type?.trim() ?? '';
+	const parts = repository.fullName.split('/');
+	const contentType = repository.rinspaceContentType?.trim() || 'repository';
 	if (
 		!Number.isSafeInteger(repository.id) ||
 		repository.id < 1 ||
 		parts.length !== 2 ||
 		!SAFE_COORDINATE.test(parts[0]) ||
 		!SAFE_COORDINATE.test(parts[1]) ||
-		!CONTENT_TYPES.has(contentType) ||
-		!Number.isSafeInteger(repository.rinspace_projection_version) ||
-		(repository.rinspace_projection_version ?? 0) < 1 ||
-		(!repository.permissions?.pull &&
-			!repository.permissions?.push &&
-			!repository.permissions?.admin)
+		!repository.permissions?.pull ||
+		!['owner', 'collaborator'].includes(repository.access)
 	) {
 		return null;
 	}
-	const defaultRef = repository.default_branch?.trim();
+	const defaultRef = repository.defaultBranch?.trim();
 	if (!defaultRef) return null;
-	const updatedAt = repository.updated_at
-		? Date.parse(repository.updated_at)
+	const updatedAt = repository.updatedAt
+		? Date.parse(repository.updatedAt)
 		: Number.NaN;
 	return {
 		id: String(repository.id),
-		name: repository.rinspace_title?.trim() || repository.full_name,
+		name: repository.rinspaceTitle?.trim() || repository.fullName,
 		description: repository.description?.trim() || '',
-		repositoryLabel: repository.full_name,
+		repositoryLabel: repository.fullName,
 		contentType,
 		defaultRef,
 		...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
 		private: repository.private,
-		access: repository.rinspace_content_owner_ids?.includes(account.id)
-			? 'owner'
-			: 'collaborator',
+		access: repository.access,
 		openIntent: {
 			mode: 'managed',
 			owner: parts[0],
@@ -162,65 +154,39 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 		this.controllers.add(controller);
 
 		try {
-			const sessionResponse = await this.fetcher(
-				'/api/identity/v1/session',
+			const response = await this.fetcher(
+				`/rinspace/api/editor/v1/projects?page=${request.page}&limit=${request.pageSize}`,
 				requestOptions(controller.signal),
 			);
-			if (sessionResponse.status === 401) {
+			if (response.status === 401) {
 				return { status: 'anonymous', projects: [] };
 			}
-			const session = await responseJSON<NativeSession>(
-				sessionResponse,
-				'Rinspace identity check',
-			);
-			if (session.status !== 'authenticated') {
-				return { status: 'anonymous', projects: [] };
-			}
-
-			const sso = await this.fetcher(
-				'/rinspace/api/gitea/sso',
-				requestOptions(controller.signal, { method: 'POST' }),
-			);
-			if (!sso.ok) {
-				if (sso.status === 401) return { status: 'anonymous', projects: [] };
-				throw new Error(`Gitea session binding failed (${sso.status})`);
-			}
-
-			const account = await responseJSON<GiteaUser>(
-				await this.fetcher(
-					'/repos/api/v1/user',
-					requestOptions(controller.signal),
-				),
-				'Gitea identity check',
-			);
-			if (
-				!Number.isSafeInteger(account.id) ||
-				account.id < 1 ||
-				!account.login?.trim()
-			) {
-				throw new Error('Gitea identity is invalid');
-			}
-
-			const repositories = await responseJSON<RepositoryWire[]>(
-				await this.fetcher(
-					`/repos/api/v1/user/repos?page=${request.page}&limit=${request.pageSize}`,
-					requestOptions(controller.signal),
-				),
+			const catalog = await responseJSON<CatalogWire>(
+				response,
 				'Rinspace project catalog',
 			);
-			if (!Array.isArray(repositories)) {
+			const account = catalog.account;
+			if (
+				catalog.schemaVersion !== CATALOG_SCHEMA ||
+				catalog.page !== request.page ||
+				catalog.pageSize !== request.pageSize ||
+				!Number.isSafeInteger(account.id) ||
+				account.id < 1 ||
+				!account.login?.trim() ||
+				!Array.isArray(catalog.projects)
+			) {
 				throw new Error('Rinspace project catalog is invalid');
 			}
 			return {
 				status: 'authenticated',
 				accountLabel: account.login.trim(),
-				projects: repositories
-					.map((repository) => catalogProject(repository, account))
+				projects: catalog.projects
+					.map((repository) => catalogProject(repository))
 					.filter(
 						(project): project is WorkspaceCatalogProject => project !== null,
 					),
 				page: request.page,
-				hasMore: repositories.length === request.pageSize,
+				hasMore: Boolean(catalog.hasMore),
 			};
 		} finally {
 			externalSignal.removeEventListener('abort', abort);

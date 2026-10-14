@@ -16,13 +16,16 @@ describe('Rinspace Git remote provider', () => {
 		jest.restoreAllMocks();
 	});
 
-	it('uses only the current same-origin browser session', async () => {
-		const request = jest.fn(async () => response({ login: 'alice' }));
+	it('uses the token-hiding Editor BFF for account metadata', async () => {
+		const request = jest.fn(async () => response({
+			schemaVersion: 'rinspace-editor-projects/v1',
+			projects: [],
+		}));
 		global.fetch = request as typeof fetch;
 
 		await expect(rinspaceGitRemoteProvider.testConnection('ignored')).resolves.toBe(true);
 		expect(request).toHaveBeenCalledWith(
-			'/repos/api/v1/user',
+			'/rinspace/api/editor/v1/projects?page=1&limit=1',
 			expect.objectContaining({
 				credentials: 'include',
 				cache: 'no-store',
@@ -32,9 +35,25 @@ describe('Rinspace Git remote provider', () => {
 	});
 
 	it('reads the exact branch head and exposes the same-origin Smart HTTP URL', async () => {
-		global.fetch = jest.fn(async () =>
-			response({ name: 'release', commit: { id: 'a'.repeat(40) } }),
-		) as typeof fetch;
+		const queue = [
+			response({
+				status: 'authenticated',
+				csrfToken: 'csrf-proof',
+				user: { id: 'rin-user-1', sessionEpoch: 2, identityVersion: 3 },
+				currentSession: { sid: 'session-1', version: 4 },
+			}),
+			response(null, 204),
+			response({
+				schemaVersion: 'rinspace-editor-projects/v1',
+				remoteHead: 'a'.repeat(40),
+			}),
+		];
+		const request = jest.fn(async () => {
+			const next = queue.shift();
+			if (!next) throw new Error('unexpected request');
+			return next;
+		});
+		global.fetch = request as typeof fetch;
 
 		await expect(
 			rinspaceGitRemoteProvider.historyTransport.getHead(
@@ -43,9 +62,52 @@ describe('Rinspace Git remote provider', () => {
 				'release',
 			),
 		).resolves.toBe('a'.repeat(40));
+		expect(request.mock.calls.map(([url]) => url)).toEqual([
+			'/api/identity/v1/session',
+			'/api/gitea/sso',
+			'/rinspace/api/editor/v1/projects/owner/book?ref=release',
+		]);
+		expect(request.mock.calls[1][1]).toEqual(
+			expect.objectContaining({
+				method: 'POST',
+				headers: { 'X-Rinspace-CSRF': 'csrf-proof' },
+			}),
+		);
 		expect(
 			rinspaceGitRemoteProvider.smartHttp?.repositoryUrl('owner/book'),
 		).toBe('http://localhost/repos/owner/book.git');
+	});
+
+	it('lists repositories and branches through the Editor BFF', async () => {
+		const queue = [
+			response({
+				schemaVersion: 'rinspace-editor-projects/v1',
+				projects: [{
+					fullName: 'alice/notes',
+					private: true,
+					defaultBranch: 'main',
+				}],
+			}),
+			response({
+				schemaVersion: 'rinspace-editor-projects/v1',
+				branches: [{ name: 'main', commit: 'a'.repeat(40), protected: true }],
+			}),
+		];
+		global.fetch = jest.fn(async () => {
+			const next = queue.shift();
+			if (!next) throw new Error('unexpected request');
+			return next;
+		}) as typeof fetch;
+
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).resolves.toEqual([{
+			id: 'alice/notes',
+			label: 'alice/notes',
+			private: true,
+			defaultBranch: 'main',
+		}]);
+		await expect(
+			rinspaceGitRemoteProvider.listBranches('', 'alice/notes'),
+		).resolves.toEqual([{ name: 'main', protected: true }]);
 	});
 
 	it('fails closed on invalid coordinates and hides itself from the manual picker', () => {

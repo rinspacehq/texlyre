@@ -6,23 +6,37 @@ import type {
 	GitRemoteRepository,
 } from '@/types/gitRemote';
 
-const API_ROOT = '/repos/api/v1';
+import { ensureRinspaceGitSession } from './RinspaceSession';
+
+const API_ROOT = '/rinspace/api/editor/v1/projects';
+const EDITOR_PROJECT_SCHEMA = 'rinspace-editor-projects/v1';
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 interface RepositoryWire {
-	// Gitea's public REST wire name is intentionally preserved.
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	full_name: string;
+	fullName: string;
 	private: boolean;
-	// Gitea's public REST wire name is intentionally preserved.
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	default_branch: string;
+	defaultBranch: string;
+}
+
+interface CatalogWire {
+	schemaVersion: string;
+	projects: RepositoryWire[];
+}
+
+interface ResolvedProjectWire {
+	schemaVersion: string;
+	remoteHead: string;
 }
 
 interface BranchWire {
 	name: string;
-	protected?: boolean;
-	commit: { id: string };
+	commit: string;
+	protected: boolean;
+}
+
+interface BranchPageWire {
+	schemaVersion: string;
+	branches: BranchWire[];
 }
 
 function repositoryParts(repositoryId: string): [string, string] {
@@ -39,8 +53,8 @@ function repositoryParts(repositoryId: string): [string, string] {
 
 const segment = (value: string) => encodeURIComponent(value);
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-	const response = await fetch(`${API_ROOT}/${endpoint}`, {
+async function request<T>(endpoint = '', options: RequestInit = {}): Promise<T> {
+	const response = await fetch(`${API_ROOT}${endpoint}`, {
 		credentials: 'include',
 		cache: 'no-store',
 		headers: { Accept: 'application/json', ...options.headers },
@@ -52,21 +66,31 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 				? 'Rinspace sign-in is required'
 				: response.status === 403 || response.status === 404
 					? 'Repository access is not permitted'
-					: `Gitea request failed (${response.status})`,
+					: `Rinspace project request failed (${response.status})`,
 		) as Error & { status?: number };
 		error.status = response.status;
 		throw error;
 	}
-	return response.status === 204 ? (undefined as T) : response.json() as Promise<T>;
+	return response.json() as Promise<T>;
+}
+
+function requireSchema(value: { schemaVersion?: string }): void {
+	if (value.schemaVersion !== EDITOR_PROJECT_SCHEMA) {
+		throw new Error('Rinspace project response is invalid');
+	}
 }
 
 async function getHead(repositoryId: string, branch: string): Promise<string | null> {
 	const [owner, repository] = repositoryParts(repositoryId);
 	try {
-		const result = await request<BranchWire>(
-			`repos/${segment(owner)}/${segment(repository)}/branches/${segment(branch)}`,
+		// Refresh the HttpOnly Smart HTTP session immediately before Git transport
+		// uses it. Repository metadata still comes from the token-hiding Editor BFF.
+		await ensureRinspaceGitSession();
+		const result = await request<ResolvedProjectWire>(
+			`/${segment(owner)}/${segment(repository)}?ref=${segment(branch)}`,
 		);
-		return result.commit.id;
+		requireSchema(result);
+		return result.remoteHead;
 	} catch (error) {
 		if ((error as { status?: number }).status === 404) return null;
 		throw error;
@@ -83,73 +107,82 @@ export function createRinspaceGitRemoteProvider(
 	isEnabled: () => boolean = () => true,
 ): GitRemoteProvider {
 	return {
-	id: 'rinspace-gitea-session',
-	displayName: 'Rinspace Gitea',
-	historyPluginId: 'rinspace-workspace',
-	historyTokenSecretKey: 'unused-browser-session',
-	backupPluginId: 'rinspace-workspace',
-	backupTokenSecretKey: 'unused-browser-session',
-	usesBrowserSession: true,
-	hiddenFromPicker: true,
-	isEnabled,
-	repositoryLinks: (repositoryId, branch) => {
-		const [owner, repository] = repositoryParts(repositoryId);
-		const links = [
-			{
-				label: 'Open branch in Gitea',
-				href: `/repos/${segment(owner)}/${segment(repository)}/src/branch/${segment(branch)}`,
-			},
-		];
-		if (!/^\d+$/.test(owner)) return links;
-		const contentPath =
-			repository === 'a'
-				? `/a/${owner}`
-				: repository === 'b' || repository === 'pdf'
-					? `/books/${owner}`
-					: repository === 'tags'
-						? `/tags/${owner}`
-						: undefined;
-		if (contentPath) {
-			links.push({ label: 'Open publication page', href: contentPath });
-		}
-		return links;
-	},
-	smartHttp: {
-		repositoryUrl: (repositoryId) => {
+		id: 'rinspace-gitea-session',
+		displayName: 'Rinspace Gitea',
+		historyPluginId: 'rinspace-workspace',
+		historyTokenSecretKey: 'unused-browser-session',
+		backupPluginId: 'rinspace-workspace',
+		backupTokenSecretKey: 'unused-browser-session',
+		usesBrowserSession: true,
+		hiddenFromPicker: true,
+		isEnabled,
+		repositoryLinks: (repositoryId, branch) => {
 			const [owner, repository] = repositoryParts(repositoryId);
-			const path = `/repos/${segment(owner)}/${segment(repository)}.git`;
-			return typeof window === 'undefined' ? path : new URL(path, window.location.origin).href;
+			const links = [
+				{
+					label: 'Open branch in Gitea',
+					href: `/repos/${segment(owner)}/${segment(repository)}/src/branch/${segment(branch)}`,
+				},
+			];
+			if (!/^\d+$/.test(owner)) return links;
+			const contentPath =
+				repository === 'a'
+					? `/a/${owner}`
+					: repository === 'b' || repository === 'pdf'
+						? `/books/${owner}`
+						: repository === 'tags'
+							? `/tags/${owner}`
+							: undefined;
+			if (contentPath) {
+				links.push({ label: 'Open publication page', href: contentPath });
+			}
+			return links;
 		},
-	},
-	testConnection: async () => {
-		try {
-			await request('user');
-			return true;
-		} catch {
-			return false;
-		}
-	},
-	listRepositories: async (): Promise<GitRemoteRepository[]> =>
-		(await request<RepositoryWire[]>('user/repos?limit=100')).map((repository) => ({
-			id: repository.full_name,
-			label: repository.full_name,
-			private: repository.private,
-			defaultBranch: repository.default_branch,
-		})),
-	listBranches: async (_token, repositoryId): Promise<GitRemoteBranch[]> => {
-		const [owner, repository] = repositoryParts(repositoryId);
-		return (await request<BranchWire[]>(
-			`repos/${segment(owner)}/${segment(repository)}/branches?limit=100`,
-		)).map((branch) => ({ name: branch.name, protected: branch.protected }));
-	},
-	historyTransport: {
-		preservesCommitOids: true,
-		supportsMergeCommits: true,
-		getHead: (_token, repositoryId, branch) => getHead(repositoryId, branch),
-		getCommit: unavailableCommit,
-		getTree: async () => smartOnly(),
-		getBlob: async () => smartOnly(),
-		createCommit: async () => smartOnly(),
-	},
+		smartHttp: {
+			repositoryUrl: (repositoryId) => {
+				const [owner, repository] = repositoryParts(repositoryId);
+				const path = `/repos/${segment(owner)}/${segment(repository)}.git`;
+				return typeof window === 'undefined' ? path : new URL(path, window.location.origin).href;
+			},
+		},
+		testConnection: async () => {
+			try {
+				const result = await request<CatalogWire>('?page=1&limit=1');
+				requireSchema(result);
+				return true;
+			} catch {
+				return false;
+			}
+		},
+		listRepositories: async (): Promise<GitRemoteRepository[]> => {
+			const result = await request<CatalogWire>('?page=1&limit=100');
+			requireSchema(result);
+			return result.projects.map((repository) => ({
+				id: repository.fullName,
+				label: repository.fullName,
+				private: repository.private,
+				defaultBranch: repository.defaultBranch,
+			}));
+		},
+		listBranches: async (_token, repositoryId): Promise<GitRemoteBranch[]> => {
+			const [owner, repository] = repositoryParts(repositoryId);
+			const result = await request<BranchPageWire>(
+				`/${segment(owner)}/${segment(repository)}/branches?page=1&limit=100`,
+			);
+			requireSchema(result);
+			return result.branches.map((branch) => ({
+				name: branch.name,
+				protected: branch.protected,
+			}));
+		},
+		historyTransport: {
+			preservesCommitOids: true,
+			supportsMergeCommits: true,
+			getHead: (_token, repositoryId, branch) => getHead(repositoryId, branch),
+			getCommit: unavailableCommit,
+			getTree: async () => smartOnly(),
+			getBlob: async () => smartOnly(),
+			createCommit: async () => smartOnly(),
+		},
 	};
 }

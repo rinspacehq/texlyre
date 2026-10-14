@@ -19,6 +19,10 @@ import { replaceHash } from '@/utils/urlUtils';
 import { managedLocalProfileScope } from '@/workspace/LocalProfile';
 
 import { invalidManagedBuild, parseRinspaceManifest } from './RinspaceManifest';
+import {
+	loadRinspaceSession,
+	type RinspaceNativeSession,
+} from './RinspaceSession';
 
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
@@ -26,6 +30,7 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 10_000;
 
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const EDITOR_PROJECT_SCHEMA = 'rinspace-editor-projects/v1';
 
 export interface RinspaceManagedIntent {
 	owner: string;
@@ -33,58 +38,36 @@ export interface RinspaceManagedIntent {
 	ref?: string;
 }
 
-interface NativeSession {
-	status: 'authenticated';
-	user: {
-		id: string;
-		sessionEpoch: number;
-		identityVersion: number;
-	};
-	currentSession: {
-		sid: string;
-		version: number;
-	};
-}
-
 interface GiteaUser {
+	id: number;
 	login: string;
-	// Gitea's public REST wire name is intentionally preserved.
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	full_name?: string;
-}
-
-interface GiteaEmail {
-	email: string;
-	verified: boolean;
-	primary: boolean;
+	fullName?: string;
 }
 
 interface GiteaRepository {
 	id: number;
 	name: string;
-	// Gitea's public REST wire names are intentionally preserved.
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	full_name: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	default_branch: string;
-	// eslint-disable-next-line @typescript-eslint/naming-convention
-	object_format_name?: 'sha1' | 'sha256';
-	permissions?: {
-		admin?: boolean;
-		push?: boolean;
-		pull?: boolean;
+	fullName: string;
+	defaultBranch: string;
+	objectFormat: 'sha1' | 'sha256';
+	permissions: {
+		admin: boolean;
+		push: boolean;
+		pull: boolean;
 	};
 }
 
-interface GiteaBranch {
-	name: string;
-	commit: {
-		id: string;
-	};
+interface ResolvedProjectWire {
+	schemaVersion: string;
+	account: GiteaUser;
+	project: GiteaRepository;
+	ref: string;
+	remoteHead: string;
+	commitIdentity?: { name: string; email: string };
 }
 
 export interface RinspaceResolvedWorkspace {
-	identity: NativeSession;
+	identity: RinspaceNativeSession;
 	giteaUser: GiteaUser;
 	repository: GiteaRepository;
 	ref: string;
@@ -159,22 +142,6 @@ function normalizeIntent(raw: Readonly<Record<string, string>>): RinspaceManaged
 	return { owner, repository, ref: ref || undefined };
 }
 
-function validateSession(value: NativeSession): NativeSession {
-	if (
-		value?.status !== 'authenticated' ||
-		!value.user ||
-		!value.currentSession ||
-		!requireString(value.user.id, 'Current Rinspace identity') ||
-		!requireString(value.currentSession.sid, 'Current Rinspace session') ||
-		!Number.isSafeInteger(value.user.sessionEpoch) ||
-		!Number.isSafeInteger(value.user.identityVersion) ||
-		!Number.isSafeInteger(value.currentSession.version)
-	) {
-		throw new Error('Current Rinspace identity is invalid');
-	}
-	return value;
-}
-
 function validateCommit(commit: string, objectFormat: 'sha1' | 'sha256'): string {
 	const normalized = commit.toLowerCase();
 	const length = objectFormat === 'sha256' ? 64 : 40;
@@ -204,42 +171,30 @@ export async function resolveRinspaceWorkspace(
 		});
 	};
 
-	const session = validateSession(
-		await responseJSON<NativeSession>(
-			await request('/api/identity/v1/session', {
-				headers: { Accept: 'application/json' },
-			}),
-			'Rinspace identity check',
-		),
-	);
-
-	const sso = await request('/rinspace/api/gitea/sso', { method: 'POST' });
-	if (!sso.ok) {
-		if (sso.status === 401) throw new Error('Rinspace sign-in is required');
-		throw new Error(`Gitea session binding failed (${sso.status})`);
-	}
-
-	const giteaUser = await responseJSON<GiteaUser>(
-		await request('/repos/api/v1/user', {
-			headers: { Accept: 'application/json' },
-		}),
-		'Gitea identity check',
-	);
-	requireString(giteaUser.login, 'Current Gitea identity');
-
+	const session = await loadRinspaceSession(fetcher, signal);
 	const coordinate = apiPath(intent.owner, intent.repository);
-	const repository = await responseJSON<GiteaRepository>(
-		await request(`/repos/api/v1/repos/${coordinate}`, {
+	const refQuery = intent.ref ? `?ref=${encodeURIComponent(intent.ref)}` : '';
+	const resolved = await responseJSON<ResolvedProjectWire>(
+		await request(`/rinspace/api/editor/v1/projects/${coordinate}${refQuery}`, {
 			headers: { Accept: 'application/json' },
 		}),
-		'Repository check',
+		'Rinspace project check',
 	);
+	if (resolved.schemaVersion !== EDITOR_PROJECT_SCHEMA) {
+		throw new Error('Rinspace project response is invalid');
+	}
+	const giteaUser = resolved.account;
+	const repository = resolved.project;
+	if (!Number.isSafeInteger(giteaUser?.id) || giteaUser.id < 1) {
+		throw new Error('Current Gitea identity is invalid');
+	}
+	requireString(giteaUser.login, 'Current Gitea identity');
 	if (!Number.isSafeInteger(repository.id) || repository.id < 1) {
 		throw new Error('Repository identity is invalid');
 	}
 	const repositoryName = requireString(repository.name, 'Repository name');
 	const repositoryFullName = requireString(
-		repository.full_name,
+		repository.fullName,
 		'Repository coordinate',
 	);
 	if (
@@ -251,38 +206,33 @@ export async function resolveRinspaceWorkspace(
 	if (repositoryName.toLowerCase() !== intent.repository.toLowerCase()) {
 		throw new Error('Repository name did not match the requested project');
 	}
-	const permissions = repository.permissions ?? {};
+	const permissions = repository.permissions;
 	if (!permissions.pull && !permissions.push && !permissions.admin) {
 		throw new Error('Repository access is not permitted');
 	}
 
-	const ref = intent.ref ?? requireString(repository.default_branch, 'Default branch');
-	const branch = await responseJSON<GiteaBranch>(
-		await request(`/repos/api/v1/repos/${coordinate}/branches/${encodeURIComponent(ref)}`, {
-			headers: { Accept: 'application/json' },
-		}),
-		'Repository branch check',
+	const ref = intent.ref ?? requireString(repository.defaultBranch, 'Default branch');
+	if (resolved.ref !== ref) {
+		throw new Error('Repository branch did not match the requested ref');
+	}
+	const objectFormat = repository.objectFormat;
+	if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+		throw new Error('Repository object format is invalid');
+	}
+	const remoteHead = validateCommit(
+		requireString(resolved.remoteHead, 'Branch commit'),
+		objectFormat,
 	);
-	if (branch.name !== ref) throw new Error('Repository branch did not match the requested ref');
-	const objectFormat = repository.object_format_name === 'sha256' ? 'sha256' : 'sha1';
-	const remoteHead = validateCommit(requireString(branch.commit?.id, 'Branch commit'), objectFormat);
 	let commitIdentity: RinspaceResolvedWorkspace['commitIdentity'];
-	if (permissions.push || permissions.admin) {
-		const emails = await responseJSON<GiteaEmail[]>(
-			await request('/repos/api/v1/user/emails', {
-				headers: { Accept: 'application/json' },
-			}),
-			'Gitea verified email check',
-		);
-		const verified =
-			emails.find((email) => email.verified && email.primary) ??
-			emails.find((email) => email.verified);
-		if (verified?.email?.trim()) {
-			commitIdentity = {
-				name: giteaUser.full_name?.trim() || giteaUser.login,
-				email: verified.email.trim(),
-			};
-		}
+	if (
+		(permissions.push || permissions.admin) &&
+		resolved.commitIdentity?.name?.trim() &&
+		resolved.commitIdentity.email?.trim()
+	) {
+		commitIdentity = {
+			name: resolved.commitIdentity.name.trim(),
+			email: resolved.commitIdentity.email.trim(),
+		};
 	}
 
 	return {
@@ -393,7 +343,7 @@ function watchManagedManifest(
 			if (closed) return;
 			void refreshManagedBuild(
 				materialized.workspaceId,
-				workspace.repository.full_name.split('/')[0],
+				workspace.repository.fullName.split('/')[0],
 				workspace.repository.name,
 			).catch(() => {});
 		}, 100);
@@ -572,8 +522,8 @@ async function prepareManagedGit(
 		project.id,
 		{
 			providerId: 'rinspace-gitea-session',
-			repositoryId: workspace.repository.full_name,
-			repositoryLabel: workspace.repository.full_name,
+			repositoryId: workspace.repository.fullName,
+			repositoryLabel: workspace.repository.fullName,
 			branch: workspace.ref,
 			readOnly: !canPush,
 		},
@@ -655,7 +605,7 @@ async function materializeWorkspace(
 		if (signal.aborted) throw signal.reason;
 		const managedBuild = await refreshManagedBuild(
 			workspaceId,
-			workspace.repository.full_name.split('/')[0],
+			workspace.repository.fullName.split('/')[0],
 			workspace.repository.name,
 		);
 		activateProject(
@@ -673,7 +623,7 @@ async function materializeWorkspace(
 	const generation = 1;
 	let project = await authService.createProject({
 		id: workspaceId,
-		name: workspace.repository.full_name,
+		name: workspace.repository.fullName,
 		description: 'Rinspace repository browser copy',
 		type: 'files',
 		group: 'files',
@@ -682,7 +632,7 @@ async function materializeWorkspace(
 		managedBinding: {
 			profileScope,
 			repositoryId: String(workspace.repository.id),
-			owner: workspace.repository.full_name.split('/')[0],
+			owner: workspace.repository.fullName.split('/')[0],
 			repository: workspace.repository.name,
 			ref: workspace.ref,
 			baseCommit: workspace.remoteHead,
@@ -707,7 +657,7 @@ async function materializeWorkspace(
 	}
 	const managedBuild = await refreshManagedBuild(
 		workspaceId,
-		workspace.repository.full_name.split('/')[0],
+		workspace.repository.fullName.split('/')[0],
 		workspace.repository.name,
 	);
 	if (signal.aborted) throw signal.reason;
