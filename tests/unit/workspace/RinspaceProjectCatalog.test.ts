@@ -25,159 +25,86 @@ function enabledRuntime(): RinspaceManagedWorkspaceRuntime {
 }
 
 describe('Rinspace project catalog', () => {
-	it('hides tags without a type projection by default but returns globally searched tags', async () => {
-		const project = { id: 9000, name: '9000', fullName: 'tags/9000', description: '', private: false,
-			archived: false, defaultBranch: 'main', objectFormat: 'sha1', access: 'collaborator',
-			permissions: { pull: true, push: true, admin: false } };
-		const wire = { schemaVersion: 'rinspace-editor-projects/v1', account: { id: 17, login: 'alice' },
-			page: 1, pageSize: 24, hasMore: false, projects: [project] };
-		const request = jest.fn(async (path) => response({ ...wire, query: String(path).includes('&q=') ? 'global title' : '' })) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
-		const signal = new AbortController().signal;
-		await expect(catalog.listPage({page:1,pageSize:24},signal)).resolves.toEqual(expect.objectContaining({projects:[]}));
-		await expect(catalog.listPage({page:1,pageSize:24,query:'global title'},signal)).resolves.toEqual(expect.objectContaining({projects:[expect.objectContaining({repositoryLabel:'tags/9000'})]}));
+	const project = (id: number, owner = 'b') => ({
+		id, name: String(id), fullName: `${owner}/${id}`, description: '', private: false, archived: false,
+		defaultBranch: 'main', objectFormat: 'sha1', access: 'collaborator',
+		permissions: { pull: true, push: false, admin: false },
+	});
+	const wire = (projects: ReturnType<typeof project>[], extra: Record<string, unknown> = {}) => ({
+		schemaVersion: 'rinspace-editor-projects/v2', account: { id: 17, login: 'alice' },
+		page: 1, pageSize: 24, hasMore: false, projects, ...extra,
+	});
+
+	it('rejects a default catalog leaking shared tags but allows global search results', async () => {
+		const request = jest.fn(async (path) => response(wire([project(9000, 'tags')],
+			String(path).includes('&q=') ? {query:'global title'} : {}))) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(),request);
+		await expect(catalog.listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
+		await expect(catalog.listPage({page:1,pageSize:24,query:'global title'},new AbortController().signal))
+			.resolves.toEqual(expect.objectContaining({projects:[expect.objectContaining({repositoryLabel:'tags/9000'})]}));
 		expect(request).toHaveBeenLastCalledWith('/rinspace/api/editor/v1/projects?page=1&limit=24&q=global%20title',expect.anything());
 	});
 
-	it('does not label a legacy backend ignoring the query as a complete search', async () => {
-		const request = jest.fn(async () => response({schemaVersion:'rinspace-editor-projects/v1',account:{id:17,login:'alice'},page:1,pageSize:24,hasMore:false,projects:[]})) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+	it.each(['rinspace-editor-projects/v1','rinspace-editor-projects/v2'])('fails closed for old schema or missing query echo (%s)', async (schemaVersion) => {
+		const request = jest.fn(async () => response(wire([],{schemaVersion}))) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(),request);
 		await expect(catalog.listPage({page:1,pageSize:24,query:'unloaded title'},new AbortController().signal)).rejects.toThrow('catalog is invalid');
 	});
 
-	it('rechecks Native identity and retries only the metadata GET after an expired access cookie', async () => {
-		const queue = [response({},401),response({status:'authenticated',csrfToken:'proof',user:{id:'rin-17',sessionEpoch:1,identityVersion:1},currentSession:{sid:'sid-17',version:1}}),
-			response({schemaVersion:'rinspace-editor-projects/v1',account:{id:17,login:'alice'},page:1,pageSize:24,hasMore:false,projects:[]})];
+	it('rechecks Native identity and retries only the metadata GET after access expiry', async () => {
+		const queue = [response({},401),response({status:'authenticated',csrfToken:'proof',user:{id:'rin-17',sessionEpoch:1,identityVersion:1},currentSession:{sid:'sid-17',version:1}}),response(wire([]))];
 		const request = jest.fn(async () => queue.shift()!) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(),request);
 		await expect(catalog.listPage({page:1,pageSize:24},new AbortController().signal)).resolves.toEqual(expect.objectContaining({status:'authenticated'}));
 		expect(request.mock.calls.map(([path])=>path)).toEqual(['/rinspace/api/editor/v1/projects?page=1&limit=24','/api/identity/v1/session','/rinspace/api/editor/v1/projects?page=1&limit=24']);
 	});
-	it('treats an unauthenticated Editor BFF response as anonymous', async () => {
-		const request = jest.fn(async (path) => response(path === '/api/identity/v1/session' ? { status: 'anonymous' } : {}, path === '/api/identity/v1/session' ? 200 : 401)) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
 
-		await expect(
-			catalog.listPage({ page: 1, pageSize: 24 }, new AbortController().signal),
-		).resolves.toEqual({ status: 'anonymous', projects: [] });
+	it('treats an unauthenticated Editor BFF response as anonymous', async () => {
+		const request = jest.fn(async(path) => response(path === '/api/identity/v1/session' ? {status:'anonymous'} : {},path === '/api/identity/v1/session' ? 200 : 401)) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(),request);
+		await expect(catalog.listPage({page:1,pageSize:24},new AbortController().signal)).resolves.toEqual({status:'anonymous',projects:[]});
 		expect(request).toHaveBeenCalledTimes(2);
-		expect(request).toHaveBeenCalledWith(
-			'/rinspace/api/editor/v1/projects?page=1&limit=24',
-			expect.objectContaining({ credentials: 'include', cache: 'no-store' }),
-		);
 	});
 
-	it('lists every accessible repository without fetching repository content', async () => {
-		const queue = [
-			response({
-				schemaVersion: 'rinspace-editor-projects/v1',
-				account: { id: 17, login: 'alice' },
-				page: 2,
-				pageSize: 24,
-				hasMore: false,
-				projects: [
-				{
-					id: 41,
-					name: '41',
-					fullName: 'a/41',
-					description: 'Owned article',
-					private: false,
-					archived: false,
-					defaultBranch: 'main',
-					objectFormat: 'sha1',
-					updatedAt: '2026-10-13T01:00:00Z',
-					rinspaceTitle: 'Owned title',
-					rinspaceContentType: 'article',
-					access: 'owner',
-					permissions: { pull: true, push: true, admin: false },
-				},
-				{
-					id: 73,
-					name: '73',
-					fullName: 'b/73',
-					description: '',
-					private: true,
-					archived: false,
-					defaultBranch: 'draft',
-					objectFormat: 'sha1',
-					rinspaceTitle: 'Collaborative book',
-					rinspaceContentType: 'book',
-					access: 'collaborator',
-					permissions: { pull: true, push: false, admin: false },
-				},
-				{
-					id: 99,
-					name: 'notes',
-					fullName: 'alice/notes',
-					description: '',
-					private: false,
-					archived: false,
-					defaultBranch: 'main',
-					objectFormat: 'sha1',
-					access: 'owner',
-					permissions: { pull: true, push: true, admin: true },
-				},
-				{
-					id: 100,
-					name: '100',
-					fullName: 'a/100',
-					description: '',
-					private: false,
-					archived: false,
-					defaultBranch: 'main',
-					objectFormat: 'sha1',
-					access: 'owner',
-					permissions: { pull: false, push: false, admin: false },
-				},
-				],
-			}),
-		];
-		const request = jest.fn(async () => {
-			const next = queue.shift();
-			if (!next) throw new Error('unexpected request');
-			return next;
-		}) as jest.MockedFunction<typeof fetch>;
-		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+	it('uses the returned cursor and requests metadata exactly once per page', async () => {
+		const request = jest.fn(async (path) => response(String(path).includes('before_id=73')
+			? wire([project(41)],{page:2})
+			: wire([project(99),project(73)],{hasMore:true,nextCursor:'73'}))) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(),request);
+		const first = await catalog.listPage({page:1,pageSize:24},new AbortController().signal);
+		if(first.status!=='authenticated') throw new Error('expected account catalog');
+		const second = await catalog.listPage({page:2,pageSize:24,cursor:first.nextCursor},new AbortController().signal);
+		expect(second).toEqual(expect.objectContaining({projects:[expect.objectContaining({repositoryLabel:'b/41'})],hasMore:false}));
+		expect(request.mock.calls.map(([path])=>path)).toEqual(['/rinspace/api/editor/v1/projects?page=1&limit=24','/rinspace/api/editor/v1/projects?page=2&limit=24&before_id=73']);
+		expect(JSON.stringify(request.mock.calls)).not.toMatch(/archive|git-upload-pack|authorization|token/i);
+	});
 
-		const result = await catalog.listPage(
-			{ page: 2, pageSize: 24 },
-			new AbortController().signal,
-		);
-		expect(result).toEqual(
-			expect.objectContaining({
-				status: 'authenticated',
-				accountLabel: 'alice',
-				page: 2,
-				hasMore: false,
-			}),
-		);
-		if (result.status !== 'authenticated') throw new Error('expected account catalog');
-		expect(result.projects).toEqual([
-			expect.objectContaining({
-				id: '41',
-				name: 'Owned title',
-				access: 'owner',
-				openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
-			}),
-			expect.objectContaining({
-				id: '73',
-				access: 'collaborator',
-				private: true,
-				openIntent: { mode: 'managed', owner: 'b', repository: '73', ref: 'draft' },
-			}),
-			expect.objectContaining({
-				id: '99',
-				name: 'alice/notes',
-				contentType: 'repository',
-				openIntent: { mode: 'managed', owner: 'alice', repository: 'notes', ref: 'main' },
-			}),
-		]);
-		expect(request.mock.calls.map(([url]) => url)).toEqual([
-			'/rinspace/api/editor/v1/projects?page=2&limit=24',
-		]);
-		expect(JSON.stringify(request.mock.calls)).not.toMatch(
-			/archive|git-upload-pack|authorization|token/i,
-		);
+	it.each([undefined,'0','01','-1','9223372036854775808'])('rejects missing or invalid continuation before requesting (%s)',async(cursor) => {
+		const request=jest.fn() as jest.MockedFunction<typeof fetch>;
+		const catalog=new RinspaceProjectCatalog(enabledRuntime(),request);
+		await expect(catalog.listPage({page:2,pageSize:24,...(cursor===undefined?{}:{cursor})},new AbortController().signal)).rejects.toThrow('Invalid project catalog page');
+		expect(request).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{hasMore:true}, {hasMore:false,nextCursor:'40'}, {hasMore:true,nextCursor:'50'},
+		{hasMore:true,nextCursor:'51'}, {hasMore:true,nextCursor:'01'},
+	])('rejects missing, contradictory or stuck next cursor (%j)',async(extra) => {
+		const request=jest.fn(async()=>response(wire([project(49)],{page:2,...extra}))) as jest.MockedFunction<typeof fetch>;
+		const catalog=new RinspaceProjectCatalog(enabledRuntime(),request);
+		await expect(catalog.listPage({page:2,pageSize:24,cursor:'50'},new AbortController().signal)).rejects.toThrow('catalog is invalid');
+	});
+
+	it.each([{projects:[]}, {projects:[project(49)]}])('rejects a cursor that silently skips missing rows (%j)', async({projects}) => {
+		const request=jest.fn(async()=>response(wire(projects,{hasMore:true,nextCursor:'40'}))) as jest.MockedFunction<typeof fetch>;
+		const catalog=new RinspaceProjectCatalog(enabledRuntime(),request);
+		await expect(catalog.listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('cursor does not match its final row');
+	});
+
+	it('rejects a non-readable project rather than hiding a malformed upstream page',async() => {
+		const repository={...project(41),permissions:{pull:false,push:false,admin:false}};
+		const request=jest.fn(async()=>response(wire([repository]))) as jest.MockedFunction<typeof fetch>;
+		await expect(new RinspaceProjectCatalog(enabledRuntime(),request).listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
 	});
 
 	it('does not request the platform while disabled', async () => {

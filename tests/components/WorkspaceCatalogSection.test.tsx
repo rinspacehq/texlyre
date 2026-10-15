@@ -45,6 +45,23 @@ const ownedProject: WorkspaceCatalogProject = {
 };
 
 describe('WorkspaceCatalogSection', () => {
+	it('forwards an opaque continuation and clears it when the query changes', async () => {
+		const listPage = jest.fn(async ({ page, query }: {page:number;query?:string}) => ({
+			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: page === 1,
+			...(page === 1 ? {nextCursor: 'opaque-next'} : {}),
+			projects: [{...ownedProject, id: query ? '90' : String(page), name: query ? 'Search match' : `Project ${page}`}],
+		}));
+		catalog = {isEnabled:()=>true,subscribe:()=>()=>{},listPage};
+		const onOpen=jest.fn();
+		const {rerender}=render(<WorkspaceCatalogSection onOpenProject={onOpen}/>);
+		await screen.findByText('Project 1');
+		fireEvent.click(screen.getByRole('button',{name:/Load more/i}));
+		await screen.findByText('Project 2');
+		expect(listPage).toHaveBeenLastCalledWith({page:2,pageSize:24,cursor:'opaque-next'},expect.any(AbortSignal));
+		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='new search'/>);
+		await screen.findByText('Search match');
+		expect(listPage).toHaveBeenLastCalledWith({page:1,pageSize:24,query:'new search'},expect.any(AbortSignal));
+	});
 	it('searches the complete server catalog, rather than filtering loaded cards', async () => {
 		const listPage = jest.fn(async ({ query, page }: { query?: string; page: number }) => ({
 			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: false,

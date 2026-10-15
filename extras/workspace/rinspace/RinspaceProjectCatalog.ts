@@ -12,7 +12,11 @@ import {
 } from './RinspaceSession';
 
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-const CATALOG_SCHEMA = 'rinspace-editor-projects/v1';
+const CATALOG_SCHEMA = 'rinspace-editor-projects/v2';
+
+function validCursor(value: unknown): value is string {
+	return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
+}
 
 interface CatalogAccount {
 	id: number;
@@ -44,6 +48,7 @@ interface CatalogWire {
 	pageSize: number;
 	hasMore: boolean;
 	query?: string;
+	nextCursor?: string;
 }
 
 function requestOptions(
@@ -73,6 +78,7 @@ async function responseJSON<T>(response: Response, label: string): Promise<T> {
 function catalogProject(
 	repository: ProjectWire,
 ): WorkspaceCatalogProject | null {
+	if (!repository || typeof repository.fullName !== 'string') return null;
 	const parts = repository.fullName.split('/');
 	const contentType = repository.rinspaceContentType?.trim() || 'repository';
 	if (
@@ -140,6 +146,7 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 			readonly page: number;
 			readonly pageSize: number;
 			readonly query?: string;
+			readonly cursor?: string;
 		},
 		externalSignal: AbortSignal,
 	): Promise<WorkspaceCatalogPage> {
@@ -151,7 +158,9 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 			request.page < 1 ||
 			!Number.isSafeInteger(request.pageSize) ||
 			request.pageSize < 1 ||
-			request.pageSize > 100
+			request.pageSize > 50 ||
+			(request.page > 1 && !validCursor(request.cursor)) ||
+			(request.page === 1 && request.cursor !== undefined)
 		) {
 			throw new Error('Invalid project catalog page');
 		}
@@ -164,7 +173,7 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 
 		try {
 			const query = request.query?.trim() || '';
-			const path = `/rinspace/api/editor/v1/projects?page=${request.page}&limit=${request.pageSize}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
+			const path = `/rinspace/api/editor/v1/projects?page=${request.page}&limit=${request.pageSize}${query ? `&q=${encodeURIComponent(query)}` : ''}${request.cursor ? `&before_id=${encodeURIComponent(request.cursor)}` : ''}`;
 			let response = await this.fetcher(
 				path,
 				requestOptions(controller.signal),
@@ -190,30 +199,43 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 				catalog.schemaVersion !== CATALOG_SCHEMA ||
 				catalog.page !== request.page ||
 				catalog.pageSize !== request.pageSize ||
-				(query !== '' && catalog.query !== query) ||
+				(catalog.query || '') !== query ||
+				(catalog.query !== undefined && typeof catalog.query !== 'string') ||
+				!account ||
 				!Number.isSafeInteger(account.id) ||
 				account.id < 1 ||
 				!account.login?.trim() ||
-				!Array.isArray(catalog.projects)
+				!Array.isArray(catalog.projects) ||
+				catalog.projects.length > request.pageSize ||
+				typeof catalog.hasMore !== 'boolean' ||
+				(catalog.hasMore ? !validCursor(catalog.nextCursor) : catalog.nextCursor !== undefined) ||
+				(catalog.nextCursor !== undefined && request.cursor !== undefined && BigInt(catalog.nextCursor) >= BigInt(request.cursor))
 			) {
 				throw new Error('Rinspace project catalog is invalid');
+			}
+			let previousId = request.cursor === undefined ? undefined : BigInt(request.cursor);
+			const projects = catalog.projects.map((repository) => {
+				const project = catalogProject(repository);
+				const tagNamespace = typeof repository?.fullName === 'string' && repository.fullName.toLowerCase().startsWith('tags/');
+				const isTag = tagNamespace || repository?.rinspaceContentType === 'tag-wiki';
+				if (!project || (previousId !== undefined && BigInt(repository.id) >= previousId) ||
+					(catalog.nextCursor !== undefined && BigInt(repository.id) < BigInt(catalog.nextCursor)) ||
+					(query === '' && isTag) || (isTag && (!tagNamespace || repository.private || repository.archived))) {
+					throw new Error('Rinspace project catalog scope or ordering is invalid');
+				}
+				previousId = BigInt(repository.id);
+				return project;
+			});
+			if (catalog.hasMore && (projects.length === 0 || previousId !== BigInt(catalog.nextCursor!))) {
+				throw new Error('Rinspace project catalog cursor does not match its final row');
 			}
 			return {
 				status: 'authenticated',
 				accountLabel: account.login.trim(),
-				projects: catalog.projects
-					.filter(
-						(repository) =>
-							query !== '' ||
-							(!repository.fullName.toLowerCase().startsWith('tags/') &&
-								repository.rinspaceContentType !== 'tag-wiki'),
-					)
-					.map((repository) => catalogProject(repository))
-					.filter(
-						(project): project is WorkspaceCatalogProject => project !== null,
-					),
+				projects,
 				page: request.page,
-				hasMore: Boolean(catalog.hasMore),
+				hasMore: catalog.hasMore,
+				...(catalog.nextCursor !== undefined ? { nextCursor: catalog.nextCursor } : {}),
 			};
 		} finally {
 			externalSignal.removeEventListener('abort', abort);
