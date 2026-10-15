@@ -54,6 +54,7 @@ export type WorkspaceCatalogPage =
 		readonly projects: readonly WorkspaceCatalogProject[];
 		readonly page: number;
 		readonly hasMore: boolean;
+		readonly nextCursor?: string;
 	};
 
 /** Optional remote metadata listing. Opening still goes through HostAdapter. */
@@ -61,7 +62,7 @@ export interface WorkspaceProjectCatalog {
 	isEnabled(): boolean;
 	subscribe(listener: () => void): () => void;
 	listPage(
-		request: { readonly page: number; readonly pageSize: number; readonly query?: string },
+		request: { readonly page: number; readonly pageSize: number; readonly query?: string; readonly cursor?: string },
 		signal: AbortSignal,
 	): Promise<WorkspaceCatalogPage>;
 }

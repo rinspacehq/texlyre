@@ -20,6 +20,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 }) => {
 	const catalog = pluginRegistry.getWorkspaceExtensions().catalog;
 	const requestRef = useRef<AbortController | null>(null);
+	const cursorRef = useRef<string | undefined>(undefined);
 	const [projects, setProjects] = useState<readonly WorkspaceCatalogProject[]>(
 		[],
 	);
@@ -47,12 +48,14 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 			setStatus('loading');
 			setError('');
 			if (!append) {
+				cursorRef.current = undefined;
 				setProjects([]);
 				setHasMore(false);
 			}
 			try {
 				const result = await catalog.listPage(
-					{ page: nextPage, pageSize: PAGE_SIZE, ...(query ? { query } : {}) },
+					{ page: nextPage, pageSize: PAGE_SIZE, ...(query ? { query } : {}),
+						...(append && cursorRef.current ? { cursor: cursorRef.current } : {}) },
 					controller.signal,
 				);
 				if (controller.signal.aborted) return;
@@ -61,6 +64,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 					setProjects([]);
 					setAccountLabel('');
 					setPage(0);
+					cursorRef.current = undefined;
 					setHasMore(false);
 					return;
 				}
@@ -78,6 +82,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 				);
 				setPage(result.page);
 				setHasMore(result.hasMore);
+				cursorRef.current = result.nextCursor;
 			} catch (loadError) {
 				if (controller.signal.aborted) return;
 				setStatus('error');
@@ -104,6 +109,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 		document.addEventListener('visibilitychange', reloadWhenVisible);
 		// Cancel the previous query immediately, but debounce the next request.
 		requestRef.current?.abort();
+		cursorRef.current = undefined;
 		setProjects([]);
 		setHasMore(false);
 		const timer = window.setTimeout(reload, query ? 250 : 0);
