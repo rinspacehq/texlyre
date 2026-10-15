@@ -25,14 +25,42 @@ function enabledRuntime(): RinspaceManagedWorkspaceRuntime {
 }
 
 describe('Rinspace project catalog', () => {
+	it('hides tags without a type projection by default but returns globally searched tags', async () => {
+		const project = { id: 9000, name: '9000', fullName: 'tags/9000', description: '', private: false,
+			archived: false, defaultBranch: 'main', objectFormat: 'sha1', access: 'collaborator',
+			permissions: { pull: true, push: true, admin: false } };
+		const wire = { schemaVersion: 'rinspace-editor-projects/v1', account: { id: 17, login: 'alice' },
+			page: 1, pageSize: 24, hasMore: false, projects: [project] };
+		const request = jest.fn(async (path) => response({ ...wire, query: String(path).includes('&q=') ? 'global title' : '' })) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+		const signal = new AbortController().signal;
+		await expect(catalog.listPage({page:1,pageSize:24},signal)).resolves.toEqual(expect.objectContaining({projects:[]}));
+		await expect(catalog.listPage({page:1,pageSize:24,query:'global title'},signal)).resolves.toEqual(expect.objectContaining({projects:[expect.objectContaining({repositoryLabel:'tags/9000'})]}));
+		expect(request).toHaveBeenLastCalledWith('/rinspace/api/editor/v1/projects?page=1&limit=24&q=global%20title',expect.anything());
+	});
+
+	it('does not label a legacy backend ignoring the query as a complete search', async () => {
+		const request = jest.fn(async () => response({schemaVersion:'rinspace-editor-projects/v1',account:{id:17,login:'alice'},page:1,pageSize:24,hasMore:false,projects:[]})) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+		await expect(catalog.listPage({page:1,pageSize:24,query:'unloaded title'},new AbortController().signal)).rejects.toThrow('catalog is invalid');
+	});
+
+	it('rechecks Native identity and retries only the metadata GET after an expired access cookie', async () => {
+		const queue = [response({},401),response({status:'authenticated',csrfToken:'proof',user:{id:'rin-17',sessionEpoch:1,identityVersion:1},currentSession:{sid:'sid-17',version:1}}),
+			response({schemaVersion:'rinspace-editor-projects/v1',account:{id:17,login:'alice'},page:1,pageSize:24,hasMore:false,projects:[]})];
+		const request = jest.fn(async () => queue.shift()!) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+		await expect(catalog.listPage({page:1,pageSize:24},new AbortController().signal)).resolves.toEqual(expect.objectContaining({status:'authenticated'}));
+		expect(request.mock.calls.map(([path])=>path)).toEqual(['/rinspace/api/editor/v1/projects?page=1&limit=24','/api/identity/v1/session','/rinspace/api/editor/v1/projects?page=1&limit=24']);
+	});
 	it('treats an unauthenticated Editor BFF response as anonymous', async () => {
-		const request = jest.fn(async () => response({}, 401)) as jest.MockedFunction<typeof fetch>;
+		const request = jest.fn(async (path) => response(path === '/api/identity/v1/session' ? { status: 'anonymous' } : {}, path === '/api/identity/v1/session' ? 200 : 401)) as jest.MockedFunction<typeof fetch>;
 		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
 
 		await expect(
 			catalog.listPage({ page: 1, pageSize: 24 }, new AbortController().signal),
 		).resolves.toEqual({ status: 'anonymous', projects: [] });
-		expect(request).toHaveBeenCalledTimes(1);
+		expect(request).toHaveBeenCalledTimes(2);
 		expect(request).toHaveBeenCalledWith(
 			'/rinspace/api/editor/v1/projects?page=1&limit=24',
 			expect.objectContaining({ credentials: 'include', cache: 'no-store' }),
