@@ -5,9 +5,11 @@ maintained at [rinspacehq/texlyre](https://github.com/rinspacehq/texlyre).
 Initial development starts at `d10e020a7c6452c83dedebf943615dcecfe65919`,
 four commits after upstream `v0.13.0`; it does not track mutable `main`.
 The upstream application version `0.13.2` is not itself a Rinspace release.
-The first reviewed fork release was `v0.13.2-rinspace.1`. The current reviewed
-release is `v0.13.2-rinspace.3`; releases are assembled only from a clean public
-`main` commit by the dedicated release workflow.
+The first reviewed fork release was `v0.13.2-rinspace.1`. The approved next
+release is `v0.13.2-rinspace.4`; production remains on `v0.13.2-rinspace.3`
+until the private immutable consumer and protected rollout are accepted.
+Releases are assembled only from a clean public `main` commit by the dedicated
+release workflow.
 
 The fork, Rinspace browser plugins and generic core modifications remain
 `AGPL-3.0-or-later`. The original LICENSE and copyright/contribution notices
@@ -24,7 +26,7 @@ asset manifest and notices by immutable identifiers/digests. A link to moving
 Coverage of integration code is assessed from its actual relationship, not
 from labels such as "plugin", "API" or "separate process".
 
-The `v0.13.2-rinspace.3` release record binds its exact public source commit and
+The `v0.13.2-rinspace.4` release record must bind its exact public source commit and
 tree, a `git archive` source package, the self-contained `/editor/` static tree,
 the fixed TeX Live runtime inputs and outputs, the dependency lock and notices,
 every external notice, and all artifact hashes.
