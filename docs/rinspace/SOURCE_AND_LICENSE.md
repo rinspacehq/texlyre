@@ -14,10 +14,18 @@ The plugin does not fabricate write permission, obtain a service token, or chang
 repository ownership, administration or branch protections.
 
 The first reviewed fork release was `v0.13.2-rinspace.1`. The approved next
-release is `v0.13.2-rinspace.4`; production remains on `v0.13.2-rinspace.3`
+release is `v0.13.2-rinspace.5`; production remains on `v0.13.2-rinspace.4`
 until the private immutable consumer and protected rollout are accepted.
 Releases are assembled only from a clean public `main` commit by the dedicated
 release workflow.
+
+This candidate consumes the `rinspace-editor-projects/v2` metadata catalog with
+descending repository-ID continuation cursors. It requires a compatible host
+catalog API; an older catalog schema fails explicitly rather than falling back
+to scanning every repository. The host and its indexed catalog service must be
+accepted together with this artifact before the private product activates it.
+Default listing excludes shared tags; nonempty search can include visible public
+shared tags. Listing remains read-only and does not grant repository access.
 
 The fork, Rinspace browser plugins and generic core modifications remain
 `AGPL-3.0-or-later`. The original LICENSE and copyright/contribution notices
@@ -34,7 +42,7 @@ asset manifest and notices by immutable identifiers/digests. A link to moving
 Coverage of integration code is assessed from its actual relationship, not
 from labels such as "plugin", "API" or "separate process".
 
-The `v0.13.2-rinspace.4` release record must bind its exact public source commit and
+The `v0.13.2-rinspace.5` release record must bind its exact public source commit and
 tree, a `git archive` source package, the self-contained `/editor/` static tree,
 the fixed TeX Live runtime inputs and outputs, the dependency lock and notices,
 every external notice, and all artifact hashes.
