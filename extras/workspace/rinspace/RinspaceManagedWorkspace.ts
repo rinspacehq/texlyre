@@ -50,6 +50,9 @@ interface GiteaRepository {
 	fullName: string;
 	defaultBranch: string;
 	objectFormat: 'sha1' | 'sha256';
+	private?: boolean;
+	archived?: boolean;
+	rinspaceContentType?: string;
 	permissions: {
 		admin: boolean;
 		push: boolean;
@@ -174,7 +177,7 @@ export async function resolveRinspaceWorkspace(
 	const session = await loadRinspaceSession(fetcher, signal);
 	const coordinate = apiPath(intent.owner, intent.repository);
 	const refQuery = intent.ref ? `?ref=${encodeURIComponent(intent.ref)}` : '';
-	const resolved = await responseJSON<ResolvedProjectWire>(
+	let resolved = await responseJSON<ResolvedProjectWire>(
 		await request(`/rinspace/api/editor/v1/projects/${coordinate}${refQuery}`, {
 			headers: { Accept: 'application/json' },
 		}),
@@ -184,7 +187,7 @@ export async function resolveRinspaceWorkspace(
 		throw new Error('Rinspace project response is invalid');
 	}
 	const giteaUser = resolved.account;
-	const repository = resolved.project;
+	let repository = resolved.project;
 	if (!Number.isSafeInteger(giteaUser?.id) || giteaUser.id < 1) {
 		throw new Error('Current Gitea identity is invalid');
 	}
@@ -205,6 +208,37 @@ export async function resolveRinspaceWorkspace(
 	}
 	if (repositoryName.toLowerCase() !== intent.repository.toLowerCase()) {
 		throw new Error('Repository name did not match the requested project');
+	}
+	if (
+		intent.owner === 'tags' && /^[1-9][0-9]*$/.test(intent.repository) &&
+		repository.rinspaceContentType === 'tag-wiki' &&
+		repository.private === false && repository.archived === false &&
+		repository.permissions.pull &&
+		!repository.permissions.push && !repository.permissions.admin
+	) {
+		// Opening is an explicit edit intent. The server establishes a real
+		// repository write grant; listing/searching never grants permissions.
+		const granted = await responseJSON<ResolvedProjectWire>(
+			await request(`/rinspace/api/editor/v1/projects/${coordinate}/write-access${refQuery}`, {
+				method: 'POST',
+				headers: { Accept: 'application/json', 'X-Rinspace-CSRF': session.csrfToken },
+			}),
+			'Rinspace shared tag repository access',
+		);
+		if (
+			granted.schemaVersion !== EDITOR_PROJECT_SCHEMA ||
+			granted.account?.id !== giteaUser.id || granted.account.login !== giteaUser.login ||
+			granted.project?.id !== repository.id || granted.project.fullName !== repositoryFullName ||
+			granted.project.name !== repositoryName || granted.ref !== resolved.ref ||
+			granted.project.rinspaceContentType !== 'tag-wiki' ||
+			granted.project.private !== false || granted.project.archived !== false ||
+			!granted.project.permissions?.push ||
+			!granted.commitIdentity?.name?.trim() || !granted.commitIdentity.email?.trim()
+		) {
+			throw new Error('Shared tag repository write permission was not confirmed');
+		}
+		resolved = granted;
+		repository = granted.project;
 	}
 	const permissions = repository.permissions;
 	if (!permissions.pull && !permissions.push && !permissions.admin) {

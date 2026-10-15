@@ -5,6 +5,14 @@ maintained at [rinspacehq/texlyre](https://github.com/rinspacehq/texlyre).
 Initial development starts at `d10e020a7c6452c83dedebf943615dcecfe65919`,
 four commits after upstream `v0.13.0`; it does not track mutable `main`.
 The upstream application version `0.13.2` is not itself a Rinspace release.
+
+Opening a managed public shared tag may request a real Gitea write collaboration
+grant through a CSRF-protected host endpoint. The host verifies its canonical
+binding and reads back the same actor's actual repository permissions. Listing
+and searching never grant access; ordinary read-only repositories stay read-only.
+The plugin does not fabricate write permission, obtain a service token, or change
+repository ownership, administration or branch protections.
+
 The first reviewed fork release was `v0.13.2-rinspace.1`. The approved next
 release is `v0.13.2-rinspace.4`; production remains on `v0.13.2-rinspace.3`
 until the private immutable consumer and protected rollout are accepted.
