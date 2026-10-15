@@ -26,6 +26,9 @@ function responses(options: {
 	permissions?: { pull?: boolean; push?: boolean; admin?: boolean };
 	repositoryStatus?: number;
 	verifiedEmail?: boolean;
+	sharedTag?: boolean;
+	private?: boolean;
+	archived?: boolean;
 } = {}): Response[] {
 	const permissions = options.permissions ?? {
 		pull: true,
@@ -54,7 +57,8 @@ function responses(options: {
 				project: {
 					id: 73,
 					name: '42',
-					fullName: 'a/42',
+					fullName: options.sharedTag ? 'tags/42' : 'a/42',
+					...(options.sharedTag ? { private: options.private ?? false, archived: options.archived ?? false, rinspaceContentType: 'tag-wiki' } : {}),
 					defaultBranch: 'main',
 					objectFormat: 'sha1',
 					permissions,
@@ -151,6 +155,33 @@ describe('Rinspace managed workspace', () => {
 			}),
 		);
 		expect(materialize).toHaveBeenCalledTimes(1);
+	});
+
+	it('requests a real shared tag repository write grant only when explicitly opening it', async () => {
+		const fetcher = queuedFetch([
+			...responses({ sharedTag: true, permissions: { pull: true, push: false, admin: false } }),
+			responses({ sharedTag: true })[1],
+		]);
+		const resolved = await resolveRinspaceWorkspace({owner:'tags',repository:'42'}, new AbortController().signal, fetcher);
+		expect(resolved.repository.permissions.push).toBe(true);
+		expect(resolved.commitIdentity?.email).toBe('alice@example.test');
+		expect(fetcher).toHaveBeenLastCalledWith('/rinspace/api/editor/v1/projects/tags/42/write-access', expect.objectContaining({method:'POST',credentials:'include',headers:expect.objectContaining({'X-Rinspace-CSRF':'csrf-proof'})}));
+	});
+
+	it.each(['wrong actor', 'wrong repository', 'no write readback'])('rejects a shared tag grant with %s without retrying', async (failure) => {
+		const fetcher = queuedFetch([
+			...responses({ sharedTag:true, permissions:{pull:true,push:false,admin:false} }),
+			responses({ sharedTag:failure!=='wrong repository',actor:failure==='wrong actor'?'rin-user-2':undefined,permissions:{pull:true,push:failure!=='no write readback',admin:false} })[1],
+		]);
+		await expect(resolveRinspaceWorkspace({owner:'tags',repository:'42'},new AbortController().signal,fetcher)).rejects.toThrow('write permission was not confirmed');
+		expect(fetcher).toHaveBeenCalledTimes(3);
+	});
+
+	it.each([{private:true},{archived:true}])('does not request write grants for a restricted tag %p', async (restriction) => {
+		const fetcher=queuedFetch(responses({sharedTag:true,...restriction,permissions:{pull:true,push:false,admin:false}}));
+		const resolved=await resolveRinspaceWorkspace({owner:'tags',repository:'42'},new AbortController().signal,fetcher);
+		expect(resolved.repository.permissions.push).toBe(false);
+		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 
 	it('opens a read-only collaborator without granting push', async () => {
