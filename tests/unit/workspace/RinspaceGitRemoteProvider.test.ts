@@ -43,6 +43,7 @@ describe('Rinspace Git remote provider', () => {
 				currentSession: { sid: 'session-1', version: 4 },
 			}),
 			response(null, 204),
+			response(null),
 			response({
 				schemaVersion: 'rinspace-editor-projects/v1',
 				remoteHead: 'a'.repeat(40),
@@ -65,6 +66,7 @@ describe('Rinspace Git remote provider', () => {
 		expect(request.mock.calls.map(([url]) => url)).toEqual([
 			'/api/identity/v1/session',
 			'/api/gitea/sso',
+			'/repos/',
 			'/rinspace/api/editor/v1/projects/owner/book?ref=release',
 		]);
 		expect(request.mock.calls[1][1]).toEqual(

@@ -6,6 +6,10 @@ import type {
 } from '@/workspace/contracts';
 
 import type { RinspaceManagedWorkspaceRuntime } from './RinspaceManagedWorkspace';
+import {
+	loadRinspaceSession,
+	RinspaceSignInRequiredError,
+} from './RinspaceSession';
 
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const CATALOG_SCHEMA = 'rinspace-editor-projects/v1';
@@ -39,6 +43,7 @@ interface CatalogWire {
 	page: number;
 	pageSize: number;
 	hasMore: boolean;
+	query?: string;
 }
 
 function requestOptions(
@@ -131,7 +136,11 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 	}
 
 	async listPage(
-		request: { readonly page: number; readonly pageSize: number },
+		request: {
+			readonly page: number;
+			readonly pageSize: number;
+			readonly query?: string;
+		},
 		externalSignal: AbortSignal,
 	): Promise<WorkspaceCatalogPage> {
 		if (!this.runtime.isEnabled()) {
@@ -154,12 +163,23 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 		this.controllers.add(controller);
 
 		try {
-			const response = await this.fetcher(
-				`/rinspace/api/editor/v1/projects?page=${request.page}&limit=${request.pageSize}`,
+			const query = request.query?.trim() || '';
+			const path = `/rinspace/api/editor/v1/projects?page=${request.page}&limit=${request.pageSize}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
+			let response = await this.fetcher(
+				path,
 				requestOptions(controller.signal),
 			);
 			if (response.status === 401) {
-				return { status: 'anonymous', projects: [] };
+				try {
+					await loadRinspaceSession(this.fetcher, controller.signal);
+				} catch (error) {
+					if (error instanceof RinspaceSignInRequiredError)
+						return { status: 'anonymous', projects: [] };
+					throw error;
+				}
+				response = await this.fetcher(path, requestOptions(controller.signal));
+				if (response.status === 401)
+					return { status: 'anonymous', projects: [] };
 			}
 			const catalog = await responseJSON<CatalogWire>(
 				response,
@@ -170,6 +190,7 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 				catalog.schemaVersion !== CATALOG_SCHEMA ||
 				catalog.page !== request.page ||
 				catalog.pageSize !== request.pageSize ||
+				(query !== '' && catalog.query !== query) ||
 				!Number.isSafeInteger(account.id) ||
 				account.id < 1 ||
 				!account.login?.trim() ||
@@ -181,6 +202,12 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 				status: 'authenticated',
 				accountLabel: account.login.trim(),
 				projects: catalog.projects
+					.filter(
+						(repository) =>
+							query !== '' ||
+							(!repository.fullName.toLowerCase().startsWith('tags/') &&
+								repository.rinspaceContentType !== 'tag-wiki'),
+					)
 					.map((repository) => catalogProject(repository))
 					.filter(
 						(project): project is WorkspaceCatalogProject => project !== null,

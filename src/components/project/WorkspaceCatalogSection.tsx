@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
 import { formatLastModified } from '@/utils/dateUtils';
@@ -31,6 +31,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 	>(catalog?.isEnabled() ? 'loading' : 'disabled');
 	const [error, setError] = useState('');
 	const [openingId, setOpeningId] = useState('');
+	const query = searchQuery.trim();
 
 	const loadPage = useCallback(
 		async (nextPage: number, append: boolean) => {
@@ -45,9 +46,13 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 			requestRef.current = controller;
 			setStatus('loading');
 			setError('');
+			if (!append) {
+				setProjects([]);
+				setHasMore(false);
+			}
 			try {
 				const result = await catalog.listPage(
-					{ page: nextPage, pageSize: PAGE_SIZE },
+					{ page: nextPage, pageSize: PAGE_SIZE, ...(query ? { query } : {}) },
 					controller.signal,
 				);
 				if (controller.signal.aborted) return;
@@ -85,7 +90,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 				if (requestRef.current === controller) requestRef.current = null;
 			}
 		},
-		[catalog],
+		[catalog, query],
 	);
 
 	useEffect(() => {
@@ -97,27 +102,19 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 		const unsubscribe = catalog.subscribe(reload);
 		window.addEventListener('focus', reload);
 		document.addEventListener('visibilitychange', reloadWhenVisible);
-		reload();
+		// Cancel the previous query immediately, but debounce the next request.
+		requestRef.current?.abort();
+		setProjects([]);
+		setHasMore(false);
+		const timer = window.setTimeout(reload, query ? 250 : 0);
 		return () => {
 			unsubscribe();
+			window.clearTimeout(timer);
 			window.removeEventListener('focus', reload);
 			document.removeEventListener('visibilitychange', reloadWhenVisible);
 			requestRef.current?.abort();
 		};
-	}, [catalog, loadPage]);
-
-	const filteredProjects = useMemo(() => {
-		const query = searchQuery.trim().toLowerCase();
-		if (!query) return projects;
-		return projects.filter((project) =>
-			[
-				project.name,
-				project.description,
-				project.repositoryLabel,
-				project.contentType,
-			].some((value) => value.toLowerCase().includes(query)),
-		);
-	}, [projects, searchQuery]);
+	}, [catalog, loadPage, query]);
 
 	if (!catalog || status === 'disabled' || status === 'anonymous') return null;
 
@@ -155,13 +152,13 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 						<div className='loading-spinner' />
 						<p>{t('Loading Rinspace projects...')}</p>
 					</div>
-				) : filteredProjects.length === 0 ? (
+				) : projects.length === 0 ? (
 					<div className='ui-empty-state'>
 						<p>{t('No Rinspace projects found')}</p>
 					</div>
 				) : (
 					<div className='projects-grid' data-role='workspace-project-grid'>
-						{filteredProjects.map((project) => (
+						{projects.map((project) => (
 							<article
 								className='ui-card'
 								data-role='workspace-project'

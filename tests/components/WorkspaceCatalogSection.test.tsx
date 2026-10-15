@@ -45,6 +45,23 @@ const ownedProject: WorkspaceCatalogProject = {
 };
 
 describe('WorkspaceCatalogSection', () => {
+	it('searches the complete server catalog, rather than filtering loaded cards', async () => {
+		const listPage = jest.fn(async ({ query, page }: { query?: string; page: number }) => ({
+			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: false,
+			projects: query ? [{ ...ownedProject, id: '9000', name: 'Global tag', repositoryLabel: 'tags/9000' }] : [ownedProject],
+		}));
+		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+		const onOpen = jest.fn();
+		const { rerender } = render(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		await screen.findByText('Owned article');
+		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='remote title' />);
+		expect(await screen.findByText('Global tag')).toBeInTheDocument();
+		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 24, query: 'remote title' }, expect.any(AbortSignal));
+		expect(screen.queryByText('Owned article')).not.toBeInTheDocument();
+		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		expect(await screen.findByText('Owned article')).toBeInTheDocument();
+		expect(screen.queryByText('Global tag')).not.toBeInTheDocument();
+	});
 	afterEach(() => {
 		catalog = undefined;
 		jest.clearAllMocks();

@@ -61,7 +61,7 @@ export interface WorkspaceProjectCatalog {
 	isEnabled(): boolean;
 	subscribe(listener: () => void): () => void;
 	listPage(
-		request: { readonly page: number; readonly pageSize: number },
+		request: { readonly page: number; readonly pageSize: number; readonly query?: string },
 		signal: AbortSignal,
 	): Promise<WorkspaceCatalogPage>;
 }
