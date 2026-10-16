@@ -743,13 +743,14 @@ export class RinspaceManagedWorkspaceRuntime {
 			watchManifest: watchManagedManifest,
 		},
 		initiallyEnabled = false,
+		private readonly integrationAllowed: () => boolean = () => true,
 	) {
-		this.enabled = initiallyEnabled;
-		this.state = { status: initiallyEnabled ? 'idle' : 'disabled' };
+		this.enabled = initiallyEnabled && integrationAllowed();
+		this.state = { status: this.enabled ? 'idle' : 'disabled' };
 	}
 
 	isEnabled(): boolean {
-		return this.enabled;
+		return this.enabled && this.integrationAllowed();
 	}
 
 	getState(): RinspaceWorkspaceState {
@@ -768,6 +769,7 @@ export class RinspaceManagedWorkspaceRuntime {
 	}
 
 	setEnabled(enabled: boolean): void {
+		enabled = enabled && this.integrationAllowed();
 		if (this.enabled === enabled) return;
 		this.enabled = enabled;
 		if (!enabled) {
@@ -785,7 +787,7 @@ export class RinspaceManagedWorkspaceRuntime {
 		intent: Readonly<Record<string, string>>,
 		externalSignal: AbortSignal,
 	): Promise<Extract<HostContext, { mode: 'managed' }>> {
-		if (!this.enabled) {
+		if (!this.isEnabled()) {
 			return Promise.reject(new Error('Rinspace integration is disabled'));
 		}
 		const intentKey = JSON.stringify(normalizeIntent(intent));
@@ -909,7 +911,7 @@ export class RinspaceManagedWorkspaceRuntime {
 	}
 
 	private assertCurrent(generation: number, signal: AbortSignal): void {
-		if (!this.enabled || generation !== this.generation || signal.aborted) {
+		if (!this.isEnabled() || generation !== this.generation || signal.aborted) {
 			throw signal.reason ?? new DOMException('Workspace connection is stale', 'AbortError');
 		}
 	}

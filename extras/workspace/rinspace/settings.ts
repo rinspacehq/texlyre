@@ -16,7 +16,7 @@ export function getRinspaceWorkspaceSettings(
 			description: t(
 				'Disabling stops Rinspace requests while keeping the local browser copy and unsaved edits.',
 			),
-			defaultValue: true,
+			defaultValue: runtime.isEnabled(),
 			liveUpdate: true,
 			onChange: (value) => runtime.setEnabled(value === true),
 		},

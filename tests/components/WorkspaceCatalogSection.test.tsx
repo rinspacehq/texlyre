@@ -45,6 +45,17 @@ const ownedProject: WorkspaceCatalogProject = {
 };
 
 describe('WorkspaceCatalogSection', () => {
+	it('does not request or display account projects in disabled local mode', async () => {
+		const listPage = jest.fn();
+		catalog = { isEnabled: () => false, subscribe: () => () => {}, listPage };
+		const { container } = render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		fireEvent.focus(window);
+		fireEvent(document, new Event('visibilitychange'));
+		await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+		expect(listPage).not.toHaveBeenCalled();
+		expect(container).toBeEmptyDOMElement();
+	});
+
 	it('forwards an opaque continuation and clears it when the query changes', async () => {
 		const listPage = jest.fn(async ({ page, query }: {page:number;query?:string}) => ({
 			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: page === 1,
@@ -129,7 +140,7 @@ describe('WorkspaceCatalogSection', () => {
 		));
 	});
 
-	it('refreshes the account catalog when the window regains focus', async () => {
+	it('does not reload the account catalog on focus or visibility; manual refresh still works', async () => {
 		catalog = fakeCatalog({
 			status: 'authenticated',
 			accountLabel: 'alice',
@@ -142,10 +153,12 @@ describe('WorkspaceCatalogSection', () => {
 		const callsBeforeFocus = (catalog?.listPage as jest.Mock).mock.calls.length;
 
 		fireEvent.focus(window);
-
-		await waitFor(() =>
-			expect(catalog?.listPage).toHaveBeenCalledTimes(callsBeforeFocus + 1),
-		);
+		fireEvent.focus(window);
+		fireEvent(document, new Event('visibilitychange'));
+		await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+		expect(catalog?.listPage).toHaveBeenCalledTimes(callsBeforeFocus);
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+		await waitFor(() => expect(catalog?.listPage).toHaveBeenCalledTimes(callsBeforeFocus + 1));
 	});
 
 	it('renders an authenticated empty account catalog without hiding local UI', async () => {

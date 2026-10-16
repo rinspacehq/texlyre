@@ -101,12 +101,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 	useEffect(() => {
 		if (!catalog) return;
 		const reload = () => void loadPage(1, false);
-		const reloadWhenVisible = () => {
-			if (document.visibilityState === 'visible') reload();
-		};
 		const unsubscribe = catalog.subscribe(reload);
-		window.addEventListener('focus', reload);
-		document.addEventListener('visibilitychange', reloadWhenVisible);
 		// Cancel the previous query immediately, but debounce the next request.
 		requestRef.current?.abort();
 		cursorRef.current = undefined;
@@ -116,8 +111,6 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 		return () => {
 			unsubscribe();
 			window.clearTimeout(timer);
-			window.removeEventListener('focus', reload);
-			document.removeEventListener('visibilitychange', reloadWhenVisible);
 			requestRef.current?.abort();
 		};
 	}, [catalog, loadPage, query]);

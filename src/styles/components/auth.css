@@ -1,3 +1,17 @@
+.workspace-account-identity {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	white-space: nowrap;
+}
+
+.workspace-account-identity img {
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 50%;
+	object-fit: cover;
+}
+
 .auth-container {
 	min-height: 90vh;
 	width: 100%;

@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "workspace-account-presentation",
+      "files": ["src/workspace/contracts.ts", "src/components/workspace/WorkspaceAccountIndicator.tsx", "src/components/profile/UserDropdown.tsx", "src/styles/components/auth.css", "src/components/project/WorkspaceCatalogSection.tsx"],
+      "purpose": "Optional catalog account-display hook presents verified host nickname/avatar separately from browser-local account operations. The product profile/session and explicit-local route adapters remain in extras; no local ownership, credentials, permissions or authentication providers change. Abort stale results and clear account display on identity changes. Do not reload the project catalog on focus/visibility or unrelated workspace connection states; preserve explicit refresh, search, continuation and actual account-change invalidation.",
+      "tests": ["tests/services/RinspaceAccount.test.ts", "tests/components/WorkspaceAccountIndicator.test.tsx", "tests/components/WorkspaceCatalogSection.test.tsx", "tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/unit/workspace/RinspaceRoutePolicy.test.ts"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides an equivalent optional host-account display that does not conflate browser-local ownership with platform authentication.",
+      "integrationStatus": "Production bug reproduced with real testbot; candidate checks and post-release real-browser verification required."
+    },
+    {
       "id": "persistent-local-bootstrap",
       "files": ["texlyre.config.ts", "src/types/texlyre.ts", "src/types/auth.ts", "src/workspace/LocalProfile.ts", "src/workspace/StartupPolicy.ts", "src/workspace/RuntimeStartup.ts", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx", "src/services/CollabService.ts", "src/contexts/ChelysContext.tsx", "src/contexts/PeerFileSyncContext.tsx"],
       "purpose": "Optional no-login persistent browser profile; preserve guest owner IDs before expiry cleanup. Explicit managed/invalid intents fail closed, and restored connection settings do not auto-join document, account or file-sync rooms. No platform identity is synthesized.",
