@@ -809,6 +809,15 @@ export class RinspaceManagedWorkspaceRuntime {
 			this.state.status === 'connected' &&
 			this.activeIntent === intentKey
 		) {
+			// Back to Projects clears the hash and session marker, not this
+			// connection. Explicitly reopening its cached context must restore
+			// the project route before file tabs append their file fragments.
+			const workspaceId = this.state.context.binding.workspaceId;
+			if (window.location.hash.slice(1).split('&')[0] !== `yjs:${workspaceId}`) {
+				activateProject({ id: workspaceId });
+			} else {
+				sessionStorage.setItem('currentProjectId', workspaceId);
+			}
 			return Promise.resolve(this.state.context);
 		}
 		const previousTask = this.inFlight;
