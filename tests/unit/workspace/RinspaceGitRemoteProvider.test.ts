@@ -43,8 +43,8 @@ describe('Rinspace Git remote provider', () => {
 	it('uses bounded keyset pages to include repositories beyond the first page', async () => {
 		const request = jest.fn(async (url: string) => response({
 			schemaVersion: 'rinspace-editor-projects/v2',
-			projects: [{ fullName: url.includes('cursor=') ? 'alice/later' : 'alice/first', private: true, defaultBranch: 'main' }],
-			hasMore: !url.includes('cursor='),
+			projects: [{ fullName: url.includes('before_id=') ? 'alice/later' : 'alice/first', private: true, defaultBranch: 'main' }],
+			hasMore: !url.includes('before_id='),
 			nextCursor: '9007199254740993',
 		}));
 		global.fetch = request as typeof fetch;
@@ -53,8 +53,8 @@ describe('Rinspace Git remote provider', () => {
 			{ id: 'alice/later', label: 'alice/later', private: true, defaultBranch: 'main' },
 		]);
 		expect(request.mock.calls.map(([url]) => url)).toEqual([
-			'/rinspace/api/editor/v1/projects?limit=100',
-			'/rinspace/api/editor/v1/projects?limit=100&cursor=9007199254740993',
+			'/rinspace/api/editor/v1/projects?limit=50',
+			'/rinspace/api/editor/v1/projects?limit=50&before_id=9007199254740993',
 		]);
 	});
 
@@ -68,6 +68,13 @@ describe('Rinspace Git remote provider', () => {
 		global.fetch = request as typeof fetch;
 		await expect(rinspaceGitRemoteProvider.listRepositories('')).rejects.toThrow('cursor is invalid');
 		expect(request).toHaveBeenCalledTimes(2);
+	});
+
+	it('rejects ascending continuation in the descending catalog', async () => {
+		let calls = 0;
+		global.fetch = jest.fn(async () => response({ schemaVersion: 'rinspace-editor-projects/v2', projects: [], hasMore: true, nextCursor: String(10 + calls++) })) as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).rejects.toThrow('cursor is invalid');
+		expect(calls).toBe(2);
 	});
 
 	it('reads the exact branch head and exposes the same-origin Smart HTTP URL', async () => {

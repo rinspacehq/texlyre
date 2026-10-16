@@ -8,7 +8,7 @@ repository. Treating the valid v2 catalog as v1 prevented Open from reaching the
 Smart HTTP fetch and reported an unavailable browser session incorrectly.
 
 Connection checks request one row only. Explicit repository enumeration follows
-bounded 100-row keyset pages, never offset pages; malformed or non-increasing
+bounded 50-row `before_id` keyset pages, never offset pages; malformed or non-descending
 cursors and duplicate repositories fail closed. Default enumeration does not
 search or include the global shared-tag catalog.
 

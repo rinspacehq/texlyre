@@ -162,8 +162,8 @@ export function createRinspaceGitRemoteProvider(
 			const seen = new Set<string>();
 			let cursor: string | undefined;
 			do {
-				const query = new URLSearchParams({ limit: '100' });
-				if (cursor) query.set('cursor', cursor);
+				const query = new URLSearchParams({ limit: '50' });
+				if (cursor) query.set('before_id', cursor);
 				const result = await request<CatalogWire>(`?${query}`);
 				requireSchema(result, CATALOG_SCHEMA);
 				if (!Array.isArray(result.projects) || typeof result.hasMore !== 'boolean') {
@@ -177,7 +177,7 @@ export function createRinspaceGitRemoteProvider(
 				}
 				if (!result.hasMore) break;
 				const next = result.nextCursor;
-				if (!next || !/^[1-9][0-9]{0,18}$/.test(next) || BigInt(next) > 9223372036854775807n || (cursor && BigInt(next) <= BigInt(cursor))) {
+				if (!next || !/^[1-9][0-9]{0,18}$/.test(next) || BigInt(next) > 9223372036854775807n || (cursor && BigInt(next) >= BigInt(cursor))) {
 					throw new Error('Rinspace catalog cursor is invalid');
 				}
 				cursor = next;
