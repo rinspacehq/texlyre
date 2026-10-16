@@ -23,6 +23,15 @@ test('all eight hooks can be registered without changing upstream providers', ()
 	assert.equal(Object.keys(registry.getExtensions()).length, 8);
 	assert.ok(Object.isFrozen(registry.getExtensions()));
 });
+test('optional locale hook is available without a host or catalog and has a single owner', () => {
+	const registry = new WorkspaceExtensionRegistry();
+	const locale = { getLanguage: () => 'zh', subscribe: () => () => {} };
+	registry.register(extension('locale', { locale }));
+	assert.equal(registry.getExtensions().locale, locale);
+	assert.equal(registry.getExtensions().host, undefined);
+	assert.equal(registry.getExtensions().catalog, undefined);
+	assert.throws(() => registry.register(extension('other', { locale })), /already provided/);
+});
 test('conflicting registration is atomic and cannot replace the host', () => {
 	const registry = new WorkspaceExtensionRegistry();
 	registry.register(extension('existing', { host }));

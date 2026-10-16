@@ -85,6 +85,12 @@ jobs:
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/check-deletion-lint.mjs
 
+      - name: Lint automatic interface language and reopen regressions
+        shell: bash
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" pnpm exec eslint src/App.tsx src/contexts/LocaleContext.tsx src/contexts/localeContextValue.ts src/hooks/useLanguage.ts src/utils/interfaceLanguage.ts src/settings/registerLocaleSettings.tsx src/components/settings/SettingsLanguage.tsx tests/unit/utils/interfaceLanguage.test.ts tests/components/InterfaceLanguage.test.tsx tests/components/UserDropdown.test.tsx tests/unit/workspace/RinspaceManagedGit.test.ts tests/unit/workspace/RinspaceManagedWorkspace.test.ts --max-warnings 0
+
       - name: Run local startup, folder and disk write regressions
         shell: bash
         run: |

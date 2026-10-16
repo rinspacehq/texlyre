@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { pluginRegistry } from '../../plugins/PluginRegistry';
 import type { WorkspaceAccountIdentity } from '../../workspace/contracts';
 import { UserIcon } from '../common/Icons';
 
-/** Platform display stays separate from the browser-local account dropdown. */
-export default function WorkspaceAccountIndicator() {
+/** Verified host identity can label the existing menu without changing its ownership. */
+export default function WorkspaceAccountIndicator({ fallback = null }: { fallback?: ReactNode }) {
 	const catalog = pluginRegistry.getWorkspaceExtensions().catalog;
 	const [account, setAccount] = useState<WorkspaceAccountIdentity | null>(null);
 	const [unavailable, setUnavailable] = useState(false);
@@ -41,7 +41,7 @@ export default function WorkspaceAccountIndicator() {
 		};
 	}, [catalog]);
 	if (unavailable) return <span data-role='workspace-account-error' title='Rinspace account unavailable'><UserIcon />!</span>;
-	if (!account) return null;
+	if (!account) return <>{fallback}</>;
 	return <span className='workspace-account-identity' data-role='workspace-account' title='Rinspace' aria-label={account.displayName}>
 		{account.avatarUrl && !imageFailed ? <img src={account.avatarUrl} alt='' referrerPolicy='no-referrer' onError={() => setImageFailed(true)} /> : <UserIcon />}
 		<span>{account.displayName}</span>

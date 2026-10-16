@@ -7,7 +7,7 @@ import {
 	prepareRinspaceRepositoryArchive,
 	resolveRinspaceWorkspace,
 	RinspaceManagedWorkspaceRuntime,
-} from '@src/plugins/workspace/rinspace/RinspaceManagedWorkspace';
+} from '@extras/workspace/rinspace/RinspaceManagedWorkspace';
 
 const commit = 'a'.repeat(40);
 
@@ -293,6 +293,36 @@ describe('Rinspace managed workspace', () => {
 		expect(materialize).not.toHaveBeenCalled();
 		expect(runtime.getState()).toEqual({ status: 'disabled' });
 		expect(invalidated).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(['', '&file:%2Fsections%2Fintro.tex', 'yjs:550e8400-e29b-41d4-a716-446655440001&file:%2Fother.tex'])('restores the bound project route on cached reopen from %s without refetching or resetting files', async hash => {
+		const workspaceId = '550e8400-e29b-41d4-a716-446655440000';
+		const request = queuedFetch(responses());
+		const materialize = jest.fn(async () => ({ workspaceId, profileScope: 'scope-1', baseCommit: commit, generation: 1 }));
+		const runtime = new RinspaceManagedWorkspaceRuntime({ fetch: request, materialize }, true);
+		const intent = { owner: 'a', repository: '42', ref: 'main' };
+		const first = await runtime.open(intent, new AbortController().signal);
+		window.history.replaceState(null, '', `/editor/${hash ? `#${hash}` : ''}`);
+		sessionStorage.removeItem('currentProjectId');
+		const second = await runtime.open(intent, new AbortController().signal);
+		expect(second).toBe(first);
+		expect(window.location.hash).toBe(`#yjs:${workspaceId}`);
+		expect(sessionStorage.getItem('currentProjectId')).toBe(workspaceId);
+		expect(request).toHaveBeenCalledTimes(2);
+		expect(materialize).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps a matching project route including file, document and compile fragments on cached reopen', async () => {
+		const workspaceId = '550e8400-e29b-41d4-a716-446655440000';
+		const materialize = jest.fn(async () => ({ workspaceId, profileScope: 'scope-1', baseCommit: commit, generation: 1 }));
+		const runtime = new RinspaceManagedWorkspaceRuntime({ fetch: queuedFetch(responses()), materialize }, true);
+		const intent = { owner: 'a', repository: '42', ref: 'main' };
+		await runtime.open(intent, new AbortController().signal);
+		const hash = `#yjs:${workspaceId}&doc:draft-1&file:%2Fsections%2Fintro.tex&compile:latex`;
+		window.history.replaceState(null, '', `/editor/${hash}`);
+		await runtime.open(intent, new AbortController().signal);
+		expect(window.location.hash).toBe(hash);
+		expect(materialize).toHaveBeenCalledTimes(1);
 	});
 
 	it('starts a fresh connection when a remounted caller replaces an aborted one', async () => {

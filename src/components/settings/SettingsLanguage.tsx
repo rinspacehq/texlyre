@@ -81,7 +81,7 @@ const SettingsLanguage: React.FC<SettingsLanguageProps> = ({
 					>
 						<span className='ui-control-content'>
 							<span className='ui-control-label'>
-								{currentLanguage.nativeName} ({currentLanguage.name})
+								{setting.value === 'system' ? `${t('System')} · ` : ''}{currentLanguage.nativeName} ({currentLanguage.name})
 							</span>
 							<span className='ui-actions' data-gap='sm'>
 								<progress
@@ -123,16 +123,25 @@ const SettingsLanguage: React.FC<SettingsLanguageProps> = ({
 								/>
 							</div>
 							<div className='ui-menu-scroll'>
+								<button
+									type='button'
+									className='ui-menu-item'
+									role='option'
+									aria-selected={setting.value === 'system'}
+									onClick={() => handleSelect('system')}
+								>
+									{t('System')}
+								</button>
 								{filteredLanguages.map((lang) => (
 									<button
 										type='button'
 										key={lang.code}
 										className='ui-menu-item'
 										data-active={
-											currentLanguage.code === lang.code ? 'true' : undefined
+											setting.value === lang.code ? 'true' : undefined
 										}
 										role='option'
-										aria-selected={currentLanguage.code === lang.code}
+										aria-selected={setting.value === lang.code}
 										onClick={() => handleSelect(lang.code)}
 									>
 										<span className='ui-stack' data-gap='xs' data-grow='true'>

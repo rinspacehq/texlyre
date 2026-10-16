@@ -537,7 +537,7 @@ const browserSessionSecrets = {
 	getSecret: async () => null,
 };
 
-async function prepareManagedGit(
+export async function prepareManagedGit(
 	workspace: RinspaceResolvedWorkspace,
 	project: Project,
 	_existing: boolean,
@@ -552,6 +552,13 @@ async function prepareManagedGit(
 	gitService.setManagedCommitIdentity(project.id, workspace.commitIdentity);
 	const initialized = await gitService.isInitialized(project.id);
 	const localHead = initialized ? await gitService.getHeadOid(project.id) : null;
+	const previous = gitSyncService.getConfig(project.id);
+	// The import baseline is only a fallback. A successful Pull/Push may have
+	// advanced the saved base while leaving pending local commits and drafts.
+	const hasMatchingBase = previous?.managed &&
+		previous.providerId === 'rinspace-gitea-session' &&
+		previous.repositoryId === workspace.repository.fullName &&
+		previous.branch === workspace.ref && Boolean(previous.syncBase);
 	await gitSyncService.bindBrowserSessionRemote(
 		project.id,
 		{
@@ -561,7 +568,7 @@ async function prepareManagedGit(
 			branch: workspace.ref,
 			readOnly: !canPush,
 		},
-		localHead
+		localHead && !hasMatchingBase
 			? { localOid: binding.baseCommit, remoteOid: binding.baseCommit }
 			: undefined,
 	);
@@ -802,6 +809,15 @@ export class RinspaceManagedWorkspaceRuntime {
 			this.state.status === 'connected' &&
 			this.activeIntent === intentKey
 		) {
+			// Back to Projects clears the hash and session marker, not this
+			// connection. Explicitly reopening its cached context must restore
+			// the project route before file tabs append their file fragments.
+			const workspaceId = this.state.context.binding.workspaceId;
+			if (window.location.hash.slice(1).split('&')[0] !== `yjs:${workspaceId}`) {
+				activateProject({ id: workspaceId });
+			} else {
+				sessionStorage.setItem('currentProjectId', workspaceId);
+			}
 			return Promise.resolve(this.state.context);
 		}
 		const previousTask = this.inFlight;

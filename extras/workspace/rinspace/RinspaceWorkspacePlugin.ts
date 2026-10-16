@@ -7,6 +7,7 @@ import { createRinspaceGitRemoteProvider } from './RinspaceGitRemoteProvider';
 import { RinspaceProjectCatalog } from './RinspaceProjectCatalog';
 import { getRinspaceWorkspaceSettings } from './settings';
 import { isRinspaceAccountRoute } from './RinspaceRoutePolicy';
+import { rinspaceLocale } from './RinspaceLocale';
 
 const integrationAllowed = () => isRinspaceAccountRoute(window.location.search, window.location.origin);
 
@@ -51,6 +52,7 @@ const rinspaceWorkspacePlugin: WorkspacePlugin = {
 		return getRinspaceWorkspaceSettings(rinspaceManagedWorkspaceRuntime);
 	},
 	extensions: {
+		locale: rinspaceLocale,
 		host: {
 			open: (intent, signal) =>
 				rinspaceManagedWorkspaceRuntime.open(intent, signal),
