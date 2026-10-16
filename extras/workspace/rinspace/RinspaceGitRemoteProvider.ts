@@ -181,7 +181,7 @@ export function createRinspaceGitRemoteProvider(
 					throw new Error('Rinspace catalog cursor is invalid');
 				}
 				cursor = next;
-			} while (true);
+			} while (cursor);
 			return repositories;
 		},
 		listBranches: async (_token, repositoryId): Promise<GitRemoteBranch[]> => {
