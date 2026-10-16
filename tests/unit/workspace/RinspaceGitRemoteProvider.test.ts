@@ -18,20 +18,56 @@ describe('Rinspace Git remote provider', () => {
 
 	it('uses the token-hiding Editor BFF for account metadata', async () => {
 		const request = jest.fn(async () => response({
-			schemaVersion: 'rinspace-editor-projects/v1',
+			schemaVersion: 'rinspace-editor-projects/v2',
 			projects: [],
+			hasMore: false,
 		}));
 		global.fetch = request as typeof fetch;
 
 		await expect(rinspaceGitRemoteProvider.testConnection('ignored')).resolves.toBe(true);
 		expect(request).toHaveBeenCalledWith(
-			'/rinspace/api/editor/v1/projects?page=1&limit=1',
+			'/rinspace/api/editor/v1/projects?limit=1',
 			expect.objectContaining({
 				credentials: 'include',
 				cache: 'no-store',
 			}),
 		);
 		expect(JSON.stringify(request.mock.calls)).not.toMatch(/authorization|token/i);
+	});
+
+	it('rejects a legacy catalog while keeping project detail and branch responses on v1', async () => {
+		global.fetch = jest.fn(async () => response({ schemaVersion: 'rinspace-editor-projects/v1', projects: [], hasMore: false })) as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.testConnection('')).resolves.toBe(false);
+	});
+
+	it('uses bounded keyset pages to include repositories beyond the first page', async () => {
+		const request = jest.fn(async (url: string) => response({
+			schemaVersion: 'rinspace-editor-projects/v2',
+			projects: [{ fullName: url.includes('cursor=') ? 'alice/later' : 'alice/first', private: true, defaultBranch: 'main' }],
+			hasMore: !url.includes('cursor='),
+			nextCursor: '9007199254740993',
+		}));
+		global.fetch = request as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).resolves.toEqual([
+			{ id: 'alice/first', label: 'alice/first', private: true, defaultBranch: 'main' },
+			{ id: 'alice/later', label: 'alice/later', private: true, defaultBranch: 'main' },
+		]);
+		expect(request.mock.calls.map(([url]) => url)).toEqual([
+			'/rinspace/api/editor/v1/projects?limit=100',
+			'/rinspace/api/editor/v1/projects?limit=100&cursor=9007199254740993',
+		]);
+	});
+
+	it.each([undefined, '0', 'wrong', '9223372036854775808'])('rejects invalid continuation cursor %s', async (nextCursor) => {
+		global.fetch = jest.fn(async () => response({ schemaVersion: 'rinspace-editor-projects/v2', projects: [], hasMore: true, nextCursor })) as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).rejects.toThrow('cursor is invalid');
+	});
+
+	it('refuses repeated cursors instead of scanning indefinitely', async () => {
+		const request = jest.fn(async () => response({ schemaVersion: 'rinspace-editor-projects/v2', projects: [], hasMore: true, nextCursor: '10' }));
+		global.fetch = request as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).rejects.toThrow('cursor is invalid');
+		expect(request).toHaveBeenCalledTimes(2);
 	});
 
 	it('reads the exact branch head and exposes the same-origin Smart HTTP URL', async () => {
@@ -83,12 +119,13 @@ describe('Rinspace Git remote provider', () => {
 	it('lists repositories and branches through the Editor BFF', async () => {
 		const queue = [
 			response({
-				schemaVersion: 'rinspace-editor-projects/v1',
+				schemaVersion: 'rinspace-editor-projects/v2',
 				projects: [{
 					fullName: 'alice/notes',
 					private: true,
 					defaultBranch: 'main',
 				}],
+				hasMore: false,
 			}),
 			response({
 				schemaVersion: 'rinspace-editor-projects/v1',
