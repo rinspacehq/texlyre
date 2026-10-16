@@ -71,7 +71,8 @@ jest.mock('@src/utils/fileUtils', () => ({
 	getMimeType: (path: string) =>
 		path.endsWith('.png') ? 'image/png' : 'text/plain',
 	isBinaryFile: (path: string) => path.endsWith('.png'),
-	isTemporaryFile: (path: string) => path.endsWith('.aux'),
+	isTemporaryFile: (path: string) =>
+		path.endsWith('.aux') || jest.requireActual('@src/utils/fileUtils').isTemporaryFile(path),
 	toArrayBuffer: (content: Uint8Array) => content.slice().buffer,
 }));
 
@@ -87,6 +88,15 @@ describe('GitFileSystemService', () => {
 		mockFiles.clear();
 		localStorage.clear();
 		jest.clearAllMocks();
+	});
+
+	it.each(['/.gitea/ISSUE_TEMPLATE/config.yml', '/.gitea/ISSUE_TEMPLATE/erratum.yml', '/.github/workflows/check.yml', '/.gitignore', '/.gitattributes'])('does not project tracked %s as a deletion', async (path) => {
+		const content = 'tracked repository configuration\n';
+		mockFiles.set(path, { id: path, name: path.split('/').pop(), path, type: 'file', content, lastModified: 1 });
+		const fs = gitFileSystemService.get('project-1').fs;
+		await expect(fs.promises.readFile(path, 'utf8')).resolves.toBe(content);
+		const stat = await fs.promises.stat(path);
+		expect(stat.isFile()).toBe(true);
 	});
 
 	it('keeps Git data in a project-scoped private IndexedDB filesystem', () => {

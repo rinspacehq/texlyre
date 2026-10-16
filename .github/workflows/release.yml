@@ -7,6 +7,11 @@ on:
         description: Exact reviewed Rinspace TeXlyre tag
         required: true
         type: string
+      reuse_texlive_runtime:
+        description: Verify and reuse the exact reviewed published TeX Live bytes
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -22,6 +27,7 @@ jobs:
     timeout-minutes: 240
     env:
       RINSPACE_ASSET_ARCHIVE_CACHE_DIR: /repositories/data/texlyre-asset-cache
+      RINSPACE_TEXLIVE_ARTIFACT_CACHE_DIR: /repositories/data/texlyre-runtime-artifact-cache
     steps:
       - name: Checkout exact public main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -83,7 +89,17 @@ jobs:
           test -f dist/index.html
           test -f dist/rinspace-source-candidate.json
 
+      - name: Verify and reuse the exact published TeX Live runtime
+        if: inputs.reuse_texlive_runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/prepare-reviewed-texlive-runtime.cjs "$RUNNER_TEMP/texlyre-texlive-runtime"
+
       - name: Fetch and verify the fixed TeX Live 2026 tree list
+        if: ${{ !inputs.reuse_texlive_runtime }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,6 +111,7 @@ jobs:
           test "$(sha256sum "$source_dir/texlive-full.txt" | cut -d' ' -f1)" = "$(node -p "require('./config/rinspace/texlive-full-runtime.review.json').treeList.sha256")"
 
       - name: Build the complete on-demand TeX Live runtime on one CPU
+        if: ${{ !inputs.reuse_texlive_runtime }}
         shell: bash
         run: |
           set -euo pipefail

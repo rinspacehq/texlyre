@@ -33,6 +33,9 @@ test('trusted release work uses the self-hosted runner without exposing it to fo
 		/RINSPACE_ASSET_ARCHIVE_CACHE_DIR: \/repositories\/data\/texlyre-asset-cache/,
 	);
 	assert.match(releaseWorkflow, /build-texlive-runtime-stream\.cjs/);
+	assert.match(releaseWorkflow, /reuse_texlive_runtime:[\s\S]*?default: true/);
+	assert.match(releaseWorkflow, /prepare-reviewed-texlive-runtime\.cjs/);
+	assert.match(releaseWorkflow, /if: \$\{\{ !inputs\.reuse_texlive_runtime \}\}/);
 	assert.doesNotMatch(releaseWorkflow, /--output "\$source_dir\/texmf-dist\.tar\.zst"/);
 	const outputDirectoryChange = releaseWorkflow.indexOf('cd "$output"');
 	assert.ok(outputDirectoryChange > 0);
