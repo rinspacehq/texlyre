@@ -3,6 +3,7 @@ import type React from 'react';
 import { useRef, useState } from 'react';
 
 import { t } from '@/i18n';
+import { useAuth } from '../../hooks/useAuth';
 import { useStorageQuota } from '../../hooks/useStorageQuota';
 import { formatFileSize } from '../../utils/fileUtils';
 import PositionedDropdown from '../common/PositionedDropdown';
@@ -36,6 +37,8 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 	onOpenUpgrade,
 	isGuest = false,
 }) => {
+	const { user } = useAuth();
+	const isLocalProfile = Boolean(user?.isLocalProfile);
 	const [isOpen, setIsOpen] = useState(false);
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const { isSupported, isLow, usageBytes, quotaBytes, usedRatio } =
@@ -46,7 +49,6 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 
 	return (
 		<div className='ui-actions'>
-			<WorkspaceAccountIndicator />
 			<button
 				type='button'
 				ref={buttonRef}
@@ -57,8 +59,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 				aria-expanded={isOpen}
 				aria-haspopup='true'
 			>
-				<UserIcon />
-				<span>{displayUsername}</span>
+				<WorkspaceAccountIndicator fallback={<><UserIcon /><span>{displayUsername}</span></>} />
 			</button>
 
 			<PositionedDropdown
@@ -67,6 +68,11 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 				className='user-dropdown-menu'
 				onClose={() => setIsOpen(false)}
 			>
+				{isLocalProfile && (
+					<div className='ui-menu-label' title={t('Manage or delete TeXlyre data stored by this browser.')}>
+						{t('Browser Storage')}
+					</div>
+				)}
 				{showStorageSummary && (
 					<button
 						type='button'
@@ -119,7 +125,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 							}}
 						>
 							<ExportIcon />
-							{t('Export Account')}
+							{isLocalProfile ? t('Export') : t('Export Account')}
 						</button>
 						<div className='dropdown-separator' />
 						<button
@@ -132,7 +138,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 							}}
 						>
 							<TrashIcon />
-							{t('Delete Account')}
+							{isLocalProfile ? t('Delete') : t('Delete Account')}
 						</button>
 					</>
 				)}
@@ -168,7 +174,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 					) : (
 						<>
 							<LogoutIcon />
-							<span>{t('Log out')}</span>
+							<span>{isLocalProfile ? t('End Session') : t('Log out')}</span>
 						</>
 					)}
 				</button>
