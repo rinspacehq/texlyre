@@ -58,8 +58,16 @@ export type WorkspaceCatalogPage =
 	};
 
 /** Optional remote metadata listing. Opening still goes through HostAdapter. */
+export interface WorkspaceAccountIdentity {
+	readonly actorId: string;
+	readonly displayName: string;
+	readonly avatarUrl?: string;
+}
+
 export interface WorkspaceProjectCatalog {
 	isEnabled(): boolean;
+	/** Presentation only; never changes local ownership or supplies credentials. */
+	getAccount?(signal: AbortSignal): Promise<WorkspaceAccountIdentity | null>;
 	subscribe(listener: () => void): () => void;
 	listPage(
 		request: { readonly page: number; readonly pageSize: number; readonly query?: string; readonly cursor?: string },

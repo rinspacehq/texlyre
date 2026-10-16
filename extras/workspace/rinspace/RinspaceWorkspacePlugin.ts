@@ -6,8 +6,12 @@ import { RinspaceManagedWorkspaceRuntime } from './RinspaceManagedWorkspace';
 import { createRinspaceGitRemoteProvider } from './RinspaceGitRemoteProvider';
 import { RinspaceProjectCatalog } from './RinspaceProjectCatalog';
 import { getRinspaceWorkspaceSettings } from './settings';
+import { isRinspaceAccountRoute } from './RinspaceRoutePolicy';
+
+const integrationAllowed = () => isRinspaceAccountRoute(window.location.search, window.location.origin);
 
 function initialIntegrationEnabled(): boolean {
+	if (!integrationAllowed()) return false;
 	if (getStartupIntent().mode === 'managed') return true;
 	const userId = localStorage.getItem('texlyre-current-user');
 	const keys = [
@@ -28,7 +32,7 @@ function initialIntegrationEnabled(): boolean {
 }
 
 export const rinspaceManagedWorkspaceRuntime =
-	new RinspaceManagedWorkspaceRuntime(undefined, initialIntegrationEnabled());
+	new RinspaceManagedWorkspaceRuntime(undefined, initialIntegrationEnabled(), integrationAllowed);
 export const rinspaceProjectCatalog = new RinspaceProjectCatalog(
 	rinspaceManagedWorkspaceRuntime,
 );

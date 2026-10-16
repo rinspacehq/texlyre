@@ -6,6 +6,7 @@ import { t } from '@/i18n';
 import { useStorageQuota } from '../../hooks/useStorageQuota';
 import { formatFileSize } from '../../utils/fileUtils';
 import PositionedDropdown from '../common/PositionedDropdown';
+import WorkspaceAccountIndicator from '../workspace/WorkspaceAccountIndicator';
 import type { ProfileSettingsTab } from './ProfileSettingsModal';
 import {
 	UserIcon,
@@ -44,7 +45,8 @@ const UserDropdown: React.FC<UserDropdownProps> = ({
 	const displayUsername = isGuest ? t('Guest User') : username;
 
 	return (
-		<div>
+		<div className='ui-actions'>
+			<WorkspaceAccountIndicator />
 			<button
 				type='button'
 				ref={buttonRef}

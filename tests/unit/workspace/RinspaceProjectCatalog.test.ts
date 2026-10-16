@@ -25,6 +25,22 @@ function enabledRuntime(): RinspaceManagedWorkspaceRuntime {
 }
 
 describe('Rinspace project catalog', () => {
+	it('does not reload the catalog for connecting/error runtime states', async () => {
+		const request = jest.fn<Promise<Response>, Parameters<typeof fetch>>().mockRejectedValue(new Error('Synthetic connection failure'));
+		const runtime = new RinspaceManagedWorkspaceRuntime({ fetch: request, materialize: jest.fn() }, true);
+		const catalog = new RinspaceProjectCatalog(runtime, request);
+		const listener = jest.fn();
+		catalog.subscribe(listener);
+		await expect(runtime.open({ mode: 'managed', owner: 'a', repository: '42' }, new AbortController().signal)).rejects.toThrow('Synthetic connection failure');
+		expect(listener).not.toHaveBeenCalled();
+		runtime.setEnabled(false);
+		expect(listener).toHaveBeenCalledTimes(1);
+		runtime.setEnabled(false);
+		expect(listener).toHaveBeenCalledTimes(1);
+		runtime.setEnabled(true);
+		expect(listener).toHaveBeenCalledTimes(2);
+	});
+
 	const project = (id: number, owner = 'b') => ({
 		id, name: String(id), fullName: `${owner}/${id}`, description: '', private: false, archived: false,
 		defaultBranch: 'main', objectFormat: 'sha1', access: 'collaborator',

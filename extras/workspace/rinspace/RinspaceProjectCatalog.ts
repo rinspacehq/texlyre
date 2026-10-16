@@ -3,9 +3,11 @@ import type {
 	WorkspaceCatalogPage,
 	WorkspaceCatalogProject,
 	WorkspaceProjectCatalog,
+	WorkspaceAccountIdentity,
 } from '@/workspace/contracts';
 
 import type { RinspaceManagedWorkspaceRuntime } from './RinspaceManagedWorkspace';
+import { loadRinspaceAccount } from './RinspaceAccount';
 import {
 	loadRinspaceSession,
 	RinspaceSignInRequiredError,
@@ -120,20 +122,47 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 	private readonly controllers = new Set<AbortController>();
 	private readonly listeners = new Set<() => void>();
 	private readonly unsubscribeRuntime: () => void;
+	private accountActor: string | null | undefined;
 
 	constructor(
 		private readonly runtime: RinspaceManagedWorkspaceRuntime,
 		private readonly fetcher: typeof fetch = (input, init) =>
 			globalThis.fetch(input, init),
 	) {
+		let enabled = runtime.isEnabled();
 		this.unsubscribeRuntime = runtime.subscribe(() => {
-			if (!runtime.isEnabled()) this.abortAll();
+			const next = runtime.isEnabled();
+			if (next === enabled) return;
+			enabled = next;
+			if (!next) { this.abortAll(); this.accountActor = undefined; }
 			for (const listener of this.listeners) listener();
 		});
 	}
 
 	isEnabled(): boolean {
 		return this.runtime.isEnabled();
+	}
+
+	async getAccount(signal: AbortSignal): Promise<WorkspaceAccountIdentity | null> {
+		if (!this.isEnabled()) return null;
+		try {
+			const account = await loadRinspaceAccount(this.fetcher, signal);
+			signal.throwIfAborted();
+			this.updateAccountActor(account.actorId);
+			return account;
+		} catch (error) {
+			if (error instanceof RinspaceSignInRequiredError && !signal.aborted) {
+				this.updateAccountActor(null);
+				return null;
+			}
+			throw error;
+		}
+	}
+
+	private updateAccountActor(actor: string | null): void {
+		const changed = this.accountActor !== undefined && this.accountActor !== actor;
+		this.accountActor = actor;
+		if (changed) for (const listener of this.listeners) listener();
 	}
 
 	subscribe(listener: () => void): () => void {
