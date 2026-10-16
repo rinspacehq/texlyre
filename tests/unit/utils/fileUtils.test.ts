@@ -3,9 +3,13 @@ import {
     isBinaryFile,
     arrayBufferToString,
     toArrayBuffer,
+    validateFileName,
 } from '@src/utils/fileUtils';
 
 describe('File Utils', () => {
+    it.each(['bad\u0000name', 'bad\u001fname', 'bad\tname', 'bad\nname'])('retains the existing ASCII-control filename rejection', name => {
+        expect(validateFileName(name).valid).toBe(false);
+    });
     describe('isBinaryFile', () => {
         it('keeps Quiver TikZ-CD sources editable as text', () => {
             expect(isBinaryFile('/assets/quiver/diagram.tikzcd')).toBe(false);
@@ -15,6 +19,14 @@ describe('File Utils', () => {
     });
 
     describe('isTemporaryFile', () => {
+        it.each(['/.gitea/ISSUE_TEMPLATE/config.yml', '/.gitea/ISSUE_TEMPLATE/erratum.yml', '/.github/workflows/check.yml', '/.gitignore', '/.gitattributes', '/.gitmodules'])('keeps tracked Git-adjacent path %s visible', path => {
+            expect(isTemporaryFile(path)).toBe(false);
+        });
+
+        it.each(['/.git', '/.git/config', '/.git/objects/ab/cd', '/.git/refs/heads/main'])('keeps actual Git metadata %s private', path => {
+            expect(isTemporaryFile(path)).toBe(true);
+        });
+
         it('should identify temporary files', () => {
             expect(isTemporaryFile('/.texlyre-cache/file.aux')).toBe(true);
             expect(isTemporaryFile('/.texlyre-temp/build/output.pdf')).toBe(true);

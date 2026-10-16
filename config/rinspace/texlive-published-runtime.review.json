@@ -1,0 +1,33 @@
+{
+  "schema": "rinspace-published-texlive-runtime/v1",
+  "runtimeId": "texlive-2026-rinspace.1",
+  "sourceReviewSha256": "2f8ba925aee00aae59ff75453bcac2358c9222874405ce1984ad93da5577e825",
+  "repository": "rinspacehq/texlyre",
+  "release": {
+    "id": 412942294,
+    "tag": "v0.13.2-rinspace.3",
+    "commit": "89f41d3d1e71f93b0192beea9bad7a987cefde6e"
+  },
+  "assets": {
+    "texlive-2026-rinspace.1.pack": {
+      "id": 640963253,
+      "size": 1992353680,
+      "sha256": "da7442a67a8ddf1968f06718ee48bdd512d2f4e116d3da3c5b265f456ffa7de1"
+    },
+    "texlive-2026-rinspace.1.index.json": {
+      "id": 640963246,
+      "size": 38843730,
+      "sha256": "fce2fbf034057a20531643830fcf3268a1b11c75f3dac4b3c24ab23694f40255"
+    },
+    "texlive-2026-rinspace.1.manifest.json": {
+      "id": 640963254,
+      "size": 1594,
+      "sha256": "d6e1de6a96f5c80750a04f23a8f67501811ffa23326fd91b4f032149abccb251"
+    },
+    "texlive-2026-rinspace.1.sha256": {
+      "id": 640963259,
+      "size": 300,
+      "sha256": "3d79ecd81db4f5af9d79b0d72a37e93b3e418c57952875f2b5ad4751a3b47aff"
+    }
+  }
+}

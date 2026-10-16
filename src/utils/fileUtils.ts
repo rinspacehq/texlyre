@@ -143,6 +143,7 @@ export interface NameValidationResult {
 	error?: string;
 }
 
+// eslint-disable-next-line no-control-regex -- ASCII control characters are intentionally invalid in filenames.
 const ILLEGAL_NAME_CHARS = /[<>:"/\\|?*\u0000-\u001F]/;
 // NOTE (fabawi): File gets excluded from ZIP on WINDOWS if name contains the following
 const RESERVED_NAMES =
@@ -765,7 +766,13 @@ export function isTemporaryFile(fileName: string): boolean {
 		'/.DS_Store',
 	];
 
-	return temporaryPaths.some((tempPath) => fileName.startsWith(tempPath));
+	return temporaryPaths.some((tempPath) =>
+		// .gitea, .github and .gitignore are ordinary tracked project paths,
+		// not Git's private metadata directory.
+		tempPath === '/.git'
+			? fileName === tempPath || fileName.startsWith(`${tempPath}/`)
+			: fileName.startsWith(tempPath),
+	);
 }
 
 export function isLatexFile(pathOrName?: string): boolean {
