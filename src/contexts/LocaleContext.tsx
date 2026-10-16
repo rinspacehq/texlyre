@@ -3,7 +3,6 @@ import i18next from 'i18next';
 import type React from 'react';
 import {
 	type ReactNode,
-	createContext,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -14,31 +13,9 @@ import {
 import { useSettings } from '../hooks/useSettings';
 import languagesConfig from '../../translations/locales.config.json';
 import { getRinspaceApplicationTitle } from '../utils/applicationTitle';
-
-interface Locale {
-	code: string;
-	name: string;
-	nativeName: string;
-	direction: 'ltr' | 'rtl';
-	coverage: number;
-	totalKeys: number;
-	translatedKeys: number;
-	filePath: string;
-}
-
-interface LocaleContextType {
-	currentLanguage: Locale | null;
-	availableLanguages: Locale[];
-	changeLanguage: (languageCode: string) => Promise<void>;
-	isRTL: boolean;
-}
-
-export const LocaleContext = createContext<LocaleContextType>({
-	currentLanguage: null,
-	availableLanguages: [],
-	changeLanguage: async () => {},
-	isRTL: false,
-});
+import { getStartupInterfaceLanguage, resolveInterfaceLanguage } from '../utils/interfaceLanguage';
+import { pluginRegistry } from '../plugins/PluginRegistry';
+import { LocaleContext, type Locale } from './localeContextValue';
 
 interface LocaleProviderProps {
 	children: ReactNode;
@@ -48,7 +25,9 @@ export const LanguageProvider: React.FC<LocaleProviderProps> = ({
 	children,
 }) => {
 	const { getSetting } = useSettings();
-	const [currentLanguage, setCurrentLanguage] = useState<Locale | null>(null);
+	const [currentLanguage, setCurrentLanguage] = useState<Locale | null>(() =>
+		languagesConfig.languages.find(language => language.code === getStartupInterfaceLanguage()) as Locale | undefined ?? null,
+	);
 	const [isRTL, setIsRTL] = useState(false);
 	const availableLanguages = useMemo(
 		() => (languagesConfig.languages as Locale[]) || [],
@@ -64,39 +43,40 @@ export const LanguageProvider: React.FC<LocaleProviderProps> = ({
 
 	const changeLanguage = useCallback(
 		async (languageCode: string) => {
+			const resolved = resolveInterfaceLanguage(languageCode);
 			const language = availableLanguages.find(
-				(lang) => lang.code === languageCode,
+				(lang) => lang.code === resolved,
 			);
 			if (!language) return;
 
-			await i18next.changeLanguage(languageCode);
-			document.documentElement.lang = languageCode;
-			document.title = getRinspaceApplicationTitle(languageCode);
+			await i18next.changeLanguage(resolved);
+			document.documentElement.lang = resolved;
+			document.title = getRinspaceApplicationTitle(resolved);
 			setCurrentLanguage(language);
 
 			window.dispatchEvent(
 				new CustomEvent('language-changed', {
-					detail: { languageCode },
+					detail: { languageCode: resolved },
 				}),
 			);
 		},
 		[availableLanguages],
 	);
 
-	const languageCode = (getSetting('language')?.value as string) || 'en';
+	const languageCode = (getSetting('language')?.value as string) || getStartupInterfaceLanguage();
 	const directionValue =
 		(getSetting('text-direction')?.value as string) || 'auto';
 
 	useEffect(() => {
-		const initialLanguage =
-			availableLanguages.find((lang) => lang.code === languageCode) ||
-			availableLanguages[0] ||
-			null;
-
-		if (initialLanguage && currentLanguage?.code !== initialLanguage.code) {
-			setCurrentLanguage(initialLanguage);
-		}
-	}, [availableLanguages, languageCode, currentLanguage]);
+		if (languageCode !== 'system') return;
+		const refresh = () => { void changeLanguage('system'); };
+		window.addEventListener('languagechange', refresh);
+		const unsubscribe = pluginRegistry.getWorkspaceExtensions().locale?.subscribe(refresh);
+		return () => {
+			window.removeEventListener('languagechange', refresh);
+			unsubscribe?.();
+		};
+	}, [languageCode, changeLanguage]);
 
 	useEffect(() => {
 		if (!languageCode) return;

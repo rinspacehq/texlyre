@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "automatic-interface-language",
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/utils/interfaceLanguage.ts", "src/App.tsx", "src/contexts/LocaleContext.tsx", "src/contexts/localeContextValue.ts", "src/hooks/useLanguage.ts", "src/settings/registerLocaleSettings.tsx", "src/components/settings/SettingsLanguage.tsx"],
+      "purpose": "Optional host locale preference with browser-language fallback in automatic mode, consistently at bootstrap and settings registration. Preserve explicit saved editor preferences, expose System to return to automatic, and update on host storage/browser-language events without polling or identity requests. Product storage parsing remains in extras.",
+      "tests": ["tests/unit/utils/interfaceLanguage.test.ts", "tests/components/InterfaceLanguage.test.tsx"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent automatic interface language, optional host preference and explicit override behavior.",
+      "integrationStatus": "Source checks and actual browser candidate validation pending; no release or production lock changed."
+    },
+    {
       "id": "git-metadata-directory-boundary",
       "files": ["src/utils/fileUtils.ts"],
       "purpose": "Keep only /.git and its children private, without hiding tracked .gitea/.github/.gitignore/.gitattributes files and falsely staging them as deletions. Preserve all other temporary-path behavior and real user changes.",

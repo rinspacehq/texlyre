@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { WorkspaceExtensionPlugin, WorkspaceExtensions } from './contracts';
 
-const hooks = ['host', 'catalog', 'git', 'collaboration', 'snapshots', 'recovery', 'actions', 'assets'] as const;
+const hooks = ['host', 'catalog', 'git', 'collaboration', 'snapshots', 'recovery', 'actions', 'assets', 'locale'] as const;
 
 /** Optional hooks leave the unhosted application unchanged. No runtime loading. */
 export class WorkspaceExtensionRegistry {

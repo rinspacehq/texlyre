@@ -16,16 +16,17 @@ interface Locale {
 	filePath: string;
 }
 
+const availableLanguages = (languagesConfig.languages as Locale[]) || [];
+
 export function useRegisterLanguageSettings() {
 	const { registerSetting, getSetting } = useSettings();
 	const settingsRegistered = useRef(false);
-	const availableLanguages = (languagesConfig.languages as Locale[]) || [];
 
 	useEffect(() => {
 		if (settingsRegistered.current) return;
 
 		const initialLanguageCode =
-			(getSetting('language')?.value as string) || 'en';
+			(getSetting('language')?.value as string) || 'system';
 
 		registerSetting({
 			id: 'language',
@@ -47,10 +48,10 @@ export function useRegisterLanguageSettings() {
 				</div>
 			),
 			defaultValue: initialLanguageCode,
-			options: availableLanguages.map((lang) => ({
+			options: [{ label: t('System'), value: 'system' }, ...availableLanguages.map((lang) => ({
 				label: `${lang.nativeName} (${lang.name})`,
 				value: lang.code,
-			})),
+			}))],
 			liveUpdate: false,
 		});
 
@@ -70,5 +71,5 @@ export function useRegisterLanguageSettings() {
 		});
 
 		settingsRegistered.current = true;
-	}, [availableLanguages, registerSetting, getSetting]);
+	}, [registerSetting, getSetting]);
 }

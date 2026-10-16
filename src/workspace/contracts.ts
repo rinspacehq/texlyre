@@ -190,6 +190,11 @@ export interface AssetPwaConfiguration {
 }
 
 export interface WorkspaceExtensions {
+	/** Optional UI preference only; never supplies identity or credentials. */
+	readonly locale?: {
+		getLanguage(browserLanguages: readonly string[]): string | undefined;
+		subscribe(listener: () => void): () => void;
+	};
 	readonly host?: HostAdapter;
 	readonly catalog?: WorkspaceProjectCatalog;
 	readonly git?: GitTransport;

@@ -20,7 +20,6 @@ import '@picocss/pico/css/pico.min.css';
 import i18next from 'i18next';
 import { useEffect, useState } from 'react';
 
-import { createNamedLogger } from '@/logging';
 import './styles/global.css';
 import './styles/components/editor.css';
 import './styles/components/editor-tabs.css';
@@ -68,8 +67,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LocaleContext';
 import { useSecrets } from './hooks/useSecrets';
 import { useChelys } from './hooks/useChelys';
-
-const moduleLog = createNamedLogger('App');
+import { getStartupInterfaceLanguage } from './utils/interfaceLanguage';
 
 typesetterRegistryService.registerBuiltins();
 
@@ -86,29 +84,7 @@ function App() {
 	}, []);
 
 	useEffect(() => {
-		const getCurrentUserId = (): string | null => {
-			return localStorage.getItem('texlyre-current-user');
-		};
-
-		const getStorageKey = (): string => {
-			const userId = getCurrentUserId();
-			return userId ? `texlyre-user-${userId}-settings` : 'texlyre-settings';
-		};
-
-		const storageKey = getStorageKey();
-		const storedSettings = localStorage.getItem(storageKey);
-		let targetLanguage = 'en';
-
-		if (storedSettings) {
-			try {
-				const settings = JSON.parse(storedSettings);
-				targetLanguage = settings.language || 'en';
-			} catch (error) {
-				moduleLog.warn('Failed to parse stored settings', error);
-			}
-		}
-
-		i18next.changeLanguage(targetLanguage).then(() => {
+		i18next.changeLanguage(getStartupInterfaceLanguage()).then(() => {
 			setIsI18nReady(true);
 		});
 	}, []);
