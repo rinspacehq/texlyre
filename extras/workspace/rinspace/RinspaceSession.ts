@@ -22,6 +22,25 @@ export class RinspaceSignInRequiredError extends Error {
 
 const refreshKey = 'rinspace-refresh-request-id';
 const leaseKey = 'rinspace-refresh-lease';
+let inMemoryRefreshId = '';
+let inMemoryDeviceId = '';
+
+function storeValue(storage: Storage, key: string, value: string): boolean {
+	try {
+		storage.setItem(key, value);
+		return true;
+	} catch {
+		// Quota exhaustion must not prevent a cookie-authorized operation. Never
+		// evict project data to make room for optional coordination hints.
+		return false;
+	}
+}
+
+function clearRefreshId() {
+	localStorage.removeItem(refreshKey);
+	sessionStorage.removeItem(refreshKey);
+	inMemoryRefreshId = '';
+}
 
 interface SessionEnvelope {
 	status?: string;
@@ -64,8 +83,7 @@ async function refreshSession(
 		signal?.throwIfAborted();
 		if (before.status === 'authenticated') {
 			const session = authenticated(before);
-			localStorage.removeItem(refreshKey);
-			sessionStorage.removeItem(refreshKey);
+			clearRefreshId();
 			return session;
 		}
 		if (before.status !== 'restoring' || !before.csrfToken)
@@ -73,14 +91,20 @@ async function refreshSession(
 		const requestId =
 			localStorage.getItem(refreshKey) ||
 			sessionStorage.getItem(refreshKey) ||
+			inMemoryRefreshId ||
 			`refresh-${crypto.randomUUID()}`;
-		localStorage.setItem(refreshKey, requestId);
-		sessionStorage.removeItem(refreshKey);
+		inMemoryRefreshId = requestId;
+		if (storeValue(localStorage, refreshKey, requestId))
+			sessionStorage.removeItem(refreshKey);
+		else storeValue(sessionStorage, refreshKey, requestId);
 		const deviceId =
 			localStorage.getItem('rinspace-device-id') ||
 			sessionStorage.getItem('rinspace-device-id-fallback') ||
+			inMemoryDeviceId ||
 			`browser-${crypto.randomUUID()}`;
-		localStorage.setItem('rinspace-device-id', deviceId);
+		inMemoryDeviceId = deviceId;
+		if (!storeValue(localStorage, 'rinspace-device-id', deviceId))
+			storeValue(sessionStorage, 'rinspace-device-id-fallback', deviceId);
 		const response = await fetcher('/api/identity/v1/session/refresh', {
 			method: 'POST',
 			credentials: 'include',
@@ -96,8 +120,7 @@ async function refreshSession(
 		if (!response.ok && response.status !== 409)
 			throw new Error(`Rinspace session refresh failed (${response.status})`);
 		const session = authenticated(await sessionEnvelope(fetcher));
-		localStorage.removeItem(refreshKey);
-		sessionStorage.removeItem(refreshKey);
+		clearRefreshId();
 		return session;
 	};
 	if (navigator.locks)
@@ -122,10 +145,11 @@ async function refreshSession(
 			throw new Error('Rinspace session refresh is busy');
 		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
-	localStorage.setItem(
+	if (!storeValue(
+		localStorage,
 		leaseKey,
 		JSON.stringify({ owner, expiresAt: Date.now() + 12000 }),
-	);
+	)) throw new Error('Rinspace session refresh coordination is unavailable: browser storage is full and Web Locks are unsupported');
 	try {
 		return await run();
 	} finally {
@@ -169,7 +193,7 @@ export async function loadRinspaceSession(
 	const envelope = await sessionEnvelope(fetcher, signal);
 	signal?.throwIfAborted();
 	const pendingRefresh =
-		localStorage.getItem(refreshKey) || sessionStorage.getItem(refreshKey);
+		localStorage.getItem(refreshKey) || sessionStorage.getItem(refreshKey) || inMemoryRefreshId;
 	if (
 		envelope.status !== 'restoring' &&
 		!(envelope.status === 'authenticated' && pendingRefresh)
