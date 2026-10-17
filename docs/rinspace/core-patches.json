@@ -3,13 +3,22 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "busytex-warning-driven-reruns",
+      "files": ["scripts/rinspace/apply-busytex-rerun-overlay.cjs", "package.json"],
+      "purpose": "Apply a reproducible source overlay only to the exact reviewed BusyTeX 1.4.0 pipeline after normal asset verification and Vite assembly. Do not treat routine rerunfilecheck loading/unchanged-outline information as a rerun warning. Retain an initial pass plus a mandatory final-output pass for new tables of contents, bibliography and index files, and up to three extra passes for genuine reference warnings. Each rerun emits final output so pdfTeX does not repeat an already converged pass. Leave compiler binaries, bibliography/index stages, engine selection and source files unchanged.",
+      "tests": ["scripts/rinspace/busytex-rerun.test.mjs", "actual Chromium complete CLP1 and Think Bayes candidate compilation"],
+      "upstreamIssue": null,
+      "removalCondition": "An accepted byte-locked BusyTeX runtime fixes false-positive reruns and redundant final passes with equivalent output and real-book regression evidence.",
+      "integrationStatus": "131 foundation checks, 35 nearby engine tests, both TypeScript projects and full asset/Vite assembly passed. Actual Chromium imported complete original CLP1 (1723 files) and Think Bayes (193 files), displayed 422-page XeTeX / 426-page pdfLaTeX / 210-page XeTeX PDFs, converged in two TeX passes, and reported zero page or console errors. CLP1 full extracted text and rendered page 100 exactly matched the former four-pass output. See docs/rinspace/long-book-compilation.md; immutable release/private consumption/production rollout remain separate."
+    },
+    {
       "id": "finite-long-book-compilation",
       "files": ["src/extensions/texlyre-busytex/BusyTeXEngine.ts", "package.json", "pnpm-lock.yaml", "patches/texlyre-busytex@1.4.0.patch", "patches/README.md"],
       "purpose": "Opt into a 45-minute BusyTeX worker compilation budget through a pinned pnpm dependency patch. Settle and clean up worker jobs on timeout, cancellation and errors, refuse overlapping jobs, and keep old-job completions from changing a replacement engine's state. Preserve the existing worker initialization deadline, WASM and TeX Live inputs; no automatic retries or global timer overrides.",
       "tests": ["scripts/rinspace/busytex-compilation.test.mjs", "tests/unit/engines/BusyTeXCompilationLifecycle.test.ts", "tests/unit/engines/BusyTeX.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "An accepted upstream BusyTeX release supplies equivalent finite configurable worker timeout and cancellation/single-flight guarantees.",
-      "integrationStatus": "Local checks passed: 12 actual-dependency virtual-clock cases, 35 nearby engine/cache/lifecycle Jest cases, both application/workspace TypeScript projects, touched-file lint, source foundation, 3 release contracts and actual Vite app bundling. Five Chromium/native-Worker lifecycle checks passed with virtual main-thread time and a synthetic protocol fixture, zero page errors. Full release-assets assembly, real-book compilation and immutable release acceptance remain pending; no production change claimed."
+      "integrationStatus": "12 actual-dependency virtual-clock cases, 35 nearby engine/cache/lifecycle Jest cases, both TypeScript projects, touched-file lint, source foundation and release contracts passed. Five Chromium/native-Worker lifecycle checks used virtual main-thread time and a synthetic protocol fixture. Full pinned runtime asset verification/Vite assembly and actual complete CLP1/Think Bayes UI compilation now also pass. Two real CLP1 UI stops independently confirmed native Worker destruction through Chrome target inspection, creation of a replacement Worker and no late result or browser error. See docs/rinspace/long-book-compilation.md. Immutable release/private consumption/production rollout remain pending; no production change claimed."
     },
     {
       "id": "optional-host-theme-preference",
