@@ -9,7 +9,7 @@
       "tests": ["scripts/rinspace/busytex-rerun.test.mjs", "actual Chromium complete CLP1 and Think Bayes candidate compilation"],
       "upstreamIssue": null,
       "removalCondition": "An accepted byte-locked BusyTeX runtime fixes false-positive reruns and redundant final passes with equivalent output and real-book regression evidence.",
-      "integrationStatus": "Implementation candidate; tests and real-book browser acceptance pending. No immutable release or production change claimed."
+      "integrationStatus": "131 foundation checks, 35 nearby engine tests, both TypeScript projects and full asset/Vite assembly passed. Actual Chromium imported complete original CLP1 (1723 files) and Think Bayes (193 files), displayed 422-page XeTeX / 426-page pdfLaTeX / 210-page XeTeX PDFs, converged in two TeX passes, and reported zero page or console errors. CLP1 full extracted text and rendered page 100 exactly matched the former four-pass output. See docs/rinspace/long-book-compilation.md; immutable release/private consumption/production rollout remain separate."
     },
     {
       "id": "finite-long-book-compilation",
@@ -18,7 +18,7 @@
       "tests": ["scripts/rinspace/busytex-compilation.test.mjs", "tests/unit/engines/BusyTeXCompilationLifecycle.test.ts", "tests/unit/engines/BusyTeX.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "An accepted upstream BusyTeX release supplies equivalent finite configurable worker timeout and cancellation/single-flight guarantees.",
-      "integrationStatus": "Local checks passed: 12 actual-dependency virtual-clock cases, 35 nearby engine/cache/lifecycle Jest cases, both application/workspace TypeScript projects, touched-file lint, source foundation, 3 release contracts and actual Vite app bundling. Five Chromium/native-Worker lifecycle checks passed with virtual main-thread time and a synthetic protocol fixture, zero page errors. Full release-assets assembly, real-book compilation and immutable release acceptance remain pending; no production change claimed."
+      "integrationStatus": "12 actual-dependency virtual-clock cases, 35 nearby engine/cache/lifecycle Jest cases, both TypeScript projects, touched-file lint, source foundation and release contracts passed. Five Chromium/native-Worker lifecycle checks used virtual main-thread time and a synthetic protocol fixture. Full pinned runtime asset verification/Vite assembly and actual complete CLP1/Think Bayes UI compilation now also pass. Two real CLP1 UI stops independently confirmed native Worker destruction through Chrome target inspection, creation of a replacement Worker and no late result or browser error. See docs/rinspace/long-book-compilation.md. Immutable release/private consumption/production rollout remain pending; no production change claimed."
     },
     {
       "id": "optional-host-theme-preference",
