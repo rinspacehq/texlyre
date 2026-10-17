@@ -8,6 +8,7 @@ import { RinspaceProjectCatalog } from './RinspaceProjectCatalog';
 import { getRinspaceWorkspaceSettings } from './settings';
 import { isRinspaceAccountRoute } from './RinspaceRoutePolicy';
 import { rinspaceLocale } from './RinspaceLocale';
+import { rinspaceTheme } from './RinspaceTheme';
 
 const integrationAllowed = () => isRinspaceAccountRoute(window.location.search, window.location.origin);
 
@@ -52,6 +53,7 @@ const rinspaceWorkspacePlugin: WorkspacePlugin = {
 		return getRinspaceWorkspaceSettings(rinspaceManagedWorkspaceRuntime);
 	},
 	extensions: {
+		theme: rinspaceTheme,
 		locale: rinspaceLocale,
 		host: {
 			open: (intent, signal) =>

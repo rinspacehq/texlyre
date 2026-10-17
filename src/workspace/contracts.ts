@@ -190,6 +190,12 @@ export interface AssetPwaConfiguration {
 }
 
 export interface WorkspaceExtensions {
+	/** Optional host UI preference; unrelated to identity, projects or layout. */
+	readonly theme?: {
+		getPreference(): 'light' | 'dark' | 'system' | undefined;
+		setPreference(preference: 'light' | 'dark' | 'system'): void;
+		subscribe(listener: () => void): () => void;
+	};
 	/** Optional UI preference only; never supplies identity or credentials. */
 	readonly locale?: {
 		getLanguage(browserLanguages: readonly string[]): string | undefined;

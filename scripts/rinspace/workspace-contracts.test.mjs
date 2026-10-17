@@ -32,6 +32,15 @@ test('optional locale hook is available without a host or catalog and has a sing
 	assert.equal(registry.getExtensions().catalog, undefined);
 	assert.throws(() => registry.register(extension('other', { locale })), /already provided/);
 });
+test('optional theme hook has one owner without requiring a host or identity', () => {
+	const registry = new WorkspaceExtensionRegistry();
+	const theme = { getPreference: () => 'system', setPreference: () => {}, subscribe: () => () => {} };
+	registry.register(extension('theme', { theme }));
+	assert.equal(registry.getExtensions().theme, theme);
+	assert.equal(registry.getExtensions().host, undefined);
+	assert.equal(registry.getExtensions().catalog, undefined);
+	assert.throws(() => registry.register(extension('other', { theme })), /already provided/);
+});
 test('conflicting registration is atomic and cannot replace the host', () => {
 	const registry = new WorkspaceExtensionRegistry();
 	registry.register(extension('existing', { host }));

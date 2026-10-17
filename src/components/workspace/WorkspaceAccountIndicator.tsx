@@ -27,7 +27,9 @@ export default function WorkspaceAccountIndicator({ fallback = null }: { fallbac
 			});
 		};
 		const visible = () => { if (document.visibilityState === 'visible') refresh(); };
-		const storage = (event: StorageEvent) => { if (event.key?.startsWith('rinspace-')) refresh(); };
+		const storage = (event: StorageEvent) => {
+			if (event.key?.startsWith('rinspace-') && event.key !== 'rinspace-theme-v2') refresh();
+		};
 		const unsubscribe = catalog.subscribe(refresh);
 		refresh();
 		window.addEventListener('focus', refresh);

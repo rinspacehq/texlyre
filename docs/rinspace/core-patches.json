@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "optional-host-theme-preference",
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/contexts/ThemeContext.tsx", "src/components/settings/ThemeToggleButton.tsx", "src/components/settings/SettingsModal.tsx", "src/styles/components/auth.css", "src/components/workspace/WorkspaceAccountIndicator.tsx"],
+      "purpose": "Let an optional workspace extension share standard light/dark/system preferences without host-specific storage in core. Keep custom editor variants, standalone settings and layout selection independent. Keep account avatar and nickname in one flex row; theme-only storage events must not reload identity.",
+      "tests": ["tests/components/HostTheme.test.tsx", "tests/unit/workspace/RinspaceTheme.test.ts", "tests/unit/workspace/RinspaceThemeStandalone.test.ts", "tests/components/WorkspaceAccountIndicator.test.tsx", "real Chromium geometry and cross-document preference checks"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides an equivalent optional host-theme contract and a correctly scoped account identity layout.",
+      "integrationStatus": "Local source repair; verification and immutable release acceptance are separate."
+    },
+    {
       "id": "automatic-interface-language",
       "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/utils/interfaceLanguage.ts", "src/App.tsx", "src/contexts/LocaleContext.tsx", "src/contexts/localeContextValue.ts", "src/hooks/useLanguage.ts", "src/settings/registerLocaleSettings.tsx", "src/components/settings/SettingsLanguage.tsx"],
       "purpose": "Optional host locale preference with browser-language fallback in automatic mode, consistently at bootstrap and settings registration. Preserve explicit saved editor preferences, expose System to return to automatic, and update on host storage/browser-language events without polling or identity requests. Product storage parsing remains in extras.",

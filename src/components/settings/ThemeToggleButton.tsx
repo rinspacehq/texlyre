@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 
 import { t } from '@/i18n';
 import { useProperties } from '../../hooks/useProperties';
-import { useSettings } from '../../hooks/useSettings';
+import { useTheme } from '../../hooks/useTheme';
 import { SunIcon, MoonIcon } from '../common/Icons';
 
 interface ThemeToggleButtonProps {
@@ -14,7 +14,7 @@ interface ThemeToggleButtonProps {
 const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({
 	className = '',
 }) => {
-	const { getSetting, updateSetting } = useSettings();
+	const { setVariant, isCurrentVariantDark: isDark } = useTheme();
 	const { getProperty, registerProperty } = useProperties();
 	const propertiesRegistered = useRef(false);
 
@@ -39,17 +39,8 @@ const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({
 	const lightVariant = (getProperty('theme-toggle-light') as string) || 'light';
 	const darkVariant = (getProperty('theme-toggle-dark') as string) || 'dark';
 
-	const themeVariantSetting = getSetting('theme-variant');
-	const currentVariant =
-		themeVariantSetting?.value || themeVariantSetting?.defaultValue || 'system';
-
-	const isDark =
-		currentVariant === darkVariant ||
-		(currentVariant === 'system' &&
-			window.matchMedia('(prefers-color-scheme: dark)').matches);
-
 	const toggleTheme = () => {
-		updateSetting('theme-variant', isDark ? lightVariant : darkVariant);
+		setVariant(isDark ? lightVariant : darkVariant);
 	};
 
 	return (
