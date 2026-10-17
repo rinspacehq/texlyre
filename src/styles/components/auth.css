@@ -202,12 +202,29 @@
 	overflow: hidden;
 }
 
-.user-dropdown-button span {
+.user-dropdown-button > span:not(.workspace-account-identity),
+.user-dropdown-button .workspace-account-identity > span {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	display: block;
 	max-width: 150px;
+}
+
+.user-dropdown-button .workspace-account-identity {
+	display: inline-flex;
+	flex-flow: row nowrap;
+	align-items: center;
+	min-width: 0;
+	max-width: 150px;
+}
+
+.user-dropdown-button .workspace-account-identity > :is(img, svg) {
+	flex-shrink: 0;
+}
+
+.user-dropdown-button .workspace-account-identity > span {
+	min-width: 0;
 }
 
 .guest-section {

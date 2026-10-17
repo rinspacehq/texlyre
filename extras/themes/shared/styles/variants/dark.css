@@ -2,14 +2,22 @@
 [data-theme="dark"][data-theme-plugin="texlyre"],
 [data-theme="dark"][data-theme-plugin="texlyre-mobile"],
 [data-theme="dark"][data-theme-plugin="texlyre-slim"] {
-	--accent-background: #1c2733;
-	--accent-border: #2c3640;
-	--editor-background: #0d1117;
-	--editor-text: #c9d1d9;
-	--sidebar-background: #1a242f;
-	--sidebar-border: #30363d;
-	--text-color: #c0c5ce;
+	--accent-background: #0f1921;
+	--accent-border: #40515e;
+	--editor-background: #111c25;
+	--editor-text: #e8f0f5;
+	--sidebar-background: #0b1218;
+	--sidebar-border: #40515e;
+	--text-color: #e8f0f5;
 
-	--pico-primary-rgb: 16, 149, 193;
-	--pico-secondary-rgb: 144, 161, 176;
+	--pico-primary-rgb: 131, 180, 212;
+	--pico-secondary-rgb: 168, 182, 194;
+	--pico-muted-color: #a8b6c2;
+	--pico-card-background-color: #111c25;
+	--pico-card-sectioning-background-color: #0f1921;
+	--pico-form-element-background-color: #111c25;
+	--pico-form-element-border-color: #40515e;
+	--pico-form-element-color: #e8f0f5;
+	--pico-dropdown-background-color: #111c25;
+	--pico-dropdown-border-color: #40515e;
 }

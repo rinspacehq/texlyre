@@ -53,6 +53,9 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
 	);
 	const { getSetting, updateSetting } = useSettings();
 	const { getProperty, isReady: arePropertiesReady } = useProperties();
+	const hostTheme = pluginRegistry.getWorkspaceExtensions().theme;
+	const [hostPreference, setHostPreference] = useState(() => hostTheme?.getPreference());
+	useEffect(() => hostTheme?.subscribe(() => setHostPreference(hostTheme.getPreference())), [hostTheme]);
 
 	useEffect(() => {
 		const themes = pluginRegistry.getThemes();
@@ -75,8 +78,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
 	const currentThemeId =
 		(getSetting('theme-plugin')?.value as string) || defaultThemeId;
 
-	const currentVariant =
+	const localVariant =
 		(getSetting('theme-variant')?.value as string) || defaultVariant;
+	// Custom palettes stay editor-only. Standard modes share the host preference.
+	const currentVariant = ['light', 'dark', 'system'].includes(localVariant)
+		? hostPreference ?? localVariant : localVariant;
 
 	const currentThemePlugin = useMemo(() => {
 		if (availableThemes.length === 0) return null;
@@ -154,8 +160,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
 	const setVariant = useCallback(
 		(variantId: string) => {
 			updateSetting('theme-variant', variantId);
+			if (variantId === 'light' || variantId === 'dark' || variantId === 'system') {
+				hostTheme?.setPreference(variantId);
+				setHostPreference(hostTheme?.getPreference());
+			}
 		},
-		[updateSetting],
+		[updateSetting, hostTheme],
 	);
 	const isCurrentVariantDark = useMemo(() => {
 		if (!currentThemePlugin) return false;

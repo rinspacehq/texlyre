@@ -70,7 +70,7 @@
 	background-color: var(--pico-primary-inverse);
 }
 
-[data-layout="texlyre-mobile"] .user-dropdown-button span {
+[data-layout="texlyre-mobile"] .user-dropdown-button > span:not(.workspace-account-identity) {
 	min-width: var(--mobile-min-touch-target);
 	padding: var(--mobile-spacing-xs);
 }

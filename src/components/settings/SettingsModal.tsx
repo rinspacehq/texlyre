@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { t } from '@/i18n';
 import { useSettings } from '../../hooks/useSettings';
+import { useTheme } from '../../hooks/useTheme';
 import { DEFERRED_UPDATE_TYPES } from '../../contexts/SettingsContext';
 import type { Setting } from '../../contexts/SettingsContext';
 import { SettingsIcon } from '../common/Icons';
@@ -23,6 +24,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 	initialCategory,
 	initialSubcategory,
 }) => {
+	const theme = useTheme();
 	const {
 		getCategories,
 		getSetting,
@@ -117,7 +119,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 		if (isDeferred(setting)) {
 			setPendingValues((prev) => ({ ...prev, [settingId]: value }));
 		} else {
-			updateSetting(settingId, value);
+			if (settingId === 'theme-variant' && typeof value === 'string') theme.setVariant(value);
+			else updateSetting(settingId, value);
 		}
 	};
 
@@ -132,6 +135,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 		if (pendingValues[setting.id] !== undefined) {
 			return pendingValues[setting.id];
 		}
+		if (setting.id === 'theme-variant') return theme.currentVariant;
 		return setting.value !== undefined ? setting.value : setting.defaultValue;
 	};
 

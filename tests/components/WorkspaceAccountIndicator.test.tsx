@@ -39,6 +39,14 @@ test('clears a prior platform identity when login changes to anonymous', async (
 	await waitFor(() => expect(screen.queryByLabelText('真实昵称')).not.toBeInTheDocument());
 });
 
+test('a theme-only change does not reload the platform identity', async () => {
+	render(<WorkspaceAccountIndicator />);
+	await screen.findByLabelText('真实昵称');
+	const calls = getAccount.mock.calls.length;
+	act(() => window.dispatchEvent(new StorageEvent('storage', { key: 'rinspace-theme-v2', newValue: 'dark' })));
+	expect(getAccount).toHaveBeenCalledTimes(calls);
+});
+
 test('does not display a late account response after a newer anonymous result', async () => {
 	const pending: Array<(value: WorkspaceAccountIdentity | null) => void> = [];
 	getAccount.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
