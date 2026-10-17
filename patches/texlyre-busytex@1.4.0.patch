@@ -1,0 +1,154 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 71a3d0356c4030229e5e518a1c058b3b5e66eb50..c8b66f1333b38ff604d89d1d8a3d79b28b79cddc 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -6,6 +6,8 @@ interface BusyTexConfig {
+     catalogDataPackages?: string[];
+     initRetries?: number;
+     initRetryDelayMs?: number;
++    /** Finite worker compilation budget, in milliseconds. Defaults to 180000. */
++    compileTimeoutMs?: number;
+     onDownloadProgress?: (progress: DownloadProgress) => void;
+ }
+ interface DownloadProgress {
+@@ -69,6 +71,7 @@ declare class BusyTexRunner {
+     private initialized;
+     private worker;
+     private busytexPipeline;
++    private cancelCompilation;
+     constructor(config?: BusyTexConfig);
+     initialize(useWorker?: boolean): Promise<void>;
+     private clearPreloadDataPackageCache;
+diff --git a/dist/index.js b/dist/index.js
+index 6aa7b4b4790d5d9a6a8d052a2e6cad52c0fc086f..1808b3f890bde9e1e358936d90350fb7c5966919 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -165,6 +165,11 @@ class BusyTexRunner {
+         this.initialized = false;
+         this.worker = null;
+         this.busytexPipeline = null;
++        this.cancelCompilation = null;
++        const compileTimeoutMs = config.compileTimeoutMs ?? 180000;
++        if (!Number.isInteger(compileTimeoutMs) || compileTimeoutMs <= 0 || compileTimeoutMs > 2147483647) {
++            throw new RangeError('compileTimeoutMs must be a positive finite timer duration');
++        }
+         this.config = {
+             busytexBasePath: config.busytexBasePath || '/core/busytex',
+             verbose: config.verbose ?? false,
+@@ -173,6 +178,7 @@ class BusyTexRunner {
+             catalogDataPackages: config.catalogDataPackages ?? [],
+             initRetries: config.initRetries ?? 2,
+             initRetryDelayMs: config.initRetryDelayMs ?? 1500,
++            compileTimeoutMs,
+             onDownloadProgress: config.onDownloadProgress ?? (() => { })
+         };
+         this.logger = new Logger(this.config.verbose);
+@@ -340,11 +346,32 @@ class BusyTexRunner {
+                 reject(new Error('Worker not initialized'));
+                 return;
+             }
++            if (this.cancelCompilation) {
++                reject(new Error('A BusyTeX compilation is already running'));
++                return;
++            }
++            const worker = this.worker;
++            let settled = false;
++            const settle = (callback) => {
++                if (settled)
++                    return;
++                settled = true;
++                clearTimeout(timeout);
++                worker.onmessage = null;
++                worker.onerror = null;
++                this.cancelCompilation = null;
++                callback();
++            };
++            const fail = (error) => settle(() => {
++                this.terminate();
++                reject(error);
++            });
+             const timeout = setTimeout(() => {
+-                reject(new Error('Compilation timeout'));
+-            }, 180000);
++                fail(new Error(`Compilation timeout after ${this.config.compileTimeoutMs / 60000} minutes`));
++            }, this.config.compileTimeoutMs);
++            this.cancelCompilation = () => settle(() => reject(new Error('Compilation cancelled')));
+             const startCompile = () => {
+-                this.worker.postMessage({
++                worker.postMessage({
+                     files,
+                     main_tex_path: mainTexPath,
+                     bibtex,
+@@ -360,7 +387,9 @@ class BusyTexRunner {
+             };
+             let loadedHandlerScripts = 0;
+             const expectedHandlerScripts = shellHandlerScripts.length;
+-            this.worker.onmessage = ({ data }) => {
++            worker.onmessage = ({ data }) => {
++                if (settled)
++                    return;
+                 if (data.print) {
+                     this.logger.debug(data.print);
+                     this.reportDownloadProgress(data.print);
+@@ -372,28 +401,35 @@ class BusyTexRunner {
+                     }
+                 }
+                 else if (data.pdf !== undefined) {
+-                    clearTimeout(timeout);
+-                    resolve({
++                    settle(() => resolve({
+                         success: data.exit_code === 0,
+                         pdf: data.pdf,
+                         synctex: data.synctex,
+                         log: data.log,
+                         exitCode: data.exit_code,
+                         logs: data.logs
+-                    });
++                    }));
+                 }
+                 else if (data.exception) {
+-                    clearTimeout(timeout);
+-                    reject(new Error(data.exception));
++                    fail(new Error(data.exception));
+                 }
+             };
+-            if (expectedHandlerScripts > 0) {
+-                for (const script of shellHandlerScripts) {
+-                    this.worker.postMessage({ load_shell_handler_script: script });
++            worker.onerror = (error) => {
++                error.preventDefault();
++                fail(new Error(error.message || 'BusyTeX worker failed during compilation'));
++            };
++            try {
++                if (expectedHandlerScripts > 0) {
++                    for (const script of shellHandlerScripts) {
++                        worker.postMessage({ load_shell_handler_script: script });
++                    }
++                }
++                else {
++                    startCompile();
+                 }
+             }
+-            else {
+-                startCompile();
++            catch (error) {
++                fail(error);
+             }
+         });
+     }
+@@ -466,6 +502,7 @@ class BusyTexRunner {
+             this.terminate();
+     }
+     terminate() {
++        const cancelCompilation = this.cancelCompilation;
+         if (this.worker) {
+             this.worker.terminate();
+             this.worker = null;
+@@ -475,6 +512,7 @@ class BusyTexRunner {
+             this.busytexPipeline = null;
+         }
+         this.initialized = false;
++        cancelCompilation?.();
+         this.logger.info('BusyTeX terminated');
+     }
+     isInitialized() {

@@ -39,6 +39,11 @@ overrides:
   prosemirror-view@<1.42.3: '>=1.42.3'
   prosemirror-model: 1.25.12
 
+patchedDependencies:
+  texlyre-busytex@1.4.0:
+    hash: b6db3e3523fd3dda0155139d3f42bd465040d921c0c71f55a29abc7df9300160
+    path: patches/texlyre-busytex@1.4.0.patch
+
 importers:
 
   .:
@@ -264,7 +269,7 @@ importers:
         version: 6.0.0
       texlyre-busytex:
         specifier: ^1.4.0
-        version: 1.4.0
+        version: 1.4.0(patch_hash=b6db3e3523fd3dda0155139d3f42bd465040d921c0c71f55a29abc7df9300160)
       vscode-oniguruma:
         specifier: ^2.0.1
         version: 2.0.1
@@ -11947,7 +11952,7 @@ snapshots:
       glob: 13.0.6
       minimatch: 10.2.5
 
-  texlyre-busytex@1.4.0: {}
+  texlyre-busytex@1.4.0(patch_hash=b6db3e3523fd3dda0155139d3f42bd465040d921c0c71f55a29abc7df9300160): {}
 
   tinyglobby@0.2.16:
     dependencies:

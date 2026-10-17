@@ -16,7 +16,7 @@
     "node": "24.13.1",
     "packageManager": "pnpm@10.20.0",
     "lockfile": "pnpm-lock.yaml",
-    "lockfileSha256": "838c8122f8e76c6e78bcc33d2621defd0486a328ec61fbe109b287627c77f20b"
+    "lockfileSha256": "93b2ccfec9333aa727c4d126b92a26d0ae790ecab2b9b4d40dd33474e36f417b"
   },
   "stage": "source-development",
   "productionAccepted": false
