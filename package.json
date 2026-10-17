@@ -234,7 +234,10 @@
 		],
 		"ignoredBuiltDependencies": [
 			"protobufjs"
-		]
+		],
+		"patchedDependencies": {
+			"texlyre-busytex@1.4.0": "patches/texlyre-busytex@1.4.0.patch"
+		}
 	},
 	"devDependencies": {
 		"@babel/core": "^8.0.1",

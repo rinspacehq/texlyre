@@ -17,6 +17,7 @@ export type BusyTeXEngineType =
 
 const BUSYTEX_CACHE_DIR = '/.texlyre_cache/__btex';
 const MISSES_KEY = `${BUSYTEX_CACHE_DIR}/.misses.json`;
+export const BUSYTEX_COMPILE_TIMEOUT_MS = 45 * 60 * 1000;
 
 const DRIVER_MAP: Record<
 	BusyTeXEngineType,
@@ -104,6 +105,7 @@ export class BusyTeXEngine {
 				engineMode: 'combined',
 				preloadDataPackages: this.selectedBundles,
 				catalogDataPackages: [],
+				compileTimeoutMs: BUSYTEX_COMPILE_TIMEOUT_MS,
 				onDownloadProgress: (progress) => {
 					document.dispatchEvent(
 						new CustomEvent('busytex-download-progress', {
@@ -155,9 +157,16 @@ export class BusyTeXEngine {
 			cachedMisses?: string[];
 		} = {},
 	): Promise<CompileResult> {
+		if (this.isCompiling()) {
+			throw new Error('A BusyTeX compilation is already running');
+		}
 		if (!this.runner?.isInitialized()) {
 			await this.initialize(this.currentEngineType);
 		}
+		if (this.isCompiling()) {
+			throw new Error('A BusyTeX compilation is already running');
+		}
+		const runner = this.runner!;
 
 		this.setStatus('compiling');
 
@@ -165,10 +174,11 @@ export class BusyTeXEngine {
 			const { mainTexPath, files } = this.prepareFiles(mainFileName, fileNodes);
 
 			if (options.cachedMisses?.length) {
-				await this.runner!.writeTexliveRemoteMisses(options.cachedMisses);
+				await runner.writeTexliveRemoteMisses(options.cachedMisses);
 			}
+			if (this.runner !== runner) throw new Error('Compilation cancelled');
 
-			const result = await this.runner!.compile(
+			const result = await runner.compile(
 				files,
 				mainTexPath,
 				options.bibtex ?? null,
@@ -181,7 +191,9 @@ export class BusyTeXEngine {
 				options.remoteEndpoint || this.texliveEndpoint || undefined,
 			);
 
-			await this.runner!.writeTexliveRemoteMisses([]);
+			if (this.runner !== runner) throw new Error('Compilation cancelled');
+			await runner.writeTexliveRemoteMisses([]);
+			if (this.runner !== runner) throw new Error('Compilation cancelled');
 
 			this.setStatus('ready');
 
@@ -201,9 +213,9 @@ export class BusyTeXEngine {
 					: undefined,
 			};
 		} catch (error) {
-			if (this.status !== 'unloaded') {
+			if (this.runner === runner) {
 				this.setStatus('error');
-				this.setStatus('ready');
+				this.setStatus(runner.isInitialized() ? 'ready' : 'unloaded');
 			}
 			throw error;
 		}
