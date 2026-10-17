@@ -235,6 +235,20 @@ engine selection, cancellation, retry and TeX Live data-package caching remain
 owned by BusyTeX. The source tree and production artifact therefore have distinct,
 recorded worker hashes; rebuilding an unreviewed upstream worker fails closed.
 
+The separate `scripts/rinspace/apply-busytex-rerun-overlay.cjs` source overlay
+checks the original BusyTeX 1.4.0 pipeline against SHA-256
+`4855e8fec24e8df952e1080d902791752bcdf283f4fae15811c371dd3ba3389e`.
+It removes the bare `rerunfilecheck` package-name match, not actual outline or
+reference warnings. It retains the initial pass and at least one final-output
+pass, including when a new contents, bibliography or index file emits no
+warning. Further genuine warnings retain the existing three-extra-pass bound.
+Every extra pass emits final output rather than running pdfTeX once more after
+convergence. Bibliography/index processing, source files, compiler binaries and
+TeX Live inputs are unchanged. The build runs this overlay after Vite; it never
+edits downloaded archives, dependencies or live assets. Both overlay sources are
+included in the complete Corresponding Source archive. A changed input or patch
+anchor fails the build instead of silently patching an unknown runtime.
+
 The Rinspace release assembly uses the single `/editor/` base for Vite assets,
 PWA scope, manifest actions, service-worker navigation and the content-addressed
 `/editor/assets/<asset-set>/<digest>/...` tree. `config/rinspace/release.json`

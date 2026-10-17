@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "busytex-warning-driven-reruns",
+      "files": ["scripts/rinspace/apply-busytex-rerun-overlay.cjs", "package.json"],
+      "purpose": "Apply a reproducible source overlay only to the exact reviewed BusyTeX 1.4.0 pipeline after normal asset verification and Vite assembly. Do not treat routine rerunfilecheck loading/unchanged-outline information as a rerun warning. Retain an initial pass plus a mandatory final-output pass for new tables of contents, bibliography and index files, and up to three extra passes for genuine reference warnings. Each rerun emits final output so pdfTeX does not repeat an already converged pass. Leave compiler binaries, bibliography/index stages, engine selection and source files unchanged.",
+      "tests": ["scripts/rinspace/busytex-rerun.test.mjs", "actual Chromium complete CLP1 and Think Bayes candidate compilation"],
+      "upstreamIssue": null,
+      "removalCondition": "An accepted byte-locked BusyTeX runtime fixes false-positive reruns and redundant final passes with equivalent output and real-book regression evidence.",
+      "integrationStatus": "Implementation candidate; tests and real-book browser acceptance pending. No immutable release or production change claimed."
+    },
+    {
       "id": "finite-long-book-compilation",
       "files": ["src/extensions/texlyre-busytex/BusyTeXEngine.ts", "package.json", "pnpm-lock.yaml", "patches/texlyre-busytex@1.4.0.patch", "patches/README.md"],
       "purpose": "Opt into a 45-minute BusyTeX worker compilation budget through a pinned pnpm dependency patch. Settle and clean up worker jobs on timeout, cancellation and errors, refuse overlapping jobs, and keep old-job completions from changing a replacement engine's state. Preserve the existing worker initialization deadline, WASM and TeX Live inputs; no automatic retries or global timer overrides.",
