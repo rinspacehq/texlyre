@@ -55,7 +55,7 @@ const GitRemoteStatusIndicator: React.FC<GitRemoteStatusIndicatorProps> = ({
 			gitService.getHeadOid(currentProjectId),
 			fileSystem.getDiskStatus(),
 		]);
-		const remote = gitSyncService.getConfig(currentProjectId);
+		const remote = await gitSyncService.loadConfig(currentProjectId);
 		setVisible(Boolean(remote || diskStatus.hasGit || headOid));
 
 		if (remote) {

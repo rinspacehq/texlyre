@@ -14,7 +14,7 @@ beforeEach(() => {
 	jest.spyOn(gitService, 'setManagedCommitIdentity').mockImplementation(() => {});
 	jest.spyOn(gitService, 'isInitialized').mockResolvedValue(true);
 	jest.spyOn(gitService, 'getHeadOid').mockResolvedValue(pending);
-	jest.spyOn(gitSyncService, 'getConfig').mockReturnValue(config);
+	jest.spyOn(gitSyncService, 'loadConfig').mockResolvedValue(config);
 	jest.spyOn(gitSyncService, 'bindBrowserSessionRemote').mockResolvedValue();
 	jest.spyOn(gitSyncService, 'fetchForMerge');
 });
@@ -27,14 +27,14 @@ test('reopen preserves the successfully pushed base instead of seeding the initi
 });
 
 test('reopen does not replace a mapped sync base with a pending local HEAD or the observed remote HEAD', async () => {
-	jest.mocked(gitSyncService.getConfig).mockReturnValue({ ...config, syncBase: { localOid: pushed, remoteOid: 'd'.repeat(40) } });
+	jest.mocked(gitSyncService.loadConfig).mockResolvedValue({ ...config, syncBase: { localOid: pushed, remoteOid: 'd'.repeat(40) } });
 	await prepareManagedGit({ ...workspace, remoteHead: 'e'.repeat(40) }, project, true, new AbortController().signal);
 	expect(gitSyncService.bindBrowserSessionRemote).toHaveBeenLastCalledWith(project.id, expect.anything(), undefined);
 	expect(gitSyncService.fetchForMerge).not.toHaveBeenCalled();
 });
 
 test.each([undefined, { ...config, syncBase: undefined }, { ...config, managed: false }, { ...config, providerId: 'another-provider' }, { ...config, repositoryId: 'a/other' }, { ...config, branch: 'other' }])('seeds only the original baseline when no matching saved managed base exists: %p', async existing => {
-	jest.mocked(gitSyncService.getConfig).mockReturnValue(existing);
+	jest.mocked(gitSyncService.loadConfig).mockResolvedValue(existing);
 	await prepareManagedGit(workspace, project, true, new AbortController().signal);
 	expect(gitSyncService.bindBrowserSessionRemote).toHaveBeenLastCalledWith(project.id, expect.anything(), { localOid: imported, remoteOid: imported });
 	expect(gitSyncService.fetchForMerge).not.toHaveBeenCalled();

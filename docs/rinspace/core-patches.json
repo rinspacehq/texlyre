@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "durable-git-remote-configuration",
+      "files": ["src/services/GitRemoteConfigStore.ts", "src/services/GitSyncService.ts", "src/components/history/GitHistoryPanel.tsx", "src/components/history/GitRemoteStatusIndicator.tsx"],
+      "purpose": "Persist generic remote configuration and local/remote synchronization baselines in IndexedDB, not quota-limited synchronous Web Storage. Await commits and restore them before Git actions; retain read-only legacy migration, provider credential references and read-only permissions. Durable disconnect tombstones prevent legacy resurrection. Managed boot awaits restoration before considering its original import fallback. Never evict project/draft data or hide a durable write failure.",
+      "tests": ["tests/services/GitRemoteConfigStore.test.ts", "tests/services/GitSyncService.test.ts", "tests/unit/workspace/RinspaceManagedGit.test.ts", "real browser storage-pressure and reopen/Push acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent durable remote configuration and synchronization-baseline restoration with Web Storage quota and full-browser-restart regressions.",
+      "integrationStatus": "Production book-opening quota failure reproduced in a real test account. Full application types, changed-file lint and 47 nearby persistence/Git/managed-boot tests passed in a credential-free isolated environment, including transaction aborts. Full public CI, immutable release and real-browser candidate/production verification remain separate and pending."
+    },
+    {
       "id": "busytex-warning-driven-reruns",
       "files": ["scripts/rinspace/apply-busytex-rerun-overlay.cjs", "package.json"],
       "purpose": "Apply a reproducible source overlay only to the exact reviewed BusyTeX 1.4.0 pipeline after normal asset verification and Vite assembly. Do not treat routine rerunfilecheck loading/unchanged-outline information as a rerun warning. Retain an initial pass plus a mandatory final-output pass for new tables of contents, bibliography and index files, and up to three extra passes for genuine reference warnings. Each rerun emits final output so pdfTeX does not repeat an already converged pass. Leave compiler binaries, bibliography/index stages, engine selection and source files unchanged.",

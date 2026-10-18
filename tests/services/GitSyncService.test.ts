@@ -77,7 +77,16 @@ jest.mock('../../src/services/FileStoreService', () => ({
 	fileStoreService: { getAllFiles: jest.fn(async () => []) },
 }));
 
-import { gitSyncService } from '../../src/services/GitSyncService';
+import { GitSyncService } from '../../src/services/GitSyncService';
+import { GitRemoteConfigStore } from '../../src/services/GitRemoteConfigStore';
+
+let gitSyncService: GitSyncService;
+let storeIndex = 0;
+let storeName: string;
+beforeEach(() => {
+	storeName = `git-sync-test-${++storeIndex}`;
+	gitSyncService = new GitSyncService(new GitRemoteConfigStore(storeName));
+});
 
 const remoteCommit = {
 	oid: 'remote-head',
@@ -517,7 +526,7 @@ describe('GitSyncService API transport', () => {
 		);
 		expect(mockGit.writeObject).not.toHaveBeenCalled();
 
-		gitSyncService.markFetchedSynced('project-1', result!);
+		await gitSyncService.markFetchedSynced('project-1', result!);
 		expect(gitSyncService.getConfig('project-1')?.syncBase).toEqual({
 			localOid: 'gitlab-local-head',
 			remoteOid: 'gitlab-remote-head',
@@ -1315,6 +1324,29 @@ describe('GitSyncService same-origin Smart HTTP transport', () => {
 		expect(gitSyncService.getConfig('project-1')).not.toHaveProperty(
 			'credentialRef',
 		);
+	});
+
+	it('durably binds and restores a managed project when localStorage is full', async () => {
+		localStorage.clear();
+		localStorage.setItem('draft-to-preserve', 'unsaved draft');
+		const write = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new DOMException('Web Storage is full', 'QuotaExceededError');
+		});
+		try {
+			await gitSyncService.bindBrowserSessionRemote('project-1', {
+				providerId: smartProvider.id, repositoryId: 'owner/repo',
+				repositoryLabel: 'owner/repo', branch: 'main', readOnly: false,
+			}, { localOid: 'pushed-local', remoteOid: 'pushed-remote' });
+			const reopened = new GitSyncService(new GitRemoteConfigStore(storeName));
+			await expect(reopened.loadConfig('project-1')).resolves.toEqual(expect.objectContaining({
+				managed: true, repositoryId: 'owner/repo',
+				syncBase: { localOid: 'pushed-local', remoteOid: 'pushed-remote' },
+			}));
+			expect(write).not.toHaveBeenCalled();
+			expect(localStorage.getItem('draft-to-preserve')).toBe('unsaved draft');
+		} finally {
+			write.mockRestore();
+		}
 	});
 
 	it('fails before any session or Git network call when the owning plugin is disabled', async () => {

@@ -552,7 +552,7 @@ export async function prepareManagedGit(
 	gitService.setManagedCommitIdentity(project.id, workspace.commitIdentity);
 	const initialized = await gitService.isInitialized(project.id);
 	const localHead = initialized ? await gitService.getHeadOid(project.id) : null;
-	const previous = gitSyncService.getConfig(project.id);
+	const previous = await gitSyncService.loadConfig(project.id);
 	// The import baseline is only a fallback. A successful Pull/Push may have
 	// advanced the saved base while leaving pending local commits and drafts.
 	const hasMatchingBase = previous?.managed &&
@@ -597,7 +597,7 @@ export async function prepareManagedGit(
 			localOid: adoptedOid,
 			remoteOid: fetched.remoteOid,
 		};
-		gitSyncService.markFetchedSynced(project.id, adopted);
+		await gitSyncService.markFetchedSynced(project.id, adopted);
 		return adopted.remoteOid;
 	} finally {
 		if (fetched) {
