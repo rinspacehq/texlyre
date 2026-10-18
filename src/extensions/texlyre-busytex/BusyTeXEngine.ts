@@ -4,6 +4,7 @@ import type { FileInput, TexliveRemoteFile } from 'texlyre-busytex';
 
 import { createNamedLogger } from '@/logging';
 import { cacheBusyTeXRuntimeWasm } from './BusyTeXRuntimeCache';
+import { busyTexOutcomeSucceeded } from './BusyTeXResult';
 import type { CompileResult } from '../../types/compilation';
 import type { FileNode } from '../../types/files';
 import { isTemporaryFile, toArrayBuffer } from '../../utils/fileUtils';
@@ -196,12 +197,13 @@ export class BusyTeXEngine {
 			if (this.runner !== runner) throw new Error('Compilation cancelled');
 
 			this.setStatus('ready');
+			const succeeded = busyTexOutcomeSucceeded(result);
 
 			return {
-				pdf: result.success ? result.pdf : undefined,
-				status: result.exitCode,
+				pdf: succeeded ? result.pdf : undefined,
+				status: succeeded ? 0 : result.exitCode || 1,
 				log: result.log,
-				artifacts: result.synctex
+				artifacts: succeeded && result.synctex
 					? [
 							{
 								id: 'synctex',

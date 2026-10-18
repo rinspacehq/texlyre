@@ -24,6 +24,7 @@ import {
 } from '../../utils/fileUtils';
 import { stripAnnotations } from '../../utils/fileCommentUtils';
 import { findCompileArtifact } from '../../utils/compilerUtils';
+import { hasReviewedFontspecRuntime, reviewedFontspecFamilyFiles } from '../../../extras/workspace/rinspace/RinspaceFontspecFamilies';
 
 const moduleLog = createNamedLogger('BusyTeXService');
 
@@ -42,6 +43,7 @@ export const BUSYTEX_BUNDLE_LABELS: Record<string, string> = {
 const REMOTE_FILES_DIR = `${BUSYTEX_CACHE_DIR}/remote`;
 
 class BusyTeXService {
+	private transientFontspecPaths = new Set<string>();
 	private storeCache = true;
 	private storeWorkingDirectory = false;
 	private flattenMainDirectory = true;
@@ -162,7 +164,11 @@ class BusyTeXService {
 				return { ...node, path, content: cleaned };
 			});
 
-		const result = await busyTeXEngine.compile(mainFileName, cleanedNodes, {
+		// Only the reviewed Rinspace TeX Live endpoint has these exact fonts.
+		// Runtime-only configs never enter the user's source or Git history.
+		const familyFiles = hasReviewedFontspecRuntime(this.texliveEndpoint) ? reviewedFontspecFamilyFiles(cleanedNodes) : [];
+		this.transientFontspecPaths = new Set(familyFiles.map(file => file.path));
+		const result = await busyTeXEngine.compile(mainFileName, [...cleanedNodes, ...familyFiles], {
 			bibtex: true,
 			makeindex: true,
 			rerun: true,
@@ -359,6 +365,7 @@ class BusyTeXService {
 			const dirsToCreate = new Set<string>();
 
 			for (const [path, buffer] of Object.entries(workFiles)) {
+				if (this.transientFontspecPaths.has(path.replace(/^\/+/, ''))) continue;
 				const storagePath = `/.texlyre_src/__work${path.startsWith('/') ? path : `/${path}`}`;
 				const dirPath = storagePath.substring(0, storagePath.lastIndexOf('/'));
 				if (dirPath) dirsToCreate.add(dirPath);
@@ -544,7 +551,9 @@ class BusyTeXService {
 						mimeType: 'text/plain',
 					};
 				}
-			} catch {}
+			} catch {
+				// Try the next stored bibliography location.
+			}
 		}
 
 		try {
@@ -564,7 +573,9 @@ class BusyTeXService {
 					mimeType: 'text/plain',
 				};
 			}
-		} catch {}
+		} catch {
+			// No readable stored bibliography was found.
+		}
 
 		return null;
 	}
