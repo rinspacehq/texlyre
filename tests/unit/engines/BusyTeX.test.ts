@@ -186,6 +186,21 @@ describe('BusyTeXEngine', () => {
             expect(result.status).toBe(1);
         });
 
+        it('rejects a partial PDF when WASM reports success despite a fatal fontspec log', async () => {
+            const engine = new BusyTeXEngine();
+            await engine.initialize('busytex-xetex');
+            makeRunner().compile.mockResolvedValueOnce({
+                success:true,exitCode:0,log:'! Package fontspec Error: The font cannot be found.',
+                pdf:new Uint8Array([1,2]),synctex:new Uint8Array([3]),
+                logs:[{log:'! Package fontspec Error: ',stderr:'program exited (with status: 1)',exit_code:0}],
+            });
+            const result=await engine.compile('main.tex',[makeFileNode()]);
+            expect(result.status).toBe(1);
+            expect(result.pdf).toBeUndefined();
+            expect(result.artifacts).toBeUndefined();
+            expect(result.log).toContain('fontspec Error');
+        });
+
         it('transitions back to ready after a compile error', async () => {
             const engine = new BusyTeXEngine();
             await engine.initialize('busytex-xetex');
@@ -285,6 +300,27 @@ describe('BusyTeXEngine', () => {
 
 describe('BusyTeXService', () => {
     describe('compile', () => {
+        it('resolves reviewed family names without persisting generated font configs into project work files', async () => {
+            busyTexService.setTexliveEndpoint('/editor/texlive/2026');
+            busyTexService.setStoreWorkingDirectory(true);
+            await busyTexService.initialize('busytex-xetex');
+            const runner = makeRunner();
+            runner.readProjectFiles.mockImplementation(async (directory?: string) => directory ? [] : [
+                { path:'LibertinusSerif.fontspec', content:'generated config' },
+                { path:'main.aux', content:'auxiliary state' },
+            ]);
+            try {
+                await busyTexService.compile('main.tex', [makeFileNode()]);
+                const paths = runner.compile.mock.calls[0][0].map((file: {path:string})=>file.path);
+                expect(paths).toContain('LibertinusSerif.fontspec');
+                const stored = (fileStoreService.batchStoreFiles as jest.Mock).mock.calls.flatMap(([files])=>files);
+                expect(stored.some((file: FileNode)=>file.path.endsWith('.fontspec'))).toBe(false);
+                expect(stored.some((file: FileNode)=>file.path.endsWith('main.aux'))).toBe(true);
+            } finally {
+                busyTexService.setStoreWorkingDirectory(false);
+            }
+        });
+
         it('calls latexSourceMapService.loadFromBytes on successful compile with synctex', async () => {
             const synctex = new Uint8Array([0x1f, 0x8b]);
             await busyTexService.initialize('busytex-xetex');

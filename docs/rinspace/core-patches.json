@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "busytex-reviewed-fontspec-families",
+      "files": ["extras/workspace/rinspace/RinspaceFontspecFamilies.ts", "src/extensions/texlyre-busytex/BusyTeXService.ts", "src/extensions/texlyre-busytex/BusyTeXEngine.ts", "src/extensions/texlyre-busytex/BusyTeXResult.ts"],
+      "purpose": "Supply transient documented .fontspec configurations for 60 exact reviewed Chinese/English font families in the Rinspace TeX Live runtime, including LXGW and distinct AR PL GB/Big5 families. Browser WASM cannot use the host OS font registry. Preserve author configurations, do not substitute unavailable fonts, change source documents or persist generated configs into project/work files. Standalone mode without the endpoint receives no generated family configs. Reject partial PDFs after fatal TeX/fontspec errors even when the runner reports successful conversion, without rejecting the existing empty-BibTeX probe.",
+      "tests": ["tests/unit/workspace/RinspaceFontspecFamilies.test.ts", "tests/unit/engines/BusyTeX.test.ts", "tests/unit/engines/BusyTeXResult.test.ts", "isolated real Chromium fontspec family-name/file-name compilation"],
+      "upstreamIssue": null,
+      "removalCondition": "BusyTeX supplies equivalent font family-name resolution from its immutable runtime without needing a host font registry.",
+      "integrationStatus": "Real published BusyTeX/WASM plus the candidate helper compiled all 60 families and 189 declared styles. Source font hashes and actual PostScript names were checked from the immutable runtime; PDF inspection verified all declared styles with no missing-character warnings in the tested GB/Big5 samples. A real fatal-fontspec partial PDF is rejected; retained successful CLP1/Think Bayes results remain accepted. Immutable application release and production adoption remain separate."
+    },
+    {
       "id": "durable-git-remote-configuration",
       "files": ["src/services/GitRemoteConfigStore.ts", "src/services/GitSyncService.ts", "src/components/history/GitHistoryPanel.tsx", "src/components/history/GitRemoteStatusIndicator.tsx"],
       "purpose": "Persist generic remote configuration and local/remote synchronization baselines in IndexedDB, not quota-limited synchronous Web Storage. Await commits and restore them before Git actions; retain read-only legacy migration, provider credential references and read-only permissions. Durable disconnect tombstones prevent legacy resurrection. Managed boot awaits restoration before considering its original import fallback. Never evict project/draft data or hide a durable write failure.",
