@@ -1,3 +1,4 @@
+import { createNamedLogger } from '@/logging';
 import type { SecretsContextType } from '../contexts/SecretsContext';
 import type {
 	GitHistoryCredentialSource,
@@ -12,11 +13,12 @@ import { fileHandlerService } from './FileHandlerService';
 import { fileStoreService } from './FileStoreService';
 import { gitFileSystemService } from './GitFileSystemService';
 import { gitService } from './GitService';
+import { GitRemoteConfigStore } from './GitRemoteConfigStore';
 
 const DIR = '/';
 const GIT_DIR = '/.git';
 const WORKTREE_BASE_REF = 'refs/texlyre/worktree-base';
-const REMOTE_STORAGE_PREFIX = 'texlyre-git-remote:';
+const moduleLog = createNamedLogger('GitSyncService');
 
 type GitRemoteListener = (config: GitRemoteConfig | undefined) => void;
 
@@ -388,19 +390,22 @@ const findExactRemoteCommitContent = async (
 	return null;
 };
 
-class GitSyncService {
+export class GitSyncService {
 	private readonly listeners = new Map<string, Set<GitRemoteListener>>();
 
+	constructor(private readonly configStore = new GitRemoteConfigStore()) {}
+
 	getConfig(projectId: string): GitRemoteConfig | undefined {
-		if (typeof localStorage === 'undefined') return undefined;
-		try {
-			const stored = localStorage.getItem(
-				`${REMOTE_STORAGE_PREFIX}${projectId}`,
-			);
-			return stored ? (JSON.parse(stored) as GitRemoteConfig) : undefined;
-		} catch {
-			return undefined;
+		return this.configStore.getCached(projectId);
+	}
+
+	async loadConfig(projectId: string): Promise<GitRemoteConfig | undefined> {
+		const previous = this.getConfig(projectId);
+		const config = await this.configStore.load(projectId);
+		if (JSON.stringify(previous) !== JSON.stringify(config)) {
+			for (const listener of this.listeners.get(projectId) ?? []) listener(config);
 		}
+		return config;
 	}
 
 	addListener(projectId: string, listener: GitRemoteListener): () => void {
@@ -408,35 +413,34 @@ class GitSyncService {
 			this.listeners.get(projectId) ?? new Set<GitRemoteListener>();
 		listeners.add(listener);
 		this.listeners.set(projectId, listeners);
+		void this.loadConfig(projectId).catch(error => {
+			moduleLog.error('Failed to restore persisted Git remote configuration:', error);
+		});
 		return () => {
 			listeners.delete(listener);
 			if (listeners.size === 0) this.listeners.delete(projectId);
 		};
 	}
 
-	private setConfig(
+	private async setConfig(
 		projectId: string,
 		config: GitRemoteConfig | undefined,
-	): void {
-		const previous = this.getConfig(projectId);
+	): Promise<void> {
+		const previous = await this.configStore.load(projectId);
 		if (JSON.stringify(previous) === JSON.stringify(config)) return;
-		if (typeof localStorage !== 'undefined') {
-			const key = `${REMOTE_STORAGE_PREFIX}${projectId}`;
-			if (config) localStorage.setItem(key, JSON.stringify(config));
-			else localStorage.removeItem(key);
-		}
+		await this.configStore.save(projectId, config);
 		for (const listener of this.listeners.get(projectId) ?? []) {
 			listener(config);
 		}
 	}
 
-	private setSyncBase(
+	private async setSyncBase(
 		projectId: string,
 		syncBase: GitRemoteConfig['syncBase'] | undefined,
-	): void {
-		const config = this.getConfig(projectId);
+	): Promise<void> {
+		const config = await this.loadConfig(projectId);
 		if (!config) return;
-		this.setConfig(projectId, { ...config, syncBase });
+		await this.setConfig(projectId, { ...config, syncBase });
 	}
 	private repo(projectId: string) {
 		const fileSystem = gitFileSystemService.get(projectId);
@@ -482,7 +486,7 @@ class GitSyncService {
 		projectId: string,
 		getSetting: (id: string) => { value?: unknown } | undefined,
 	): Promise<GitRemoteConfig | undefined> {
-		const current = this.getConfig(projectId);
+		const current = await this.loadConfig(projectId);
 		if (!current) return undefined;
 		const provider = await this.getProvider(current.providerId);
 		if (!provider) return current;
@@ -498,7 +502,7 @@ class GitSyncService {
 				this.credentialRef(provider, current.credentialSource),
 		};
 		if (JSON.stringify(next) !== JSON.stringify(current)) {
-			this.setConfig(projectId, next);
+			await this.setConfig(projectId, next);
 		}
 		return next;
 	}
@@ -521,7 +525,7 @@ class GitSyncService {
 		if (!(await provider.testConnection(''))) {
 			throw new Error('The current Gitea browser session is unavailable');
 		}
-		const existing = this.getConfig(projectId);
+		const existing = await this.loadConfig(projectId);
 		const preservedBase =
 			existing?.managed &&
 			existing.providerId === config.providerId &&
@@ -529,7 +533,7 @@ class GitSyncService {
 			existing.branch === config.branch
 				? existing.syncBase
 				: undefined;
-		this.setConfig(projectId, {
+		await this.setConfig(projectId, {
 			...config,
 			providerName: provider.displayName,
 			credentialSource: 'history',
@@ -659,7 +663,7 @@ class GitSyncService {
 			);
 		}
 
-		const previous = this.getConfig(projectId);
+		const previous = await this.loadConfig(projectId);
 		let syncBase: GitRemoteConfig['syncBase'];
 		if (
 			previous?.providerId === config.providerId &&
@@ -675,7 +679,7 @@ class GitSyncService {
 				syncBase = previous.syncBase;
 			}
 		}
-		this.setConfig(projectId, {
+		await this.setConfig(projectId, {
 			...config,
 			providerName: provider.displayName,
 			apiConfiguration: provider.getApiConfiguration?.(),
@@ -689,7 +693,7 @@ class GitSyncService {
 		projectId: string,
 		secrets: GitSecretRemover,
 	): Promise<void> {
-		const current = this.getConfig(projectId);
+		const current = await this.loadConfig(projectId);
 		if (current?.credentialSource === 'history') {
 			if (current.credentialRef?.scope === 'project') {
 				await secrets.removeSecret(
@@ -708,14 +712,14 @@ class GitSyncService {
 				}
 			}
 		}
-		this.setConfig(projectId, undefined);
+		await this.setConfig(projectId, undefined);
 	}
 
 	private async resolveTransport(
 		projectId: string,
 		secrets: GitSecretReader,
 	): Promise<ResolvedTransport> {
-		const config = this.getConfig(projectId);
+		const config = await this.loadConfig(projectId);
 		if (!config) throw new Error('Connect a Git remote before synchronizing');
 		const provider = await this.getProvider(config.providerId);
 		if (!provider) {
@@ -1449,8 +1453,8 @@ class GitSyncService {
 		document.dispatchEvent(new CustomEvent('refresh-file-tree'));
 	}
 
-	markFetchedSynced(projectId: string, fetched: GitFetchedRemote): void {
-		this.setSyncBase(projectId, {
+	async markFetchedSynced(projectId: string, fetched: GitFetchedRemote): Promise<void> {
+		await this.setSyncBase(projectId, {
 			localOid: fetched.localOid,
 			remoteOid: fetched.remoteOid,
 		});
@@ -1492,7 +1496,7 @@ class GitSyncService {
 		);
 		if (missing.length === 0) {
 			if (remoteHead) {
-				this.setSyncBase(projectId, { localOid: headOid, remoteOid: remoteHead });
+				await this.setSyncBase(projectId, { localOid: headOid, remoteOid: remoteHead });
 			}
 			return {
 				providerName:
@@ -1551,7 +1555,7 @@ class GitSyncService {
 			);
 		}
 
-		this.setSyncBase(projectId, { localOid: headOid, remoteOid: headOid });
+		await this.setSyncBase(projectId, { localOid: headOid, remoteOid: headOid });
 		return {
 			providerName:
 				transport.config.providerName ?? transport.config.providerId,
@@ -1620,7 +1624,7 @@ class GitSyncService {
 		);
 		if (missing.length === 0) {
 			if (!syncBase && remoteHead && localBaseOid) {
-				this.setSyncBase(projectId, {
+				await this.setSyncBase(projectId, {
 					localOid: localBaseOid,
 					remoteOid: remoteHead,
 				});
@@ -1746,7 +1750,7 @@ class GitSyncService {
 				canonicalOid,
 			);
 		}
-		this.setSyncBase(projectId, {
+		await this.setSyncBase(projectId, {
 			localOid: synchronizedLocalOid,
 			remoteOid: canonicalRemoteOid,
 		});

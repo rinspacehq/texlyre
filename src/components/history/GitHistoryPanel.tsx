@@ -879,7 +879,7 @@ const GitHistoryPanel: React.FC<GitHistoryPanelProps> = ({
 				}
 			}
 			await gitService.resetAll(projectId);
-			gitSyncService.markFetchedSynced(projectId, fetched);
+			await gitSyncService.markFetchedSynced(projectId, fetched);
 			setCompareSource(null);
 			onClearDiff();
 			shouldReload = true;
