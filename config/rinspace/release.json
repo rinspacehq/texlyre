@@ -1,7 +1,7 @@
 {
   "schema": "rinspace-texlyre-release/v1",
-  "releaseTag": "v0.13.2-rinspace.14",
-  "version": "0.13.2-rinspace.14",
+  "releaseTag": "v0.13.2-rinspace.15",
+  "version": "0.13.2-rinspace.15",
   "canonicalRepository": "rinspacehq/texlyre",
   "routeBase": "/editor/",
   "license": "AGPL-3.0-or-later",
@@ -13,7 +13,7 @@
     "sourceArchiveRequired": true
   },
   "artifact": {
-    "filename": "texlyre-editor-v0.13.2-rinspace.14.tar.gz",
+    "filename": "texlyre-editor-v0.13.2-rinspace.15.tar.gz",
     "archiveRoot": "editor",
     "includesDependencyNotices": true,
     "includesExternalNotices": true
