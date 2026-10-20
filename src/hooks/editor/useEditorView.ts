@@ -84,6 +84,7 @@ import {
 } from '../../contexts/EditorContext';
 import type { EditorSettings } from '../../types/editor';
 import { autoSaveService } from '../../services/AutoSaveService';
+import { notificationService } from '../../services/NotificationService';
 import { detectFileType, isBibFile } from '../../utils/fileUtils';
 import { collabService } from '../../services/CollabService';
 import { fileStoreService } from '../../services/FileStoreService';
@@ -99,6 +100,13 @@ import {
 } from './yjsBinding';
 
 const moduleLog = createNamedLogger('useEditorView');
+
+const reportSaveFailure = (error: unknown): void => {
+	moduleLog.error('Editor draft was not saved:', error);
+	notificationService.showError(t('The file was not saved in browser storage'), {
+		operationId: 'editor-save',
+	});
+};
 
 const applyEditorAppearance = (
 	view: EditorView,
@@ -221,6 +229,8 @@ export const useEditorView = (
 		async (content: string) => {
 			if (!currentFileId || !isEditingFile) return;
 			try {
+				if (fileStoreService.getCurrentProjectId() !== projectId)
+					throw new Error(t('The file was not saved in browser storage'));
 				const encoder = new TextEncoder();
 				const contentBuffer = encoder.encode(content).buffer;
 				const file = await fileStoreService.updateFileContent(
@@ -247,25 +257,31 @@ export const useEditorView = (
 				);
 			} catch (error) {
 				moduleLog.error('Error saving file:', error);
+				throw error;
 			}
 		},
-		[currentFileId, isEditingFile, fileName],
+		[currentFileId, isEditingFile, fileName, projectId],
 	);
 
 	const saveDocumentToLinkedFile = useCallback(
 		async (content: string) => {
 			if (!documentId || isEditingFile) return;
 			try {
+				if (fileStoreService.getCurrentProjectId() !== projectId)
+					throw new Error(t('The file was not saved in browser storage'));
 				const allFiles = await fileStoreService.getAllFiles(
 					false,
 					false,
 					false,
 				);
+				if (fileStoreService.getCurrentProjectId() !== projectId)
+					throw new Error(t('The file was not saved in browser storage'));
 				const linkedFile = allFiles.find(
 					(file) => file.documentId === documentId,
 				);
 				if (linkedFile) {
-					await fileStoreService.updateFileContent(linkedFile.id, content);
+					const saved = await fileStoreService.updateFileContent(linkedFile.id, content);
+					if (!saved) throw new Error(t('The file was not saved in browser storage'));
 
 					if (isBibFile(linkedFile.name) && viewRef.current) {
 						refreshBibliographyCache(viewRef.current);
@@ -287,10 +303,29 @@ export const useEditorView = (
 				}
 			} catch (error) {
 				moduleLog.error('Error saving document to linked file:', error);
+				throw error;
 			}
 		},
-		[documentId, isEditingFile],
+		[documentId, isEditingFile, projectId],
 	);
+
+	const saveFileManually = useCallback(async (content: string) => {
+		if (!currentFileId) return;
+		try {
+			await autoSaveService.saveNow(currentFileId, content, (_id, text) => saveFileToStorage(text));
+		} catch (error) {
+			reportSaveFailure(error);
+		}
+	}, [currentFileId, saveFileToStorage]);
+
+	const saveDocumentManually = useCallback(async (content: string) => {
+		if (!documentId) return;
+		try {
+			await autoSaveService.saveNow(documentId, content, (_id, text) => saveDocumentToLinkedFile(text));
+		} catch (error) {
+			reportSaveFailure(error);
+		}
+	}, [documentId, saveDocumentToLinkedFile]);
 
 	const buildSpellCheckExtension = (): Extension => {
 		if (!getSpellCheckEnabled()) return [];
@@ -574,9 +609,9 @@ export const useEditorView = (
 						return true;
 					}
 					const content = view.state.doc.toString();
-					if (isEditingFile && currentFileId) void saveFileToStorage(content);
+					if (isEditingFile && currentFileId) void saveFileManually(content);
 					else if (!isEditingFile && documentId)
-						void saveDocumentToLinkedFile(content);
+						void saveDocumentManually(content);
 					return true;
 				},
 			},
@@ -962,10 +997,13 @@ export const useEditorView = (
 		if (!autoSaveKey || isViewOnly || !getAutoSaveEnabled()) return;
 
 		const autoSaveDelay = getAutoSaveDelay();
+		let cancelled = false;
+		let setupTimer: ReturnType<typeof setTimeout> | undefined;
 
 		const setupAutoSave = () => {
+			if (cancelled) return;
 			if (!viewRef.current) {
-				setTimeout(setupAutoSave, 100);
+				setupTimer = setTimeout(setupAutoSave, 100);
 				return;
 			}
 
@@ -981,7 +1019,7 @@ export const useEditorView = (
 						else if (!isEditingFile && documentId)
 							await saveDocumentToLinkedFile(content);
 					},
-					onError: (error) => moduleLog.error('Auto-save failed:', error),
+					onError: reportSaveFailure,
 				},
 			);
 		};
@@ -989,6 +1027,8 @@ export const useEditorView = (
 		setupAutoSave();
 
 		return () => {
+			cancelled = true;
+			if (setupTimer !== undefined) clearTimeout(setupTimer);
 			if (autoSaveKey) autoSaveService.clearAutoSaver(autoSaveKey);
 			autoSaveRef.current = null;
 		};
@@ -1062,8 +1102,8 @@ export const useEditorView = (
 			documentId,
 			enableComments,
 			enableReviews,
-			saveFileToStorage,
-			saveDocumentToLinkedFile,
+			saveFileToStorage: saveFileManually,
+			saveDocumentToLinkedFile: saveDocumentManually,
 			setShowSaveIndicator,
 		});
 	}, [
@@ -1074,23 +1114,16 @@ export const useEditorView = (
 		documentId,
 		enableComments,
 		enableReviews,
-		saveFileToStorage,
-		saveDocumentToLinkedFile,
+		saveFileManually,
+		saveDocumentManually,
 	]);
 
 	useEffect(() => {
 		return () => {
 			const autoSaveKey = isEditingFile ? currentFileId : documentId;
 			if (autoSaveKey) {
-				const content = viewRef.current?.state?.doc?.toString();
-				if (content) {
-					autoSaveService
-						.flushPendingSaves()
-						.catch((error) =>
-							moduleLog.error('Failed to flush pending saves:', error),
-						);
-				}
 				autoSaveService.clearAutoSaver(autoSaveKey);
+				void autoSaveService.flushPendingSaves().catch(reportSaveFailure);
 			}
 		};
 	}, [currentFileId, documentId, isEditingFile]);

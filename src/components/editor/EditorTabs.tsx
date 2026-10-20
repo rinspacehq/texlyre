@@ -31,7 +31,7 @@ const getTabIcon = (tab: EditorTab) => {
 };
 
 interface EditorTabsProps {
-	onTabSwitch?: (tabId: string) => void;
+	onTabSwitch?: (tabId: string) => void | boolean | Promise<void | boolean>;
 }
 
 interface ContextMenuState {
@@ -148,11 +148,14 @@ const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
 	}, [activeTabId, tabs.length]);
 
 	const handleTabClick = useCallback(
-		(e: React.MouseEvent, tabId: string) => {
+		async (e: React.MouseEvent | React.KeyboardEvent, tabId: string) => {
 			e.preventDefault();
 			e.stopPropagation();
-			switchToTab(tabId);
-			onTabSwitch?.(tabId);
+			try {
+				if (await onTabSwitch?.(tabId) !== false) switchToTab(tabId);
+			} catch (error) {
+				moduleLog.error('Unable to switch editor tab:', error);
+			}
 		},
 		[switchToTab, onTabSwitch],
 	);
@@ -430,7 +433,7 @@ const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
 							onKeyDown={(e) => {
 								if (e.key === 'Enter' || e.key === ' ') {
 									e.preventDefault();
-									handleTabClick(e as any, tab.id);
+									void handleTabClick(e, tab.id);
 								}
 							}}
 						>

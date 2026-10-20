@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "durable-editor-draft-lifecycle",
+      "files": ["src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/components/editor/EditorTabs.tsx"],
+      "purpose": "Capture drafts while their view is alive, bound continuous-input save delay, serialize automatic and manual writes, retain failed snapshots and prevent navigation until saves finish. Scope asynchronous navigation from the original user intent through metadata and content reads so stale reads cannot replace a newer view or cross a project switch. Keep the active tab header unchanged when navigation fails.",
+      "tests": ["scripts/rinspace/autosave-durability.test.mjs", "tests/unit/hooks/editor/useEditorNavigationDurability.test.tsx", "tests/components/EditorTabsDurability.test.tsx", "tests/unit/hooks/editor/EditorEvents.test.ts", "tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream preserves pending drafts across editor disposal, orders manual and automatic writes, reports failed saves and protects all asynchronous navigation stages with equivalent regression coverage.",
+      "integrationStatus": "Source candidate only. Six original navigation regressions failed before the change; the first fix passed those six, and two additional delayed-metadata cases exposed the need to capture intent before the first await. The complete intent-scoped candidate passes 29 editor tests, 16 save-service tests, workspace/application type checks and strict lint for the new tests and save service. Existing hook lint diagnostics remain under explicit baseline review. No new release, product consumption, production rollout or candidate browser acceptance is implied. Real production Edge for Linux testing did not reproduce the separately reported spontaneous loss without a file switch."
+    },
+    {
       "id": "busytex-reviewed-fontspec-families",
       "files": ["extras/workspace/rinspace/RinspaceFontspecFamilies.ts", "src/extensions/texlyre-busytex/BusyTeXService.ts", "src/extensions/texlyre-busytex/BusyTeXEngine.ts", "src/extensions/texlyre-busytex/BusyTeXResult.ts"],
       "purpose": "Supply transient documented .fontspec configurations for 60 exact reviewed Chinese/English font families in the Rinspace TeX Live runtime, including LXGW and distinct AR PL GB/Big5 families. Browser WASM cannot use the host OS font registry. Preserve author configurations, do not substitute unavailable fonts, change source documents or persist generated configs into project/work files. Standalone mode without the endpoint receives no generated family configs. Reject partial PDFs after fatal TeX/fontspec errors even when the runner reports successful conversion, without rejecting the existing empty-BibTeX probe.",
