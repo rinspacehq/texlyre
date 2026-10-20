@@ -3,13 +3,22 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "bounded-ci-test-worker",
+      "files": ["jest.config.cjs", "scripts/rinspace/jest-worker-budget.test.mjs"],
+      "purpose": "Keep the existing single-worker CI, test set and V8 coverage, but recycle the test worker after a file crosses a 768 MB heap threshold. Jest otherwise executes maxWorkers=1 in a single long-lived main process, retaining TypeScript and coverage contexts until the fixed memory ceiling stalls. Do not increase CPU/memory quotas, omit tests or reduce coverage inputs.",
+      "tests": ["scripts/rinspace/jest-worker-budget.test.mjs", "full single-worker CI with unchanged V8 coverage"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream bounds single-worker TypeScript/coverage memory with equivalent process-recycling and serial-execution coverage.",
+      "integrationStatus": "The original exact-source CI reported 119 passing test files, no failing file, and remained CPU-active above 97 percent of its fixed memory ceiling with no new test report for more than eight minutes. That owned run is intentionally cancelled and preserved, not passed. The configuration regression fails against the prior config; the installed Jest fixture demonstrates actual serial worker replacement. Both new regressions and all 149 foundation tests pass in an offline, credential-free public-source sandbox with unchanged resource limits. New reviewed-source formal CI remains pending; this test-only patch does not change editor runtime behavior or imply a release."
+    },
+    {
       "id": "mathlive-source-input-boundary",
       "files": ["src/extensions/codemirror/MathLiveExtension.ts"],
       "purpose": "Keep floating equation previews/editors independent of the source editor's bidi isolation. Showing or dismissing an external overlay must not rewrap source text nodes that an OS input method may own. Preserve preview and equation editing without disabling MathLive, source bidi support, input methods or saving.",
       "tests": ["tests/unit/extensions/codemirror/MathPreviewInputBoundary.test.ts", "actual headed Edge and system Fcitx5 Pinyin: Chinese input immediately after inline math in intro.tex"],
       "upstreamIssue": null,
       "removalCondition": "Upstream keeps floating MathLive UI from changing source isolation and passes equivalent native IME and source-DOM regression coverage.",
-      "integrationStatus": "Real production system-IME typing exposed a missing math delimiter and displaced preedit text. The same input with MathLive disabled retained both delimiters and committed Chinese correctly. Two real CodeMirror/processor/bidi tests fail before removing this coupling and pass afterward. With previews enabled, actual headed Edge and Fcitx5 Pinyin retained three exact mixed-language/formula samples and all prior source through native typing and explicit Save. The combined reload test separately exposed managed activation replacing the requested file with the main entry; that failed run remains failed. Both TypeScript projects, strict lint for the newly changed modules and 121 suites / 1397 Jest tests pass. Final combined native-input/reload candidate verification, public CI, release and production rollout remain separate; the original bulk-loss report is not declared fully resolved."
+      "integrationStatus": "Real production system-IME typing exposed a missing math delimiter and displaced preedit text. The same input with MathLive disabled retained both delimiters and committed Chinese correctly. Two real CodeMirror/processor/bidi tests fail before removing this coupling and pass afterward. With previews enabled, actual headed Edge and Fcitx5 Pinyin retained three exact mixed-language/formula samples and all prior source through native typing and explicit Save. The combined reload test separately exposed managed activation replacing the requested file with the main entry; that failed run remains failed. After the route correction, a final native-input, explicit-Save and reload round preserved the exact intro-file text and route, all prior content and equation previews; original test files and preferences were restored without Push. Both TypeScript projects, strict lint for the newly changed modules and 121 suites / 1397 Jest tests pass. Windows Microsoft Pinyin, new public CI, release and production rollout remain separate; the original bulk-loss report is not declared fully resolved."
     },
     {
       "id": "manual-editor-draft-retention",

@@ -44,6 +44,10 @@ module.exports = {
 		'!src/vite-env.d.ts',
 	],
 	coverageProvider: 'v8',
+	// maxWorkers=1 otherwise chooses a single long-lived main process. Keep
+	// one CI worker, but recycle it between files instead of retaining every
+	// TypeScript program and coverage context until the memory ceiling stalls.
+	workerIdleMemoryLimit: '768MB',
 	// NOTE (fabawi): Disabling threshold for now until we have proper coverage
 	// coverageThreshold: {
 	//     global: {
