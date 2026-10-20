@@ -3,6 +3,33 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "mathlive-source-input-boundary",
+      "files": ["src/extensions/codemirror/MathLiveExtension.ts"],
+      "purpose": "Keep floating equation previews/editors independent of the source editor's bidi isolation. Showing or dismissing an external overlay must not rewrap source text nodes that an OS input method may own. Preserve preview and equation editing without disabling MathLive, source bidi support, input methods or saving.",
+      "tests": ["tests/unit/extensions/codemirror/MathPreviewInputBoundary.test.ts", "actual headed Edge and system Fcitx5 Pinyin: Chinese input immediately after inline math in intro.tex"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream keeps floating MathLive UI from changing source isolation and passes equivalent native IME and source-DOM regression coverage.",
+      "integrationStatus": "Real production system-IME typing exposed a missing math delimiter and displaced preedit text. The same input with MathLive disabled retained both delimiters and committed Chinese correctly. Two real CodeMirror/processor/bidi tests fail before removing this coupling and pass afterward. With previews enabled, actual headed Edge and Fcitx5 Pinyin retained three exact mixed-language/formula samples and all prior source through native typing and explicit Save. The combined reload test separately exposed managed activation replacing the requested file with the main entry; that failed run remains failed. Both TypeScript projects, strict lint for the newly changed modules and 121 suites / 1397 Jest tests pass. Final combined native-input/reload candidate verification, public CI, release and production rollout remain separate; the original bulk-loss report is not declared fully resolved."
+    },
+    {
+      "id": "manual-editor-draft-retention",
+      "files": ["src/services/EditorDraftService.ts", "src/hooks/editor/useEditorView.ts", "src/components/editor/EditorTabs.tsx", "src/components/editor/FileDocumentController.tsx"],
+      "purpose": "Keep unsaved file documents, cursor selection and undo state across file switches and view reconstruction even when periodic saving is disabled. Scope drafts by project and file, expose existing dirty markers and register a leave warning only while unsaved drafts exist. Do not implicitly write files, commit or Push in manual mode. Retain and report a dirty draft if a newly loaded source differs.",
+      "tests": ["tests/services/EditorDraftService.test.ts", "tests/components/EditorTabsDurability.test.tsx", "real Edge owned-account article detail Edit, manual-mode switch and explicit Save"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent project-scoped manual draft, selection, undo, dirty marker and leave protection across view lifecycles.",
+      "integrationStatus": "Nine draft service tests and eleven navigation/tab tests pass, with workspace/application type checks. Real account manual-mode loss was reproduced before this change. Candidate account testing retained the exact text, selection, dirty marker and undo/redo across file switches without implicitly writing in manual mode; explicit Save persisted it and the original file/preferences were restored. Final source validation passes 121 suites / 1397 Jest tests. In-memory retention is not a persistent crash journal. No release, private consumption or production rollout is implied."
+    },
+    {
+      "id": "mathlive-mounted-widget-lifecycle",
+      "files": ["src/extensions/codemirror/mathlive/MathWidget.ts"],
+      "purpose": "Initialize previews and equation inputs on MathLive's documented mount event, not a timer that may run after unmount. Refuse stale or disconnected edit widgets and do not steal focus after the user moves to another input.",
+      "tests": ["tests/unit/extensions/codemirror/MathWidgetLifecycle.test.ts", "real Edge mixed-language and formula writing"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream uses the mounted MathLive lifecycle with equivalent disposal and focus regressions.",
+      "integrationStatus": "Five functional regressions failed against the prior widget and pass after the change. A Mathfield not mounted error was observed during real account continuous writing, but this does not establish the cause of the separately reported spontaneous bulk text loss. Candidate browser and full source checks remain separate."
+    },
+    {
       "id": "durable-editor-draft-lifecycle",
       "files": ["src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/components/editor/EditorTabs.tsx"],
       "purpose": "Capture drafts while their view is alive, bound continuous-input save delay, serialize automatic and manual writes, retain failed snapshots and prevent navigation until saves finish. Scope asynchronous navigation from the original user intent through metadata and content reads so stale reads cannot replace a newer view or cross a project switch. Keep the active tab header unchanged when navigation fails.",

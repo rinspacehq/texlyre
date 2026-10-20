@@ -12,7 +12,6 @@ import { MathfieldElement } from 'mathlive';
 
 import { MathDetector, type MathRegion } from './mathlive/MathDetector';
 import { MathPreviewWidget, MathEditWidget } from './mathlive/MathWidget';
-import { setMathEditRegion } from './BidiExtension';
 import { isInsideAnnotationTag } from './annotations/annotationMasking';
 
 const BASE_PATH = __BASE_PATH__;
@@ -304,13 +303,8 @@ class MathLiveProcessor {
 		document.body.appendChild(dom);
 		this.currentOverlay = dom;
 
-		setTimeout(() => {
-			if (!this.currentOverlay || this.isDestroyed) return;
-
-			this.view.dispatch({
-				effects: setMathEditRegion.of({ from: region.from, to: region.to }),
-			});
-		}, 0);
+		// This is a floating preview, not an inline replacement. Keep source
+		// bidi spans stable: rewrapping them can cancel an adjacent OS IME range.
 
 		setTimeout(() => {
 			if (!this.currentOverlay) return;
@@ -389,10 +383,6 @@ class MathLiveProcessor {
 				if (!this.currentOverlay) return;
 				dom.style.visibility = 'visible';
 			}, 50);
-
-			this.view.dispatch({
-				effects: setMathEditRegion.of({ from: region.from, to: region.to }),
-			});
 
 			this.outsideClickHandler = (e: MouseEvent) => {
 				const target = e.target as Element;
@@ -473,7 +463,6 @@ class MathLiveProcessor {
 			this.view.dispatch({
 				effects: [
 					setEditingRegion.of(null),
-					setMathEditRegion.of(null),
 					setMathDecorations.of(Decoration.none),
 				],
 			});
@@ -488,7 +477,6 @@ class MathLiveProcessor {
 			this.view.dispatch({
 				effects: [
 					setEditingRegion.of(null),
-					setMathEditRegion.of(null),
 					setMathDecorations.of(Decoration.none),
 				],
 			});
@@ -507,13 +495,6 @@ class MathLiveProcessor {
 		if (this.currentOverlay) {
 			this.currentOverlay.remove();
 			this.currentOverlay = null;
-
-			setTimeout(() => {
-				if (this.isDestroyed) return;
-				this.view.dispatch({
-					effects: setMathEditRegion.of(null),
-				});
-			}, 0);
 		}
 	}
 

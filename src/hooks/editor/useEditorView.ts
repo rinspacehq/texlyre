@@ -84,6 +84,7 @@ import {
 } from '../../contexts/EditorContext';
 import type { EditorSettings } from '../../types/editor';
 import { autoSaveService } from '../../services/AutoSaveService';
+import { EditorDraftService, editorDraftService } from '../../services/EditorDraftService';
 import { notificationService } from '../../services/NotificationService';
 import { detectFileType, isBibFile } from '../../utils/fileUtils';
 import { collabService } from '../../services/CollabService';
@@ -157,8 +158,6 @@ const classifyFileType = (
 	};
 };
 
-const fileUndoHistoryCache = new Map<string, unknown>();
-
 export const useEditorView = (
 	editorRef: React.RefObject<HTMLDivElement | null>,
 	docUrl: string,
@@ -194,6 +193,7 @@ export const useEditorView = (
 
 	const ytextRef = useRef<Y.Text | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
+	const lastFileViewKeyRef = useRef<string | null>(null);
 	const isUpdatingRef = useRef<boolean>(false);
 	const autoSaveRef = useRef<(() => void) | null>(null);
 	const yjsEditorBindingRef = useRef<YjsEditorBindingResult | null>(null);
@@ -238,6 +238,7 @@ export const useEditorView = (
 					contentBuffer,
 				);
 				if (!file) throw new Error(t('The file was not saved in browser storage'));
+				editorDraftService.markSaved({ projectId, fileId: currentFileId }, content);
 
 				if (fileName && isBibFile(fileName) && viewRef.current) {
 					refreshBibliographyCache(viewRef.current);
@@ -363,6 +364,9 @@ export const useEditorView = (
 		let cursorUpdateTimeout: NodeJS.Timeout | null = null;
 
 		return EditorView.updateListener.of((update: ViewUpdate) => {
+			if (isEditingFile && currentFileId && (update.docChanged || update.selectionSet)) {
+				editorDraftService.record({ projectId, fileId: currentFileId }, update.state.doc, update.state.selection);
+			}
 			if (update.docChanged && autoSaveRef.current) autoSaveRef.current();
 
 			if (update.selectionSet) {
@@ -720,9 +724,18 @@ export const useEditorView = (
 		}
 
 		let disposeClipboard: (() => void) | null = null;
+		let createdView: EditorView | null = null;
+		const identity = isEditingFile && currentFileId ? { projectId, fileId: currentFileId } : null;
+		const viewKey = identity ? EditorDraftService.key(identity) : null;
+		const initialDraft = identity
+			? editorDraftService.open(identity, textContent, lastFileViewKeyRef.current === viewKey)
+			: null;
+		if (initialDraft?.sourceConflict) {
+			notificationService.showError(t('The file changed outside this editor. Your unsaved draft has been retained.'));
+		}
 
 		const contentToUse = isEditingFile
-			? textContent
+			? initialDraft?.draft.document.toString() ?? textContent
 			: ytextRef.current?.toString() || '';
 
 		const info = classifyFileType(fileName, contentToUse);
@@ -824,10 +837,7 @@ export const useEditorView = (
 		extensions.push(...buildReviewExtensions());
 		extensions.push(...buildKeymapExtensions(info));
 
-		const cachedUndoHistory =
-			isEditingFile && currentFileId
-				? fileUndoHistoryCache.get(currentFileId)
-				: undefined;
+		const cachedUndoHistory = initialDraft?.draft.history;
 
 		let state: EditorState;
 		if (cachedUndoHistory) {
@@ -835,25 +845,24 @@ export const useEditorView = (
 				state = EditorState.fromJSON(
 					{
 						doc: contentToUse,
-						selection: { ranges: [{ anchor: 0, head: 0 }], main: 0 },
+						selection: initialDraft?.draft.selection.toJSON(),
 						history: cachedUndoHistory,
 					},
 					{ extensions },
 					{ history: historyField },
 				);
 			} catch {
-				if (currentFileId) {
-					fileUndoHistoryCache.delete(currentFileId);
-				}
-				state = EditorState.create({ doc: contentToUse, extensions });
+				state = EditorState.create({ doc: contentToUse, selection: initialDraft?.draft.selection, extensions });
 			}
 		} else {
-			state = EditorState.create({ doc: contentToUse, extensions });
+			state = EditorState.create({ doc: contentToUse, selection: initialDraft?.draft.selection, extensions });
 		}
 
 		try {
 			const view = new EditorView({ state, parent: editorRef.current });
+			createdView = view;
 			viewRef.current = view;
+			lastFileViewKeyRef.current = viewKey;
 			applyEditorAppearance(view, editorSettings);
 
 			if (enableComments) {
@@ -889,12 +898,12 @@ export const useEditorView = (
 			disposeClipboard?.();
 			disposeClipboard = null;
 
-			if (viewRef.current) {
-				if (isEditingFile && currentFileId) {
-					const snapshot = viewRef.current.state.toJSON({
+			if (createdView) {
+				if (identity) {
+					const snapshot = createdView.state.toJSON({
 						history: historyField,
 					});
-					fileUndoHistoryCache.set(currentFileId, snapshot.history);
+					editorDraftService.record(identity, createdView.state.doc, createdView.state.selection, snapshot.history);
 				}
 
 				yjsEditorBindingRef.current?.cleanup();
@@ -903,12 +912,13 @@ export const useEditorView = (
 				toolbarControllerRef.current = null;
 				setToolbarController(null);
 
-				viewRef.current.destroy();
-				viewRef.current = null;
+				createdView.destroy();
+				if (viewRef.current === createdView) viewRef.current = null;
 			}
 		};
 	}, [
 		editorRef,
+		projectId,
 		yDoc,
 		provider,
 		isDocumentSelected,

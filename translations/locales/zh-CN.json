@@ -2605,6 +2605,8 @@
   "Text Editor": "文本编辑器",
   "Text View": "文本视图",
   "The browser and folder contain different Git histories. Neither has been overwritten.": "浏览器和文件夹包含不同的 Git 历史记录。两者都未被覆盖。",
+  "The file changed outside this editor. Your unsaved draft has been retained.": "文件已在其他位置更改，未保存的草稿已保留。",
+  "The file was not saved in browser storage": "文件未能保存到浏览器存储",
   "The following will be permanently removed:": "以下内容将被永久删除：",
   "The linked folder contains .git": "已链接的文件夹包含 .git",
   "The project remains accessible as long as someone has the link": "只要有人拥有链接，项目就可以访问",
