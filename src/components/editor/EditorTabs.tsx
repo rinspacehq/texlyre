@@ -8,6 +8,7 @@ import { useEditorTabs } from '../../hooks/useEditorTabs';
 import { useHeaderVisibility } from '../../hooks/useHeaderVisibility';
 import { useWheelScroll } from '../../hooks/useWheelScroll';
 import { pluginRegistry } from '../../plugins/PluginRegistry';
+import { editorDraftService } from '../../services/EditorDraftService';
 import type { EditorTab } from '../../types/editorTabs';
 import {
 	CloseIcon,
@@ -31,7 +32,8 @@ const getTabIcon = (tab: EditorTab) => {
 };
 
 interface EditorTabsProps {
-	onTabSwitch?: (tabId: string) => void;
+	onTabSwitch?: (tabId: string) => void | boolean | Promise<void | boolean>;
+	projectId?: string;
 }
 
 interface ContextMenuState {
@@ -41,7 +43,7 @@ interface ContextMenuState {
 	tabId: string | null;
 }
 
-const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
+const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch, projectId }) => {
 	const {
 		tabs,
 		activeTabId,
@@ -52,7 +54,22 @@ const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
 		closeOtherTabs,
 		closeTabsToLeft,
 		closeTabsToRight,
+		markTabDirty,
 	} = useEditorTabs();
+
+	useEffect(() => {
+		if (!projectId) return;
+		for (const tab of tabs) {
+			if (tab.type !== 'file' || !tab.fileId) continue;
+			const dirty = editorDraftService.peek({ projectId, fileId: tab.fileId })?.dirty ?? false;
+			if (Boolean(tab.isDirty) !== dirty) markTabDirty(tab.id, dirty);
+		}
+		return editorDraftService.subscribe(change => {
+			if (change.projectId !== projectId) return;
+			const tab = tabs.find(item => item.type === 'file' && item.fileId === change.fileId);
+			if (tab && Boolean(tab.isDirty) !== change.dirty) markTabDirty(tab.id, change.dirty);
+		});
+	}, [projectId, tabs, markTabDirty]);
 
 	const { headerVisible, setHeaderVisible } = useHeaderVisibility();
 
@@ -148,11 +165,14 @@ const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
 	}, [activeTabId, tabs.length]);
 
 	const handleTabClick = useCallback(
-		(e: React.MouseEvent, tabId: string) => {
+		async (e: React.MouseEvent | React.KeyboardEvent, tabId: string) => {
 			e.preventDefault();
 			e.stopPropagation();
-			switchToTab(tabId);
-			onTabSwitch?.(tabId);
+			try {
+				if (await onTabSwitch?.(tabId) !== false) switchToTab(tabId);
+			} catch (error) {
+				moduleLog.error('Unable to switch editor tab:', error);
+			}
 		},
 		[switchToTab, onTabSwitch],
 	);
@@ -430,7 +450,7 @@ const EditorTabs: React.FC<EditorTabsProps> = ({ onTabSwitch }) => {
 							onKeyDown={(e) => {
 								if (e.key === 'Enter' || e.key === ' ') {
 									e.preventDefault();
-									handleTabClick(e as any, tab.id);
+									void handleTabClick(e, tab.id);
 								}
 							}}
 						>

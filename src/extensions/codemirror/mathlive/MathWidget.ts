@@ -10,7 +10,7 @@ import { EditIcon } from '../../../components/common/Icons';
 import type { MathRegion } from './MathDetector';
 import { SymbolSearchPanel } from './SymbolSearchPanel';
 
-const renderIcon = (IconComponent: React.FC<any>, props = {}) => {
+const renderIcon = (IconComponent: typeof EditIcon, props = {}) => {
 	return renderToStaticMarkup(createElement(IconComponent, props));
 };
 
@@ -43,10 +43,13 @@ export class MathPreviewWidget extends WidgetType {
 		const maxWidth = Math.min(600, window.innerWidth - 32);
 		wrapper.style.maxWidth = `${maxWidth}px`;
 
-		setTimeout(() => {
+		// MathLive only exposes menuItems while mounted. A deferred timer can
+		// outlive a preview that was removed during ordinary cursor movement.
+		mf.addEventListener('mount', () => {
+			if (!mf.isConnected) return;
 			mf.value = this.region.previewLatex ?? this.region.content;
 			mf.menuItems = [];
-		}, 0);
+		}, { once: true });
 
 		const editBtn = document.createElement('button');
 		editBtn.innerHTML = renderIcon(EditIcon, {});
@@ -81,7 +84,7 @@ export class MathEditWidget extends WidgetType {
 		super();
 	}
 
-	eq(other: MathEditWidget): boolean {
+	eq(_other: MathEditWidget): boolean {
 		return false;
 	}
 
@@ -90,6 +93,7 @@ export class MathEditWidget extends WidgetType {
 		wrapper.className = 'cm-math-editor-overlay';
 
 		const mathfield = new MathfieldElement();
+		const focusAtCreation = document.activeElement;
 		mathfield.readOnly = false;
 		mathfield.className = 'cm-math-editor-field';
 
@@ -155,10 +159,14 @@ export class MathEditWidget extends WidgetType {
 		wrapper.appendChild(buttonContainer);
 		this.mathfield = mathfield;
 
-		setTimeout(() => {
+		mathfield.addEventListener('mount', () => {
+			if (!mathfield.isConnected || this.mathfield !== mathfield) return;
 			mathfield.value = this.region.content;
-			mathfield.focus();
-		}, 0);
+			const focused = document.activeElement;
+			// Do not steal focus if the user already moved to a different input.
+			if (focused === focusAtCreation || focused === document.body ||
+				(focused !== null && wrapper.contains(focused))) mathfield.focus();
+		}, { once: true });
 
 		return wrapper;
 	}

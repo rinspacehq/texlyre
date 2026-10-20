@@ -3,8 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 
 import { createNamedLogger } from '@/logging';
+import { t } from '@/i18n';
 import { pluginRegistry } from '../../plugins/PluginRegistry';
+import { autoSaveService } from '../../services/AutoSaveService';
 import { fileStoreService } from '../../services/FileStoreService';
+import { notificationService } from '../../services/NotificationService';
 import type { Document } from '../../types/documents';
 import type {
 	EditorSidebarView,
@@ -20,6 +23,19 @@ import { useEditorTabs } from '../useEditorTabs';
 import { useFileTree } from '../useFileTree';
 
 const moduleLog = createNamedLogger('useEditorNavigation');
+
+const flushDraftBeforeNavigation = async (): Promise<boolean> => {
+	try {
+		await autoSaveService.flushPendingSaves();
+		return true;
+	} catch (error) {
+		moduleLog.error('Keeping the current editor because its draft was not saved:', error);
+		notificationService.showError(t('The file was not saved in browser storage'), {
+			operationId: 'editor-save',
+		});
+		return false;
+	}
+};
 
 const getExpandPaths = (filePath: string): string[] => {
 	const expandPaths: string[] = [];
@@ -49,6 +65,11 @@ interface UseEditorNavigationOptions {
 	setOutputForFileName: (name?: string) => void;
 }
 
+interface NavigationRequest {
+	generation: number;
+	projectId: string;
+}
+
 export const useEditorNavigation = ({
 	documents,
 	selectedDocId,
@@ -67,6 +88,7 @@ export const useEditorNavigation = ({
 	const [activeView, setActiveView] = useState<EditorSidebarView>('files');
 	const lastOpenedFilePathRef = useRef<string | null>(null);
 	const lastOpenedDocIdRef = useRef<string | null>(null);
+	const navigationGenerationRef = useRef(0);
 	const isViewerHandledRef = useRef(false);
 	const docToFileMapRef = useRef<Map<string, LinkedFileInfo>>(new Map());
 	const [docToFileMapReady, setDocToFileMapReady] = useState(false);
@@ -92,6 +114,19 @@ export const useEditorNavigation = ({
 	const [initialExpandedPaths, setInitialExpandedPaths] = useState<
 		string[] | undefined
 	>();
+
+	useEffect(() => () => {
+		navigationGenerationRef.current++;
+	}, [docUrl]);
+
+	const beginNavigation = useCallback((): NavigationRequest => ({
+		generation: ++navigationGenerationRef.current,
+		projectId: fileStoreService.getCurrentProjectId(),
+	}), []);
+
+	const isCurrentNavigation = useCallback((request: NavigationRequest) =>
+		request.generation === navigationGenerationRef.current &&
+		request.projectId === fileStoreService.getCurrentProjectId(), []);
 
 	const selectFileInExplorer = useCallback(
 		(file: FileNode | LinkedFileInfo) => {
@@ -128,9 +163,10 @@ export const useEditorNavigation = ({
 	);
 
 	const openDocumentById = useCallback(
-		(docId: string, view: 'documents' | 'files', preserveView = false) => {
+		async (docId: string, view: 'documents' | 'files', preserveView = false, request = beginNavigation()) => {
 			const document = documents.find((doc) => doc.id === docId);
-			if (!document) return;
+			if (!document || !isCurrentNavigation(request)) return false;
+			if (!(await flushDraftBeforeNavigation()) || !isCurrentNavigation(request)) return false;
 
 			lastOpenedDocIdRef.current = docId;
 			lastOpenedFilePathRef.current =
@@ -154,6 +190,7 @@ export const useEditorNavigation = ({
 				setLinkedDocumentId(null);
 				setOutputForFileName(undefined);
 			}
+			return true;
 		},
 		[
 			documents,
@@ -161,6 +198,8 @@ export const useEditorNavigation = ({
 			setOutputForFileName,
 			createTabForDocument,
 			selectFileInExplorer,
+			beginNavigation,
+			isCurrentNavigation,
 		],
 	);
 
@@ -207,9 +246,11 @@ export const useEditorNavigation = ({
 	);
 
 	const openFileByNode = useCallback(
-		async (file: FileNode, preserveView = false) => {
+		async (file: FileNode, preserveView = false, request = beginNavigation()) => {
+			if (!isCurrentNavigation(request)) return false;
+			if (!(await flushDraftBeforeNavigation()) || !isCurrentNavigation(request)) return false;
 			const loadedContent = await getFileContent(file.id);
-			if (!loadedContent) return;
+			if (loadedContent === undefined || !isCurrentNavigation(request)) return false;
 
 			lastOpenedFilePathRef.current = file.path;
 			lastOpenedDocIdRef.current = null;
@@ -220,8 +261,9 @@ export const useEditorNavigation = ({
 			}
 
 			await handleFileSelect(file, loadedContent, file.isBinary || false);
+			return true;
 		},
-		[getFileContent, handleFileSelect, selectFileInExplorer],
+		[getFileContent, handleFileSelect, selectFileInExplorer, beginNavigation, isCurrentNavigation],
 	);
 
 	const updateProjectLastOpened = useCallback(
@@ -275,24 +317,25 @@ export const useEditorNavigation = ({
 
 	const handleUserFileSelect = useCallback(
 		async (fileId: string) => {
+			const request = beginNavigation();
 			const file = await getFile(fileId);
-			if (!file) return;
+			if (!file || !isCurrentNavigation(request)) return;
 
 			if (file.documentId) {
-				openDocumentById(file.documentId, 'files');
+				if (!(await openDocumentById(file.documentId, 'files', false, request))) return;
 				pushEditorRoute(file.documentId, file.path);
 				return;
 			}
 
-			await openFileByNode(file);
+			if (!(await openFileByNode(file, false, request))) return;
 			pushEditorRoute(undefined, file.path);
 		},
-		[getFile, openDocumentById, openFileByNode, pushEditorRoute],
+		[getFile, openDocumentById, openFileByNode, pushEditorRoute, beginNavigation, isCurrentNavigation],
 	);
 
 	const handleDocumentSelect = useCallback(
-		(id: string) => {
-			openDocumentById(id, 'files');
+		async (id: string) => {
+			if (!(await openDocumentById(id, 'files'))) return;
 			const linkedFile = docToFileMapRef.current.get(id);
 			pushEditorRoute(id, linkedFile?.filePath);
 		},
@@ -300,8 +343,8 @@ export const useEditorNavigation = ({
 	);
 
 	const handleUserDocumentSelect = useCallback(
-		(id: string) => {
-			openDocumentById(id, 'documents');
+		async (id: string) => {
+			if (!(await openDocumentById(id, 'documents'))) return;
 			pushEditorRoute(id, undefined);
 		},
 		[openDocumentById, pushEditorRoute],
@@ -313,30 +356,33 @@ export const useEditorNavigation = ({
 
 	const handleTabSwitch = useCallback(
 		async (tabId: string) => {
+			const request = beginNavigation();
 			const targetTab = tabs.find((tab) => tab.id === tabId);
-			if (!targetTab) return;
+			if (!targetTab) return false;
 
 			if (targetTab.type === 'document' && targetTab.documentId) {
-				openDocumentById(targetTab.documentId, 'documents');
+				if (!(await openDocumentById(targetTab.documentId, 'documents', false, request))) return false;
 				pushEditorRoute(targetTab.documentId, undefined);
-				return;
+				return true;
 			}
 
 			if (targetTab.type === 'file' && targetTab.fileId) {
 				const file = await getFile(targetTab.fileId);
-				if (!file) return;
+				if (!file || !isCurrentNavigation(request)) return false;
 
 				if (file.documentId) {
-					openDocumentById(file.documentId, 'files');
+					if (!(await openDocumentById(file.documentId, 'files', false, request))) return false;
 					pushEditorRoute(file.documentId, file.path);
-					return;
+					return true;
 				}
 
-				await openFileByNode(file);
+				if (!(await openFileByNode(file, false, request))) return false;
 				pushEditorRoute(undefined, file.path);
+				return true;
 			}
+			return false;
 		},
-		[tabs, getFile, openDocumentById, openFileByNode, pushEditorRoute],
+		[tabs, getFile, openDocumentById, openFileByNode, pushEditorRoute, beginNavigation, isCurrentNavigation],
 	);
 
 	const handleSearchResultNavigate = useCallback(
@@ -348,10 +394,11 @@ export const useEditorNavigation = ({
 			isLinkedDocument?: boolean,
 		) => {
 			if (line === undefined) return;
+			const request = beginNavigation();
 
 			if (isLinkedDocument && documentId) {
 				if (!(await getFile(fileId))) return;
-				openDocumentById(documentId, 'files', true);
+				if (!(await openDocumentById(documentId, 'files', true, request))) return;
 				gotoEditor(
 					{ kind: 'document', documentId },
 					{ line, column },
@@ -361,10 +408,10 @@ export const useEditorNavigation = ({
 			}
 
 			const file = await getFile(fileId);
-			if (!file) return;
+			if (!file || !isCurrentNavigation(request)) return;
 
 			if (file.documentId) {
-				openDocumentById(file.documentId, 'files', true);
+				if (!(await openDocumentById(file.documentId, 'files', true, request))) return;
 				gotoEditor(
 					{ kind: 'document', documentId: file.documentId },
 					{ line, column },
@@ -373,14 +420,14 @@ export const useEditorNavigation = ({
 				return;
 			}
 
-			await openFileByNode(file, true);
+			if (!(await openFileByNode(file, true, request))) return;
 			gotoEditor(
 				{ kind: 'file', fileId: file.id },
 				{ line, column },
 				{ waitForReady: false },
 			);
 		},
-		[getFile, openDocumentById, openFileByNode],
+		[getFile, openDocumentById, openFileByNode, beginNavigation, isCurrentNavigation],
 	);
 
 	const handleUpdateContent = useCallback(
@@ -460,33 +507,35 @@ export const useEditorNavigation = ({
 		const handleNavigateToLinkedFileEvent = async (event: Event) => {
 			const { filePath, fileId } = (event as CustomEvent).detail;
 			if (!filePath || !fileId) return;
+			const request = beginNavigation();
 
 			const file = await getFile(fileId);
-			if (!file) return;
+			if (!file || !isCurrentNavigation(request)) return;
 			if (file.documentId) {
-				openDocumentById(file.documentId, 'files');
+				if (!(await openDocumentById(file.documentId, 'files', false, request))) return;
 				pushEditorRoute(file.documentId, file.path);
 				return;
 			}
 
-			await openFileByNode(file);
+			if (!(await openFileByNode(file, false, request))) return;
 			pushEditorRoute(undefined, file.path);
 		};
 
 		const handleNavigateToCompiledFile = async (event: Event) => {
 			const { filePath } = (event as CustomEvent).detail;
 			if (!filePath) return;
+			const request = beginNavigation();
 
 			const targetFile = await fileStoreService.getFileByPath(filePath);
-			if (!targetFile || targetFile.type !== 'file') return;
+			if (!targetFile || targetFile.type !== 'file' || !isCurrentNavigation(request)) return;
 
 			if (targetFile.documentId) {
-				openDocumentById(targetFile.documentId, 'files');
+				if (!(await openDocumentById(targetFile.documentId, 'files', false, request))) return;
 				pushEditorRoute(targetFile.documentId, targetFile.path);
 				return;
 			}
 
-			await openFileByNode(targetFile);
+			if (!(await openFileByNode(targetFile, false, request))) return;
 			pushEditorRoute(undefined, targetFile.path);
 		};
 
@@ -509,7 +558,7 @@ export const useEditorNavigation = ({
 				handleNavigateToCompiledFile,
 			);
 		};
-	}, [getFile, openDocumentById, openFileByNode, pushEditorRoute]);
+	}, [getFile, openDocumentById, openFileByNode, pushEditorRoute, beginNavigation, isCurrentNavigation]);
 
 	useEffect(() => {
 		if (!selectedFileId || !isEditingFile) return;
@@ -579,8 +628,9 @@ export const useEditorNavigation = ({
 			return;
 		}
 
-		openDocumentById(targetDocId, targetFilePath ? 'files' : 'documents');
-		setBootstrapResolved(true);
+		void openDocumentById(targetDocId, targetFilePath ? 'files' : 'documents').then(opened => {
+			if (opened) setBootstrapResolved(true);
+		});
 	}, [targetDocId, targetFilePath, docToFileMapReady]);
 
 	/* biome-ignore lint/correctness/useExhaustiveDependencies: Bootstrap effect intentionally reacts only to URL-derived targets; fileTree identity and openFileByNode identity changes are not relevant triggers (fileTree.length is observed as a "files have arrived" signal). */
@@ -598,22 +648,23 @@ export const useEditorNavigation = ({
 		}
 
 		const navigate = async () => {
+			const request = beginNavigation();
 			const targetFile = await fileStoreService.getFileByPath(targetFilePath);
+			if (!isCurrentNavigation(request)) return;
 			if (!targetFile || targetFile.type !== 'file') {
 				setBootstrapResolved(true);
 				return;
 			}
-			await openFileByNode(targetFile);
-			setBootstrapResolved(true);
+			if (await openFileByNode(targetFile, false, request)) setBootstrapResolved(true);
 		};
 
 		void navigate();
-	}, [targetDocId, targetFilePath, docToFileMapReady, fileTree.length]);
+	}, [targetDocId, targetFilePath, docToFileMapReady, fileTree.length, beginNavigation, isCurrentNavigation]);
 
 	useEffect(() => {
 		const handleDocumentLinked = (event: Event) => {
 			const { documentId } = (event as CustomEvent).detail;
-			if (documentId) openDocumentById(documentId, 'documents');
+			if (documentId) void openDocumentById(documentId, 'documents');
 		};
 
 		document.addEventListener('document-linked', handleDocumentLinked);

@@ -3,6 +3,51 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "bounded-ci-test-worker",
+      "files": ["jest.config.cjs", "scripts/rinspace/jest-worker-budget.test.mjs"],
+      "purpose": "Keep the existing single-worker CI, test set and V8 coverage, but recycle the test worker after a file crosses a 768 MB heap threshold. Jest otherwise executes maxWorkers=1 in a single long-lived main process, retaining TypeScript and coverage contexts until the fixed memory ceiling stalls. Do not increase CPU/memory quotas, omit tests or reduce coverage inputs.",
+      "tests": ["scripts/rinspace/jest-worker-budget.test.mjs", "full single-worker CI with unchanged V8 coverage"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream bounds single-worker TypeScript/coverage memory with equivalent process-recycling and serial-execution coverage.",
+      "integrationStatus": "The original exact-source CI reported 119 passing test files, no failing file, and remained CPU-active above 97 percent of its fixed memory ceiling with no new test report for more than eight minutes. That owned run is intentionally cancelled and preserved, not passed. The configuration regression fails against the prior config; the installed Jest fixture demonstrates actual serial worker replacement. Both new regressions and all 149 foundation tests pass in an offline, credential-free public-source sandbox with unchanged resource limits. New reviewed-source formal CI remains pending; this test-only patch does not change editor runtime behavior or imply a release."
+    },
+    {
+      "id": "mathlive-source-input-boundary",
+      "files": ["src/extensions/codemirror/MathLiveExtension.ts"],
+      "purpose": "Keep floating equation previews/editors independent of the source editor's bidi isolation. Showing or dismissing an external overlay must not rewrap source text nodes that an OS input method may own. Preserve preview and equation editing without disabling MathLive, source bidi support, input methods or saving.",
+      "tests": ["tests/unit/extensions/codemirror/MathPreviewInputBoundary.test.ts", "actual headed Edge and system Fcitx5 Pinyin: Chinese input immediately after inline math in intro.tex"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream keeps floating MathLive UI from changing source isolation and passes equivalent native IME and source-DOM regression coverage.",
+      "integrationStatus": "Real production system-IME typing exposed a missing math delimiter and displaced preedit text. The same input with MathLive disabled retained both delimiters and committed Chinese correctly. Two real CodeMirror/processor/bidi tests fail before removing this coupling and pass afterward. With previews enabled, actual headed Edge and Fcitx5 Pinyin retained three exact mixed-language/formula samples and all prior source through native typing and explicit Save. The combined reload test separately exposed managed activation replacing the requested file with the main entry; that failed run remains failed. After the route correction, a final native-input, explicit-Save and reload round preserved the exact intro-file text and route, all prior content and equation previews; original test files and preferences were restored without Push. Both TypeScript projects, strict lint for the newly changed modules and 121 suites / 1397 Jest tests pass. Windows Microsoft Pinyin, new public CI, release and production rollout remain separate; the original bulk-loss report is not declared fully resolved."
+    },
+    {
+      "id": "manual-editor-draft-retention",
+      "files": ["src/services/EditorDraftService.ts", "src/hooks/editor/useEditorView.ts", "src/components/editor/EditorTabs.tsx", "src/components/editor/FileDocumentController.tsx"],
+      "purpose": "Keep unsaved file documents, cursor selection and undo state across file switches and view reconstruction even when periodic saving is disabled. Scope drafts by project and file, expose existing dirty markers and register a leave warning only while unsaved drafts exist. Do not implicitly write files, commit or Push in manual mode. Retain and report a dirty draft if a newly loaded source differs.",
+      "tests": ["tests/services/EditorDraftService.test.ts", "tests/components/EditorTabsDurability.test.tsx", "real Edge owned-account article detail Edit, manual-mode switch and explicit Save"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies equivalent project-scoped manual draft, selection, undo, dirty marker and leave protection across view lifecycles.",
+      "integrationStatus": "Nine draft service tests and eleven navigation/tab tests pass, with workspace/application type checks. Real account manual-mode loss was reproduced before this change. Candidate account testing retained the exact text, selection, dirty marker and undo/redo across file switches without implicitly writing in manual mode; explicit Save persisted it and the original file/preferences were restored. Final source validation passes 121 suites / 1397 Jest tests. In-memory retention is not a persistent crash journal. No release, private consumption or production rollout is implied."
+    },
+    {
+      "id": "mathlive-mounted-widget-lifecycle",
+      "files": ["src/extensions/codemirror/mathlive/MathWidget.ts"],
+      "purpose": "Initialize previews and equation inputs on MathLive's documented mount event, not a timer that may run after unmount. Refuse stale or disconnected edit widgets and do not steal focus after the user moves to another input.",
+      "tests": ["tests/unit/extensions/codemirror/MathWidgetLifecycle.test.ts", "real Edge mixed-language and formula writing"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream uses the mounted MathLive lifecycle with equivalent disposal and focus regressions.",
+      "integrationStatus": "Five functional regressions failed against the prior widget and pass after the change. A Mathfield not mounted error was observed during real account continuous writing, but this does not establish the cause of the separately reported spontaneous bulk text loss. Candidate browser and full source checks remain separate."
+    },
+    {
+      "id": "durable-editor-draft-lifecycle",
+      "files": ["src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/components/editor/EditorTabs.tsx"],
+      "purpose": "Capture drafts while their view is alive, bound continuous-input save delay, serialize automatic and manual writes, retain failed snapshots and prevent navigation until saves finish. Scope asynchronous navigation from the original user intent through metadata and content reads so stale reads cannot replace a newer view or cross a project switch. Keep the active tab header unchanged when navigation fails.",
+      "tests": ["scripts/rinspace/autosave-durability.test.mjs", "tests/unit/hooks/editor/useEditorNavigationDurability.test.tsx", "tests/components/EditorTabsDurability.test.tsx", "tests/unit/hooks/editor/EditorEvents.test.ts", "tests/unit/hooks/editor/useEditorOutputLocalFiles.test.tsx"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream preserves pending drafts across editor disposal, orders manual and automatic writes, reports failed saves and protects all asynchronous navigation stages with equivalent regression coverage.",
+      "integrationStatus": "Source candidate only. Six original navigation regressions failed before the change; the first fix passed those six, and two additional delayed-metadata cases exposed the need to capture intent before the first await. The complete intent-scoped candidate passes 29 editor tests, 16 save-service tests, workspace/application type checks and strict lint for the new tests and save service. Existing hook lint diagnostics remain under explicit baseline review. No new release, product consumption, production rollout or candidate browser acceptance is implied. Real production Edge for Linux testing did not reproduce the separately reported spontaneous loss without a file switch."
+    },
+    {
       "id": "busytex-reviewed-fontspec-families",
       "files": ["extras/workspace/rinspace/RinspaceFontspecFamilies.ts", "src/extensions/texlyre-busytex/BusyTeXService.ts", "src/extensions/texlyre-busytex/BusyTeXEngine.ts", "src/extensions/texlyre-busytex/BusyTeXResult.ts"],
       "purpose": "Supply transient documented .fontspec configurations for 60 exact reviewed Chinese/English font families in the Rinspace TeX Live runtime, including LXGW and distinct AR PL GB/Big5 families. Browser WASM cannot use the host OS font registry. Preserve author configurations, do not substitute unavailable fonts, change source documents or persist generated configs into project/work files. Standalone mode without the endpoint receives no generated family configs. Reject partial PDFs after fatal TeX/fontspec errors even when the runner reports successful conversion, without rejecting the existing empty-BibTeX probe.",

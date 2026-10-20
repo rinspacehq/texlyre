@@ -19,6 +19,7 @@ import { replaceHash } from '@/utils/urlUtils';
 import { managedLocalProfileScope } from '@/workspace/LocalProfile';
 
 import { invalidManagedBuild, parseRinspaceManifest } from './RinspaceManifest';
+import { rinspaceProjectActivationHash } from './RinspaceRoutePolicy';
 import {
 	loadRinspaceSession,
 	type RinspaceNativeSession,
@@ -717,7 +718,7 @@ async function materializeWorkspace(
 function activateProject(project: Pick<Project, 'id'>, filePath?: string): void {
 	sessionStorage.setItem('currentProjectId', project.id);
 	replaceHash(
-		`yjs:${project.id}${filePath ? `&file:${encodeURIComponent(filePath)}` : ''}`,
+		rinspaceProjectActivationHash(window.location.hash, project.id, filePath),
 	);
 }
 

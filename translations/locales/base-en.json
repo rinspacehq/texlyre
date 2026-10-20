@@ -2704,6 +2704,8 @@
   "Text Editor": "Text Editor",
   "Text View": "Text View",
   "The browser and folder contain different Git histories. Neither has been overwritten.": "The browser and folder contain different Git histories. Neither has been overwritten.",
+  "The file changed outside this editor. Your unsaved draft has been retained.": "The file changed outside this editor. Your unsaved draft has been retained.",
+  "The file was not saved in browser storage": "The file was not saved in browser storage",
   "The following will be permanently removed:": "The following will be permanently removed:",
   "The linked folder contains .git": "The linked folder contains .git",
   "The project remains accessible as long as someone has the link": "The project remains accessible as long as someone has the link",

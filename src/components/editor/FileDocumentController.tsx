@@ -219,7 +219,7 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 					className='editor-container'
 					style={{ flex: 1, minWidth: 0, position: 'relative' }}
 				>
-					<EditorTabs onTabSwitch={navigation.handleTabSwitch} />
+					<EditorTabs onTabSwitch={navigation.handleTabSwitch} projectId={docUrl.replace(/^yjs:/, '')} />
 					<div className='git-editor-surface'>
 						{!navigation.bootstrapResolved ? (
 							<div className='file-loading-overlay'>
