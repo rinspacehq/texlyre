@@ -1890,6 +1890,7 @@
   "Overwrite fields": "Felder überschreiben",
   "Packages downloaded for compilation. They are fetched again on the next compile, which needs an internet connection.": "Für die Kompilierung heruntergeladene Pakete. Sie werden bei der nächsten Kompilierung erneut abgerufen; dafür ist eine Internetverbindung erforderlich.",
   "Page": "Seite",
+  "Page {currentPage}": "Seite {{currentPage}}",
   "Page {currentPage} of {totalPages}": "Seite {{currentPage}} von {{totalPages}}",
   "Page refresh required": "Seitenaktualisierung erforderlich",
   "Pages: {count}": "Seiten: {{count}}",

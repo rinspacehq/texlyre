@@ -39,6 +39,15 @@
       "integrationStatus": "Five functional regressions failed against the prior widget and pass after the change. A Mathfield not mounted error was observed during real account continuous writing, but this does not establish the cause of the separately reported spontaneous bulk text loss. Candidate browser and full source checks remain separate."
     },
     {
+      "id": "composition-safe-burst-language",
+      "files": ["src/extensions/codemirror/BurstDeferLanguage.ts"],
+      "purpose": "Keep syntax compartment detachment and idle reattachment outside the operating system's complete composition lifetime, including candidate pauses and the interval before the first preedit change. Dispose timers and reject queued work after view destruction without forcing or resetting the user's caret.",
+      "tests": ["tests/unit/extensions/codemirror/BurstCompositionBoundary.test.ts", "real account mixed-language caret-position acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream defers burst syntax work across composition boundaries and disposes its asynchronous callbacks with equivalent tests.",
+      "integrationStatus": "Three functional boundary regressions fail on the deployed editor15 source. Candidate implementation is under test; it is not yet a proven reproduction or resolution of the user's spontaneous caret relocation, and has not been released or deployed."
+    },
+    {
       "id": "durable-editor-draft-lifecycle",
       "files": ["src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/components/editor/EditorTabs.tsx"],
       "purpose": "Capture drafts while their view is alive, bound continuous-input save delay, serialize automatic and manual writes, retain failed snapshots and prevent navigation until saves finish. Scope asynchronous navigation from the original user intent through metadata and content reads so stale reads cannot replace a newer view or cross a project switch. Keep the active tab header unchanged when navigation fails.",

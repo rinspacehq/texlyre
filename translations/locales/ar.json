@@ -2046,6 +2046,7 @@
   "Overwrite fields": "الكتابة فوق الحقول",
   "Packages downloaded for compilation. They are fetched again on the next compile, which needs an internet connection.": "حزم تم تنزيلها للتجميع. ستُجلب مرة أخرى عند التجميع التالي، ويتطلب ذلك اتصالًا بالإنترنت.",
   "Page": "صفحة",
+  "Page {currentPage}": "الصفحة {{currentPage}}",
   "Page {currentPage} of {totalPages}": "الصفحة {{currentPage}} من {{totalPages}}",
   "Page refresh required": "مطلوب تحديث الصفحة",
   "Pages: {count}": "الصفحات: {{count}}",

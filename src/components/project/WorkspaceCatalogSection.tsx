@@ -7,7 +7,7 @@ import { pluginRegistry } from '../../plugins/PluginRegistry';
 import type { WorkspaceCatalogProject } from '../../workspace/contracts';
 import { FolderIcon } from '../common/Icons';
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 12;
 
 interface WorkspaceCatalogSectionProps {
 	searchQuery?: string;
@@ -20,7 +20,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 }) => {
 	const catalog = pluginRegistry.getWorkspaceExtensions().catalog;
 	const requestRef = useRef<AbortController | null>(null);
-	const cursorRef = useRef<string | undefined>(undefined);
+	const pageCursorsRef = useRef(new Map<number, string | undefined>([[1, undefined]]));
 	const [projects, setProjects] = useState<readonly WorkspaceCatalogProject[]>(
 		[],
 	);
@@ -35,7 +35,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 	const query = searchQuery.trim();
 
 	const loadPage = useCallback(
-		async (nextPage: number, append: boolean) => {
+		async (nextPage: number, reset = false) => {
 			requestRef.current?.abort();
 			if (!catalog?.isEnabled()) {
 				setStatus('disabled');
@@ -47,15 +47,20 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 			requestRef.current = controller;
 			setStatus('loading');
 			setError('');
-			if (!append) {
-				cursorRef.current = undefined;
+			if (reset) {
+				pageCursorsRef.current = new Map([[1, undefined]]);
 				setProjects([]);
 				setHasMore(false);
+				setPage(0);
 			}
 			try {
+				if (nextPage > 1 && !pageCursorsRef.current.has(nextPage)) {
+					throw new Error(t('Failed to load Rinspace projects'));
+				}
+				const cursor = pageCursorsRef.current.get(nextPage);
 				const result = await catalog.listPage(
 					{ page: nextPage, pageSize: PAGE_SIZE, ...(query ? { query } : {}),
-						...(append && cursorRef.current ? { cursor: cursorRef.current } : {}) },
+						...(cursor ? { cursor } : {}) },
 					controller.signal,
 				);
 				if (controller.signal.aborted) return;
@@ -64,25 +69,21 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 					setProjects([]);
 					setAccountLabel('');
 					setPage(0);
-					cursorRef.current = undefined;
+					pageCursorsRef.current = new Map([[1, undefined]]);
 					setHasMore(false);
 					return;
 				}
 				setStatus('authenticated');
 				setAccountLabel(result.accountLabel);
-				setProjects((current) =>
-					append
-						? [
-								...current,
-								...result.projects.filter(
-									(project) => !current.some((item) => item.id === project.id),
-								),
-							]
-						: result.projects,
-				);
+				setProjects(result.projects);
 				setPage(result.page);
 				setHasMore(result.hasMore);
-				cursorRef.current = result.nextCursor;
+				// Retain only cursor metadata, not every visited page's cards.
+				// Going back may observe changed rows, so replace later cursors.
+				for (const knownPage of pageCursorsRef.current.keys()) {
+					if (knownPage > nextPage) pageCursorsRef.current.delete(knownPage);
+				}
+				if (result.nextCursor) pageCursorsRef.current.set(nextPage + 1, result.nextCursor);
 			} catch (loadError) {
 				if (controller.signal.aborted) return;
 				setStatus('error');
@@ -100,11 +101,11 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 
 	useEffect(() => {
 		if (!catalog) return;
-		const reload = () => void loadPage(1, false);
+		const reload = () => void loadPage(1, true);
 		const unsubscribe = catalog.subscribe(reload);
 		// Cancel the previous query immediately, but debounce the next request.
 		requestRef.current?.abort();
-		cursorRef.current = undefined;
+		pageCursorsRef.current = new Map([[1, undefined]]);
 		setProjects([]);
 		setHasMore(false);
 		const timer = window.setTimeout(reload, query ? 250 : 0);
@@ -127,7 +128,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 				<button
 					type='button'
 					className='button secondary'
-					onClick={() => void loadPage(1, false)}
+					onClick={() => void loadPage(1, true)}
 					disabled={status === 'loading'}
 				>
 					{t('Refresh')}
@@ -141,7 +142,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 						<button
 							type='button'
 							className='button'
-							onClick={() => void loadPage(1, false)}
+							onClick={() => void loadPage(page || 1)}
 						>
 							{t('Retry')}
 						</button>
@@ -226,15 +227,26 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 				)}
 			</div>
 
-			{hasMore && status !== 'error' && (
+			{(hasMore || page > 1) && status !== 'error' && (
 				<div className='ui-pagination' data-justify='center'>
 					<button
 						type='button'
 						className='button'
-						disabled={status === 'loading'}
-						onClick={() => void loadPage(page + 1, true)}
+						disabled={status === 'loading' || page <= 1}
+						onClick={() => void loadPage(page - 1)}
 					>
-						{status === 'loading' ? t('Loading...') : t('Load more')}
+						{t('← Prev')}
+					</button>
+					<span className='ui-meta' aria-live='polite'>
+						{t('Page {currentPage}', { currentPage: page })}
+					</span>
+					<button
+						type='button'
+						className='button'
+						disabled={status === 'loading' || !hasMore}
+						onClick={() => void loadPage(page + 1)}
+					>
+						{t('Next →')}
 					</button>
 				</div>
 			)}
