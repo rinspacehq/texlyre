@@ -1971,6 +1971,7 @@
   "Overwrite fields": "覆盖字段",
   "Packages downloaded for compilation. They are fetched again on the next compile, which needs an internet connection.": "为编译下载的软件包。下次编译时会重新获取，需要互联网连接。",
   "Page": "页面",
+  "Page {currentPage}": "第 {{currentPage}} 页",
   "Page {currentPage} of {totalPages}": "第 {{currentPage}} 页，共 {{totalPages}} 页",
   "Page refresh required": "需要刷新页面",
   "Pages: {count}": "页数：{{count}}",

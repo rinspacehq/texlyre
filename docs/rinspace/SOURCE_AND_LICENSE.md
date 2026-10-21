@@ -28,6 +28,10 @@ accepted together with this artifact before the private product activates it.
 Default listing excludes shared tags; nonempty search can include visible public
 shared tags. Listing remains read-only and does not grant repository access.
 
+The account homepage uses 12-item replacement pages and retains only visited
+continuation cursors. Search, refresh and identity changes reset that cursor
+chain; no full-repository scan or invented total is needed for navigation.
+
 The fork, Rinspace browser plugins and generic core modifications remain
 `AGPL-3.0-or-later`. The original LICENSE and copyright/contribution notices
 are retained. Third-party code, fonts, WASM, models and assets retain their own

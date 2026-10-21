@@ -45,6 +45,64 @@ const ownedProject: WorkspaceCatalogProject = {
 };
 
 describe('WorkspaceCatalogSection', () => {
+	it('uses bounded previous/next pages rather than appending every loaded project', async () => {
+		const listPage = jest.fn(async ({ page }: { page: number }) => ({
+			status: 'authenticated' as const, accountLabel: 'alice', page,
+			hasMore: page === 1, ...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
+			projects: [{ ...ownedProject, id: String(page), name: `Page project ${page}` }],
+		}));
+		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		await screen.findByText('Page project 1');
+		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
+		await screen.findByText('Page project 2');
+		expect(screen.queryByText('Page project 1')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Next →' })).toBeDisabled();
+		fireEvent.click(screen.getByRole('button', { name: '← Prev' }));
+		await screen.findByText('Page project 1');
+		expect(screen.queryByText('Page project 2')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: '← Prev' })).toBeDisabled();
+	});
+	it('refreshes back to the first page without reusing a later cursor', async () => {
+		const listPage = jest.fn(async ({ page }: { page: number }) => ({
+			status: 'authenticated' as const, accountLabel: 'alice', page,
+			hasMore: page === 1, ...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
+			projects: [{ ...ownedProject, name: `Refresh page ${page}` }],
+		}));
+		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		await screen.findByText('Refresh page 1');
+		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
+		await screen.findByText('Refresh page 2');
+		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+		await screen.findByText('Refresh page 1');
+		expect(screen.queryByText('Refresh page 2')).not.toBeInTheDocument();
+		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 12 }, expect.any(AbortSignal));
+		expect(screen.getByRole('button', { name: '← Prev' })).toBeDisabled();
+	});
+
+	it('ignores a late next-page response after the search has changed', async () => {
+		let releaseNext: ((page: WorkspaceCatalogPage) => void) | undefined;
+		const listPage = jest.fn(async ({ page, query }: { page: number; query?: string }): Promise<WorkspaceCatalogPage> => {
+			if (page === 2) return new Promise(resolve => { releaseNext = resolve; });
+			return { status: 'authenticated', accountLabel: 'alice', page: 1,
+				hasMore: !query, ...(!query ? { nextCursor: 'opaque-next' } : {}),
+				projects: [{ ...ownedProject, name: query ? 'Fresh search result' : 'Initial page' }] };
+		});
+		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+		const onOpen = jest.fn();
+		const { rerender } = render(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		await screen.findByText('Initial page');
+		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
+		await waitFor(() => expect(releaseNext).toBeDefined());
+		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='fresh' />);
+		await screen.findByText('Fresh search result');
+		await act(async () => { releaseNext?.({ status: 'authenticated', accountLabel: 'alice', page: 2,
+			projects: [{ ...ownedProject, name: 'Obsolete next page' }], hasMore: false }); });
+		expect(screen.queryByText('Obsolete next page')).not.toBeInTheDocument();
+		expect(screen.getByText('Fresh search result')).toBeInTheDocument();
+	});
 	it('does not request or display account projects in disabled local mode', async () => {
 		const listPage = jest.fn();
 		catalog = { isEnabled: () => false, subscribe: () => () => {}, listPage };
@@ -66,12 +124,12 @@ describe('WorkspaceCatalogSection', () => {
 		const onOpen=jest.fn();
 		const {rerender}=render(<WorkspaceCatalogSection onOpenProject={onOpen}/>);
 		await screen.findByText('Project 1');
-		fireEvent.click(screen.getByRole('button',{name:/Load more/i}));
+		fireEvent.click(screen.getByRole('button',{name:'Next →'}));
 		await screen.findByText('Project 2');
-		expect(listPage).toHaveBeenLastCalledWith({page:2,pageSize:24,cursor:'opaque-next'},expect.any(AbortSignal));
+		expect(listPage).toHaveBeenLastCalledWith({page:2,pageSize:12,cursor:'opaque-next'},expect.any(AbortSignal));
 		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='new search'/>);
 		await screen.findByText('Search match');
-		expect(listPage).toHaveBeenLastCalledWith({page:1,pageSize:24,query:'new search'},expect.any(AbortSignal));
+		expect(listPage).toHaveBeenLastCalledWith({page:1,pageSize:12,query:'new search'},expect.any(AbortSignal));
 	});
 	it('searches the complete server catalog, rather than filtering loaded cards', async () => {
 		const listPage = jest.fn(async ({ query, page }: { query?: string; page: number }) => ({
@@ -84,7 +142,7 @@ describe('WorkspaceCatalogSection', () => {
 		await screen.findByText('Owned article');
 		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='remote title' />);
 		expect(await screen.findByText('Global tag')).toBeInTheDocument();
-		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 24, query: 'remote title' }, expect.any(AbortSignal));
+		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 12, query: 'remote title' }, expect.any(AbortSignal));
 		expect(screen.queryByText('Owned article')).not.toBeInTheDocument();
 		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} />);
 		expect(await screen.findByText('Owned article')).toBeInTheDocument();
@@ -181,6 +239,7 @@ describe('WorkspaceCatalogSection', () => {
 			accountLabel: 'alice',
 			page,
 			hasMore: page === 1,
+			...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
 			projects:
 				page === 1
 					? [ownedProject]
@@ -195,11 +254,11 @@ describe('WorkspaceCatalogSection', () => {
 
 		expect(await screen.findByText('Owned article')).toBeInTheDocument();
 		expect(screen.queryByText('Second page book')).not.toBeInTheDocument();
-		fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
 
 		expect(await screen.findByText('Second page book')).toBeInTheDocument();
 		expect(listPage).toHaveBeenLastCalledWith(
-			{ page: 2, pageSize: 24 },
+			{ page: 2, pageSize: 12, cursor: 'opaque-next' },
 			expect.any(AbortSignal),
 		);
 	});
