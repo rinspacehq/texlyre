@@ -92,6 +92,7 @@ import { fileStoreService } from '../../services/FileStoreService';
 import { filePathCacheService } from '../../services/FilePathCacheService';
 import type { CollabProvider } from '../../types/collab';
 import { registerEditorClipboard } from './editorClipboard';
+import { editorSaveFailureMessage } from './editorSaveFailure';
 import { registerEditorSearchHighlightEvents } from './editorSearchHighlights';
 import { registerEditorEventHandlers } from './EditorEvents';
 import {
@@ -104,7 +105,7 @@ const moduleLog = createNamedLogger('useEditorView');
 
 const reportSaveFailure = (error: unknown): void => {
 	moduleLog.error('Editor draft was not saved:', error);
-	notificationService.showError(t('The file was not saved in browser storage'), {
+	notificationService.showError(editorSaveFailureMessage(error), {
 		operationId: 'editor-save',
 	});
 };
