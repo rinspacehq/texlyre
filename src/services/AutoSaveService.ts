@@ -125,9 +125,9 @@ export class AutoSaveService {
 		if (failure) throw failure.error;
 	}
 
-	async flushPendingSaves(projectId: string): Promise<void[]> {
+	async flushPendingSaves(projectId?: string): Promise<void[]> {
 		const belongsToProject = (key: string) =>
-			key.startsWith(`[${JSON.stringify(projectId)},`);
+			!projectId || key.startsWith(`[${JSON.stringify(projectId)},`);
 		const retry = new Map([...this.failed].filter(([key]) => belongsToProject(key)));
 		for (const [key, callback] of this.saveCallbacks) {
 			if (belongsToProject(key)) callback.flush();
