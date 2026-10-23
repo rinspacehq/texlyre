@@ -232,7 +232,7 @@ class AccountExportService {
 		data: BackupLayoutService,
 		options?: ExportOptions,
 	): Promise<void> {
-		const { fileStoreService } = await import('./FileStoreService');
+		const { FileStoreService } = await import('./FileStoreService');
 
 		const isSingleProject =
 			options?.isSingleProjectExport || data.projectData.size === 1;
@@ -267,21 +267,20 @@ class AccountExportService {
 				: projectData.metadata.docUrl;
 
 			let filesExported = false;
+			const projectFileStore = new FileStoreService();
 
-			if (!fileStoreService.isConnectedToProject(actualProjectId)) {
-				try {
-					await fileStoreService.initialize(`yjs:${actualProjectId}`);
-				} catch (error) {
-					moduleLog.warn(
-						`Could not initialize FileStoreService for project ${projectId}:`,
-						error,
-					);
-				}
+			try {
+				await projectFileStore.initialize(`yjs:${actualProjectId}`);
+			} catch (error) {
+				moduleLog.warn(
+					`Could not initialize FileStoreService for project ${projectId}:`,
+					error,
+				);
 			}
 
-			if (fileStoreService.isConnectedToProject(actualProjectId)) {
+			if (projectFileStore.isConnectedToProject(actualProjectId)) {
 				try {
-					const allFiles = await fileStoreService.getAllFiles(false);
+					const allFiles = await projectFileStore.getAllFiles(false);
 					let fileFiles = allFiles.filter((f) => f.type === 'file');
 
 					if (!options?.includeTemporaryFiles) {
@@ -318,7 +317,11 @@ class AccountExportService {
 						`Error exporting files from FileStoreService for project ${projectId}:`,
 						error,
 					);
+				} finally {
+					projectFileStore.cleanup();
 				}
+			} else {
+				projectFileStore.cleanup();
 			}
 
 			// NOTE (fabawi): Fallback to serialized data if live service didn't work or no files were exported

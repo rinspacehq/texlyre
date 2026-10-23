@@ -23,7 +23,10 @@ interface AutoSaver {
 	cancelPending: () => void;
 }
 
-class AutoSaveService {
+export const autoSaveKey = (projectId: string, fileId: string): string =>
+	JSON.stringify([projectId, fileId]);
+
+export class AutoSaveService {
 	private saveCallbacks = new Map<string, AutoSaver>();
 	private writes = new Map<string, Promise<void>>();
 	private failed = new Map<string, SaveSnapshot & { error: Error }>();
@@ -122,20 +125,26 @@ class AutoSaveService {
 		if (failure) throw failure.error;
 	}
 
-	async flushPendingSaves(): Promise<void[]> {
-		const retry = new Map(this.failed);
-		for (const callback of this.saveCallbacks.values()) callback.flush();
+	async flushPendingSaves(projectId: string): Promise<void[]> {
+		const belongsToProject = (key: string) =>
+			key.startsWith(`[${JSON.stringify(projectId)},`);
+		const retry = new Map([...this.failed].filter(([key]) => belongsToProject(key)));
+		for (const [key, callback] of this.saveCallbacks) {
+			if (belongsToProject(key)) callback.flush();
+		}
 		for (const [fileId, snapshot] of retry) {
 			if (!this.writes.has(fileId)) this.enqueue(fileId, snapshot);
 		}
 		let count = 0;
-		while (this.writes.size > 0) {
-			const writes = [...this.writes.values()];
+		while ([...this.writes.keys()].some(belongsToProject)) {
+			const writes = [...this.writes].filter(([key]) => belongsToProject(key)).map(([, write]) => write);
 			count += writes.length;
 			await Promise.all(writes);
-			for (const callback of this.saveCallbacks.values()) callback.flush();
+			for (const [key, callback] of this.saveCallbacks) {
+				if (belongsToProject(key)) callback.flush();
+			}
 		}
-		const failure = this.failed.values().next().value;
+		const failure = [...this.failed].find(([key]) => belongsToProject(key))?.[1];
 		if (failure) throw failure.error;
 		return Array.from({ length: count }, () => undefined);
 	}

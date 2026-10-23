@@ -63,7 +63,7 @@ export const fileStorageEventEmitter = {
 	},
 };
 
-class FileStoreService {
+export class FileStoreService {
 	public db: IDBPDatabase | null = null;
 	private readonly DB_PREFIX = 'texlyre-project-';
 	private readonly FILES_STORE = 'files';

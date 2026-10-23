@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "project-scoped-editor-persistence",
+      "files": ["src/services/FileStoreService.ts", "src/services/ProjectDataService.ts", "src/services/AccountExportService.ts", "src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/contexts/FileTreeContext.tsx"],
+      "purpose": "Keep background project reads from switching the active editor's IndexedDB connection; scope pending saves and navigation flushes to the project being edited. Treat a stale binary flag on a valid text file as metadata, while preserving binary protection for files containing NUL bytes.",
+      "tests": ["tests/unit/services/ProjectDataServiceIsolation.test.ts", "tests/unit/services/AutoSaveServiceProjectScope.test.ts", "tests/unit/hooks/editor/useEditorNavigationDurability.test.tsx", "real authenticated article and book editor acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream isolates project export reads, scopes editor persistence by project and validates text files independently of stale binary metadata.",
+      "integrationStatus": "Three focused Jest suites (12 tests) and TypeScript compilation pass in a credential-free single-worker checkout. Real authenticated browser reproduction and an immutable product release remain pending."
+    },
+    {
       "id": "bounded-ci-test-worker",
       "files": ["jest.config.cjs", "scripts/rinspace/jest-worker-budget.test.mjs"],
       "purpose": "Keep the existing single-worker CI, test set and V8 coverage, but recycle the test worker after a file crosses a 768 MB heap threshold. Jest otherwise executes maxWorkers=1 in a single long-lived main process, retaining TypeScript and coverage contexts until the fixed memory ceiling stalls. Do not increase CPU/memory quotas, omit tests or reduce coverage inputs.",

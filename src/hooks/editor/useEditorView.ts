@@ -83,7 +83,7 @@ import {
 	resolveFontSize,
 } from '../../contexts/EditorContext';
 import type { EditorSettings } from '../../types/editor';
-import { autoSaveService } from '../../services/AutoSaveService';
+import { autoSaveKey, autoSaveService } from '../../services/AutoSaveService';
 import { EditorDraftService, editorDraftService } from '../../services/EditorDraftService';
 import { notificationService } from '../../services/NotificationService';
 import { detectFileType, isBibFile } from '../../utils/fileUtils';
@@ -313,20 +313,20 @@ export const useEditorView = (
 	const saveFileManually = useCallback(async (content: string) => {
 		if (!currentFileId) return;
 		try {
-			await autoSaveService.saveNow(currentFileId, content, (_id, text) => saveFileToStorage(text));
+			await autoSaveService.saveNow(autoSaveKey(projectId, currentFileId), content, (_id, text) => saveFileToStorage(text));
 		} catch (error) {
 			reportSaveFailure(error);
 		}
-	}, [currentFileId, saveFileToStorage]);
+	}, [currentFileId, projectId, saveFileToStorage]);
 
 	const saveDocumentManually = useCallback(async (content: string) => {
 		if (!documentId) return;
 		try {
-			await autoSaveService.saveNow(documentId, content, (_id, text) => saveDocumentToLinkedFile(text));
+			await autoSaveService.saveNow(autoSaveKey(projectId, documentId), content, (_id, text) => saveDocumentToLinkedFile(text));
 		} catch (error) {
 			reportSaveFailure(error);
 		}
-	}, [documentId, saveDocumentToLinkedFile]);
+	}, [documentId, projectId, saveDocumentToLinkedFile]);
 
 	const buildSpellCheckExtension = (): Extension => {
 		if (!getSpellCheckEnabled()) return [];
@@ -997,14 +997,15 @@ export const useEditorView = (
 
 	/* biome-ignore lint/correctness/useExhaustiveDependencies: editorSettingsVersion is the trigger to recreate the auto-saver when auto-save delay/enabled changes. */
 	useEffect(() => {
-		const autoSaveKey = isEditingFile ? currentFileId : documentId;
+		const fileId = isEditingFile ? currentFileId : documentId;
+		const saveKey = fileId ? autoSaveKey(projectId, fileId) : undefined;
 
-		if (autoSaveRef.current && autoSaveKey) {
-			autoSaveService.clearAutoSaver(autoSaveKey);
+		if (autoSaveRef.current && saveKey) {
+			autoSaveService.clearAutoSaver(saveKey);
 			autoSaveRef.current = null;
 		}
 
-		if (!autoSaveKey || isViewOnly || !getAutoSaveEnabled()) return;
+		if (!saveKey || isViewOnly || !getAutoSaveEnabled()) return;
 
 		const autoSaveDelay = getAutoSaveDelay();
 		let cancelled = false;
@@ -1018,7 +1019,7 @@ export const useEditorView = (
 			}
 
 			autoSaveRef.current = autoSaveService.createAutoSaver(
-				autoSaveKey,
+				saveKey,
 				() => viewRef.current?.state?.doc?.toString() || '',
 				{
 					enabled: true,
@@ -1039,11 +1040,12 @@ export const useEditorView = (
 		return () => {
 			cancelled = true;
 			if (setupTimer !== undefined) clearTimeout(setupTimer);
-			if (autoSaveKey) autoSaveService.clearAutoSaver(autoSaveKey);
+			if (saveKey) autoSaveService.clearAutoSaver(saveKey);
 			autoSaveRef.current = null;
 		};
 	}, [
 		isEditingFile,
+		projectId,
 		isViewOnly,
 		currentFileId,
 		documentId,
@@ -1130,13 +1132,13 @@ export const useEditorView = (
 
 	useEffect(() => {
 		return () => {
-			const autoSaveKey = isEditingFile ? currentFileId : documentId;
-			if (autoSaveKey) {
-				autoSaveService.clearAutoSaver(autoSaveKey);
-				void autoSaveService.flushPendingSaves().catch(reportSaveFailure);
+			const fileId = isEditingFile ? currentFileId : documentId;
+			if (fileId) {
+				autoSaveService.clearAutoSaver(autoSaveKey(projectId, fileId));
+				void autoSaveService.flushPendingSaves(projectId).catch(reportSaveFailure);
 			}
 		};
-	}, [currentFileId, documentId, isEditingFile]);
+	}, [currentFileId, documentId, isEditingFile, projectId]);
 
 	useEffect(() => {
 		if (!isEditingFile || !currentFileId) return;

@@ -18,15 +18,16 @@ import type { FileNode } from '../../types/files';
 import type { YjsDocUrl } from '../../types/yjs';
 import { gotoEditor } from '../../utils/editorNavigator';
 import { buildUrlWithFragments, parseUrlFragments } from '../../utils/urlUtils';
+import { isBinaryFile as isBinaryFileByName } from '../../utils/fileUtils';
 import { useAuth } from '../useAuth';
 import { useEditorTabs } from '../useEditorTabs';
 import { useFileTree } from '../useFileTree';
 
 const moduleLog = createNamedLogger('useEditorNavigation');
 
-const flushDraftBeforeNavigation = async (): Promise<boolean> => {
+const flushDraftBeforeNavigation = async (projectId: string): Promise<boolean> => {
 	try {
-		await autoSaveService.flushPendingSaves();
+		await autoSaveService.flushPendingSaves(projectId);
 		return true;
 	} catch (error) {
 		moduleLog.error('Keeping the current editor because its draft was not saved:', error);
@@ -114,6 +115,7 @@ export const useEditorNavigation = ({
 	const [initialExpandedPaths, setInitialExpandedPaths] = useState<
 		string[] | undefined
 	>();
+	const activeProjectId = docUrl.startsWith('yjs:') ? docUrl.slice(4) : docUrl;
 
 	useEffect(() => () => {
 		navigationGenerationRef.current++;
@@ -121,12 +123,13 @@ export const useEditorNavigation = ({
 
 	const beginNavigation = useCallback((): NavigationRequest => ({
 		generation: ++navigationGenerationRef.current,
-		projectId: fileStoreService.getCurrentProjectId(),
-	}), []);
+		projectId: activeProjectId,
+	}), [activeProjectId]);
 
 	const isCurrentNavigation = useCallback((request: NavigationRequest) =>
 		request.generation === navigationGenerationRef.current &&
-		request.projectId === fileStoreService.getCurrentProjectId(), []);
+		request.projectId === activeProjectId &&
+		request.projectId === fileStoreService.getCurrentProjectId(), [activeProjectId]);
 
 	const selectFileInExplorer = useCallback(
 		(file: FileNode | LinkedFileInfo) => {
@@ -166,7 +169,7 @@ export const useEditorNavigation = ({
 		async (docId: string, view: 'documents' | 'files', preserveView = false, request = beginNavigation()) => {
 			const document = documents.find((doc) => doc.id === docId);
 			if (!document || !isCurrentNavigation(request)) return false;
-			if (!(await flushDraftBeforeNavigation()) || !isCurrentNavigation(request)) return false;
+			if (!(await flushDraftBeforeNavigation(request.projectId)) || !isCurrentNavigation(request)) return false;
 
 			lastOpenedDocIdRef.current = docId;
 			lastOpenedFilePathRef.current =
@@ -248,7 +251,7 @@ export const useEditorNavigation = ({
 	const openFileByNode = useCallback(
 		async (file: FileNode, preserveView = false, request = beginNavigation()) => {
 			if (!isCurrentNavigation(request)) return false;
-			if (!(await flushDraftBeforeNavigation()) || !isCurrentNavigation(request)) return false;
+			if (!(await flushDraftBeforeNavigation(request.projectId)) || !isCurrentNavigation(request)) return false;
 			const loadedContent = await getFileContent(file.id);
 			if (loadedContent === undefined || !isCurrentNavigation(request)) return false;
 
@@ -260,7 +263,12 @@ export const useEditorNavigation = ({
 				selectFileInExplorer(file);
 			}
 
-			await handleFileSelect(file, loadedContent, file.isBinary || false);
+			// Repository and backup metadata can carry a stale binary flag. A
+			// known text path stays editable unless its bytes contain NULs.
+			const containsNul = typeof loadedContent === 'string'
+				? loadedContent.includes('\0')
+				: new Uint8Array(loadedContent).includes(0);
+			await handleFileSelect(file, loadedContent, isBinaryFileByName(file.path) || containsNul);
 			return true;
 		},
 		[getFileContent, handleFileSelect, selectFileInExplorer, beginNavigation, isCurrentNavigation],
