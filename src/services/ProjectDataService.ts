@@ -179,17 +179,17 @@ export class ProjectDataService {
 			return { files, fileContents, deletedFiles };
 		}
 
-		const { fileStoreService } = await import('./FileStoreService');
+		const { FileStoreService } = await import('./FileStoreService');
 		const actualProjectId = project.docUrl.startsWith('yjs:')
 			? project.docUrl.slice(4)
 			: project.docUrl;
-
-		if (!fileStoreService.isConnectedToProject(actualProjectId)) {
-			await fileStoreService.initialize(`yjs:${actualProjectId}`);
-		}
+		// Backup/export may inspect another project while an editor is open.
+		// A private reader must not retarget the editor's shared file store.
+		const projectFiles = new FileStoreService();
 
 		try {
-			let allFiles = await fileStoreService.getAllFiles(includeDeleted);
+			await projectFiles.initialize(`yjs:${actualProjectId}`);
+			let allFiles = await projectFiles.getAllFiles(includeDeleted);
 
 			if (!includeTemporaryFiles) {
 				const { isTemporaryFile } = await import('../utils/fileUtils');
@@ -210,6 +210,8 @@ export class ProjectDataService {
 			}
 		} catch (error) {
 			moduleLog.error('Error serializing project files:', error);
+		} finally {
+			projectFiles.cleanup();
 		}
 
 		return { files, fileContents, deletedFiles };

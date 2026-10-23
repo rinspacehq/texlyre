@@ -22,7 +22,7 @@ test('formal release config binds route, source, artifact and complete notice fi
 	assert.ok(config.externalNotices.some((entry) => entry.artifactPath.includes('/LICENSES/')));
 });
 
-test('trusted release work uses the self-hosted runner without exposing it to fork PRs', async () => {
+test('release work uses the protected runner while public checks use hosted runners', async () => {
 	const [releaseWorkflow, testWorkflow] = await Promise.all([
 		readFile(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8'),
 		readFile(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8'),
@@ -43,8 +43,8 @@ test('trusted release work uses the self-hosted runner without exposing it to fo
 		releaseWorkflow.lastIndexOf("require('./config/rinspace/release.json')") <
 			outputDirectoryChange,
 	);
-	assert.match(testWorkflow, /head\.repo\.full_name != github\.repository/);
-	assert.match(testWorkflow, /'ubuntu-latest' \|\| 'rinspace-release-build'/);
+	assert.match(testWorkflow, /runs-on: ubuntu-latest/);
+	assert.doesNotMatch(testWorkflow, /runs-on:.*rinspace-release-build/);
 });
 
 test('notice assembly rejects bytes that differ from the reviewed digest', async () => {

@@ -44,6 +44,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 	children,
 	docUrl,
 }) => {
+	const activeProjectId = docUrl.startsWith('yjs:') ? docUrl.slice(4) : docUrl;
 	const { data: doc, changeData: changeDoc } = useCollab<DocumentList>();
 	const { getSetting } = useSettings();
 	const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -556,7 +557,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 					}),
 				);
 
-				await autoSaveService.flushPendingSaves();
+				await autoSaveService.flushPendingSaves(activeProjectId);
 
 				const movedIds = await fileStoreService.batchMoveFiles(moveOperations);
 
@@ -587,7 +588,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 				throw error;
 			}
 		},
-		[refreshFileTree],
+		[activeProjectId, refreshFileTree],
 	);
 
 	const batchUnlinkFiles = useCallback(
@@ -697,7 +698,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 					`Moving ${sourceFile.name} from ${sourceFile.path} to directory ${targetPath}`,
 				);
 
-				await autoSaveService.flushPendingSaves();
+				await autoSaveService.flushPendingSaves(activeProjectId);
 
 				const movedIds = await fileStoreService.batchMoveFiles([
 					{
@@ -718,7 +719,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 				}
 			}
 		},
-		[refreshFileTree],
+		[activeProjectId, refreshFileTree],
 	);
 
 	const renameFile = useCallback(
@@ -739,7 +740,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 					`Renaming ${originalFile.name} from ${oldPath} to ${newFullPath}`,
 				);
 
-				await autoSaveService.flushPendingSaves();
+				await autoSaveService.flushPendingSaves(activeProjectId);
 
 				const movedIds = await fileStoreService.batchMoveFiles(
 					[
@@ -778,7 +779,7 @@ export const FileTreeProvider: React.FC<FileTreeProviderProps> = ({
 				throw error;
 			}
 		},
-		[refreshFileTree, selectedFileId],
+		[activeProjectId, refreshFileTree, selectedFileId],
 	);
 
 	const updateFileContent = useCallback(

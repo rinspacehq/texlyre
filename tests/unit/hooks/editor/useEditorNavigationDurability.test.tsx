@@ -99,6 +99,27 @@ it('does not discard an intentionally empty file', async () => {
 	expect(result.current.loadedFile).toEqual({ fileId: 'empty', content: '' });
 });
 
+it('opens main.tex as text when imported metadata has a stale binary flag', async () => {
+	mockGetFile.mockImplementation(async id => id === 'main'
+		? { ...mockFiles[0], isBinary: true }
+		: mockFiles.find(file => file.id === id));
+	const { result } = setup();
+	await waitFor(() => expect(result.current.bootstrapResolved).toBe(true));
+	await act(async () => { await result.current.handleUserFileSelect('main'); });
+	expect(result.current.loadedFile?.fileId).toBe('main');
+	expect(result.current.isBinaryFile).toBe(false);
+});
+
+it('keeps a main.tex file with NUL bytes out of the text editor', async () => {
+	mockGetContent.mockImplementation(async id => id === 'main'
+		? new Uint8Array([65, 0, 66]).buffer
+		: 'other text');
+	const { result } = setup();
+	await waitFor(() => expect(result.current.bootstrapResolved).toBe(true));
+	await act(async () => { await result.current.handleUserFileSelect('main'); });
+	expect(result.current.isBinaryFile).toBe(true);
+});
+
 it('ignores an older asynchronous file read after a newer tab has opened', async () => {
 	const slow = deferred<string>();
 	mockGetContent.mockImplementation(async id => id === 'intro' ? slow.promise : 'main newest content');
