@@ -3,6 +3,15 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "editor-overwrite-storage-quota",
+      "files": ["src/services/FileStoreService.ts", "src/hooks/editor/editorSaveFailure.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts"],
+      "purpose": "Let IndexedDB decide whether an existing file can be overwritten. Browser storage estimates cannot account for replacement space and can falsely reject an equal-size save. Bind each save to the database and project captured before reading so a concurrent project switch cannot redirect or silently skip the write. Preserve actual quota failures and identify them in the editor instead of reporting every failure as an unspecified storage error.",
+      "tests": ["tests/services/FileStoreServiceQuotaOverwrite.test.ts", "tests/unit/hooks/editor/editorSaveFailure.test.ts", "real Chromium baseline overwrite under a deliberately low storage estimate"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream allows existing-file overwrites based on the actual storage transaction, binds writes to the original project connection, and reports genuine quota failures distinctly.",
+      "integrationStatus": "The deployed baseline rejected an equal-size main.tex overwrite in real Chromium when navigator.storage.estimate reported one byte free, while the actual IndexedDB write succeeded after that estimate was restored. The source candidate passes five focused tests, both TypeScript projects and 149 foundation tests. The maintainer requested that this fix wait for the later Rin release batch; no release or rollout is part of this source change."
+    },
+    {
       "id": "project-scoped-editor-persistence",
       "files": ["src/services/FileStoreService.ts", "src/services/ProjectDataService.ts", "src/services/AccountExportService.ts", "src/services/AutoSaveService.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts", "src/contexts/FileTreeContext.tsx"],
       "purpose": "Keep background project reads from switching the active editor's IndexedDB connection; scope pending saves and navigation flushes to the project being edited. Treat a stale binary flag on a valid text file as metadata, while preserving binary protection for files containing NUL bytes.",

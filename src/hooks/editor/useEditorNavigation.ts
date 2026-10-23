@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 
 import { createNamedLogger } from '@/logging';
-import { t } from '@/i18n';
 import { pluginRegistry } from '../../plugins/PluginRegistry';
 import { autoSaveService } from '../../services/AutoSaveService';
 import { fileStoreService } from '../../services/FileStoreService';
@@ -22,6 +21,7 @@ import { isBinaryFile as isBinaryFileByName } from '../../utils/fileUtils';
 import { useAuth } from '../useAuth';
 import { useEditorTabs } from '../useEditorTabs';
 import { useFileTree } from '../useFileTree';
+import { editorSaveFailureMessage } from './editorSaveFailure';
 
 const moduleLog = createNamedLogger('useEditorNavigation');
 
@@ -31,7 +31,7 @@ const flushDraftBeforeNavigation = async (projectId: string): Promise<boolean> =
 		return true;
 	} catch (error) {
 		moduleLog.error('Keeping the current editor because its draft was not saved:', error);
-		notificationService.showError(t('The file was not saved in browser storage'), {
+		notificationService.showError(editorSaveFailureMessage(error), {
 			operationId: 'editor-save',
 		});
 		return false;

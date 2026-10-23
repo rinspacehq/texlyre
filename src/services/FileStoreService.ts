@@ -1227,7 +1227,14 @@ export class FileStoreService {
 		options: { preserveTimestamp?: boolean } = {},
 	): Promise<FileNode | undefined> {
 		if (!this.db) await this.initialize();
-		const file = await this.getFile(id);
+		const projectId = this.projectId;
+		const db = this.requireDb();
+		const assertSaveScope = () => {
+			if (this.db !== db || this.projectId !== projectId)
+				throw new Error(t('The file was not saved in browser storage'));
+		};
+		const file = await db.get(this.FILES_STORE, id) as FileNode | undefined;
+		assertSaveScope();
 		if (!file) return undefined;
 
 		const wasDeleted = Boolean(file.isDeleted);
@@ -1239,10 +1246,11 @@ export class FileStoreService {
 				? previousContent
 				: cachedDiskContent;
 		if (
-			fileHandlerService.hasWorkspacePermissionPending(this.projectId) &&
+			fileHandlerService.hasWorkspacePermissionPending(projectId) &&
 			expectedDiskContent !== undefined
 		) {
 			await this.rememberLocalWriteBaseline(file, expectedDiskContent);
+			assertSaveScope();
 		}
 		file.content = content;
 		file.size =
@@ -1262,18 +1270,23 @@ export class FileStoreService {
 			file.isDeleted = false;
 		}
 
-		await quotaService.ensureSpace(this.getContentSize(file));
+		// An overwrite may reuse the old record's space. Storage estimates are
+		// rounded and cannot predict whether IndexedDB can commit a replacement.
+		// Let the actual write decide; guardWrite reports a real quota failure.
 		await this.guardWrite(async () => {
-			await this.db?.put(this.FILES_STORE, file);
+			assertSaveScope();
+			await db.put(this.FILES_STORE, file);
 		});
+		assertSaveScope();
 		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
 		const report = await fileHandlerService.mirrorFiles(
 			[file],
 			expectedDiskContent === undefined ? undefined : new Map([[file.id, expectedDiskContent]]),
 		);
+		assertSaveScope();
 		const diskWrite = report.entries[0];
 		if (diskWrite?.outcome === 'written' ||
-			(diskWrite?.reason === 'not-linked' && !fileHandlerService.hasWorkspacePermissionPending(this.projectId))) {
+			(diskWrite?.reason === 'not-linked' && !fileHandlerService.hasWorkspacePermissionPending(projectId))) {
 			this.setFileContentCache(id, content);
 		}
 		if (diskWrite?.outcome === 'written') {
