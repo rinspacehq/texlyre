@@ -23,7 +23,7 @@ concurrency:
 jobs:
   release:
     if: github.repository == 'rinspacehq/texlyre' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, rinspace-release-build]
+    runs-on: [rinspace-release-build, rinspace-public-texlyre-isolated]
     timeout-minutes: 240
     env:
       RINSPACE_ASSET_ARCHIVE_CACHE_DIR: /repositories/data/texlyre-asset-cache
@@ -96,7 +96,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
-          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/prepare-reviewed-texlive-runtime.cjs "$RUNNER_TEMP/texlyre-texlive-runtime"
+          nice -n 15 taskset -c "$task_cpu" node scripts/rinspace/prepare-reviewed-texlive-runtime.cjs --verify-only
 
       - name: Fetch and verify the fixed TeX Live 2026 tree list
         if: ${{ !inputs.reuse_texlive_runtime }}
@@ -141,6 +141,7 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          REUSE_TEXLIVE_RUNTIME: ${{ inputs.reuse_texlive_runtime }}
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           output="$RUNNER_TEMP/texlyre-release"
@@ -158,14 +159,20 @@ jobs:
           test "$(sed -n '1p' artifact-files.txt)" = editor/
           grep -q '^editor/notices/external/font-assets/LICENSES/' artifact-files.txt
           grep -qx 'editor/rinspace-release.json' artifact-files.txt
-          runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
-          # Keep the almost-2 GiB pack on the same filesystem without a
-          # second transient copy; the runtime directory is no longer used.
-          mv "$runtime_dir"/* "$output/"
-          test "$(node -p "require('$output/$runtime_manifest').files")" = 180810
-          test "$(node -p "require('$output/$runtime_manifest').pack.filename")" = "$runtime_pack"
-          test "$(node -p "require('$output/$runtime_manifest').index.filename")" = "$runtime_index"
-          (cd "$output" && sha256sum "$runtime_pack" "$runtime_index" "$runtime_manifest" > texlive-2026-rinspace.1.sha256)
+          if [[ "$REUSE_TEXLIVE_RUNTIME" == true ]]; then
+            # The verified public v0.13.2-rinspace.3 release already owns these
+            # immutable 2 GiB runtime bytes. Publish its exact reviewed reference,
+            # not another upload of the same pack with a new editor release.
+            cp "$GITHUB_WORKSPACE/config/rinspace/texlive-published-runtime.review.json" "$output/texlive-runtime-reference.json"
+            (cd "$output" && sha256sum texlive-runtime-reference.json > texlive-runtime-reference.json.sha256)
+          else
+            runtime_dir="$RUNNER_TEMP/texlyre-texlive-runtime"
+            mv "$runtime_dir"/* "$output/"
+            test "$(node -p "require('$output/$runtime_manifest').files")" = 180810
+            test "$(node -p "require('$output/$runtime_manifest').pack.filename")" = "$runtime_pack"
+            test "$(node -p "require('$output/$runtime_manifest').index.filename")" = "$runtime_index"
+            (cd "$output" && sha256sum "$runtime_pack" "$runtime_index" "$runtime_manifest" > texlive-2026-rinspace.1.sha256)
+          fi
 
       - name: Publish immutable public release
         shell: bash
@@ -182,13 +189,18 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Rinspace TeXlyre $RELEASE_TAG" \
-            --notes $'Self-contained browser editor for the `/editor/` route, plus the fixed TeX Live 2026 runtime used for same-origin on-demand package and font delivery. Browser workers still perform compilation; the server only returns immutable files.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. TeX Live files retain their package-specific licenses. The attached manifests bind the exact source commit/tree, complete application source archive, static artifact, runtime inputs and outputs, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
+            --notes $'Self-contained browser editor for the `/editor/` route. The fixed TeX Live 2026 runtime is attached when rebuilt, or referenced by its exact published release and asset digests when reused. Browser workers perform compilation; the server returns immutable files.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. TeX Live files retain their package-specific licenses. The attached manifests bind the exact source commit/tree, complete application source archive, static artifact, runtime reference or rebuilt bytes, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
 
       - name: Verify published assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          REUSE_TEXLIVE_RUNTIME: ${{ inputs.reuse_texlive_runtime }}
         run: |
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,isDraft,isPrerelease,assets
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$GITHUB_SHA"
+          if [[ "$REUSE_TEXLIVE_RUNTIME" == true ]]; then
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]|index("texlive-runtime-reference.json") != null')" = true
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]|index("texlive-2026-rinspace.1.pack") == null')" = true
+          fi

@@ -1,5 +1,11 @@
 # v0.13.2-rinspace.17 release scope
 
+The unchanged TeX Live runtime is verified against the published
+`v0.13.2-rinspace.3` assets and referenced by exact asset IDs and SHA-256 values.
+The editor release does not upload a second copy of the 2 GiB runtime pack.
+It runs on a dedicated one-job public TeXlyre runner with only the reviewed
+public asset caches mounted inside its sandbox.
+
 This batch packages the browser storage and project isolation fixes from
 [PR #31](https://github.com/rinspacehq/texlyre/pull/31) and
 [PR #32](https://github.com/rinspacehq/texlyre/pull/32).

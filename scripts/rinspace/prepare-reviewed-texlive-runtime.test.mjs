@@ -39,6 +39,19 @@ test('reuse copies only four exact published assets and retains original bytes',
 		for (const [name, bytes] of Object.entries(f.bodies)) assert.deepEqual(await readFile(path.join(f.output, name)), bytes);
 	} finally { await f.cleanup(); }
 });
+test('verification-only reuse checks the exact published cache without copying the 2 GB pack', async () => {
+	const f = await fixture();
+	try {
+		const result = await module.prepareReviewedRuntime({ ...f.options, outputDir: undefined, verifyOnly: true });
+		assert.equal(result.verifyOnly, true);
+		await assert.rejects(() => stat(f.output), { code: 'ENOENT' });
+		for (const [name, bytes] of Object.entries(f.bodies)) assert.deepEqual(await readFile(path.join(f.cache, name)), bytes);
+		await assert.rejects(
+			() => module.prepareReviewedRuntime({ ...f.options, cacheDir: undefined, outputDir: undefined, verifyOnly: true }),
+			/Verification-only reuse requires/,
+		);
+	} finally { await f.cleanup(); }
+});
 for (const kind of ['changed-input', 'moved-tag', 'wrong-asset-id', 'wrong-digest', 'draft']) {
 	test(`reuse fails closed for ${kind}`, async () => {
 		const f = await fixture();

@@ -27,7 +27,7 @@ test('release work uses the protected runner while public checks use hosted runn
 		readFile(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8'),
 		readFile(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8'),
 	]);
-	assert.match(releaseWorkflow, /runs-on: \[self-hosted, linux, x64, rinspace-release-build\]/);
+	assert.match(releaseWorkflow, /runs-on: \[rinspace-release-build, rinspace-public-texlyre-isolated\]/);
 	assert.match(
 		releaseWorkflow,
 		/RINSPACE_ASSET_ARCHIVE_CACHE_DIR: \/repositories\/data\/texlyre-asset-cache/,
@@ -35,6 +35,9 @@ test('release work uses the protected runner while public checks use hosted runn
 	assert.match(releaseWorkflow, /build-texlive-runtime-stream\.cjs/);
 	assert.match(releaseWorkflow, /reuse_texlive_runtime:[\s\S]*?default: true/);
 	assert.match(releaseWorkflow, /prepare-reviewed-texlive-runtime\.cjs/);
+	assert.match(releaseWorkflow, /prepare-reviewed-texlive-runtime\.cjs --verify-only/);
+	assert.match(releaseWorkflow, /if \[\[ "\$REUSE_TEXLIVE_RUNTIME" == true \]\]; then[\s\S]*?texlive-runtime-reference\.json/);
+	assert.match(releaseWorkflow, /else\s+runtime_dir="\$RUNNER_TEMP\/texlyre-texlive-runtime"/);
 	assert.match(releaseWorkflow, /if: \$\{\{ !inputs\.reuse_texlive_runtime \}\}/);
 	assert.doesNotMatch(releaseWorkflow, /--output "\$source_dir\/texmf-dist\.tar\.zst"/);
 	const outputDirectoryChange = releaseWorkflow.indexOf('cd "$output"');

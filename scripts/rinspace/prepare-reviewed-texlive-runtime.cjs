@@ -53,7 +53,7 @@ async function downloadAsset(review, name, record, target) {
 	}
 }
 
-async function prepareReviewedRuntime({ review, sourceBytes, runtime, cacheDir, outputDir, getMetadata = publishedMetadata, download = downloadAsset }) {
+async function prepareReviewedRuntime({ review, sourceBytes, runtime, cacheDir, outputDir, verifyOnly = false, getMetadata = publishedMetadata, download = downloadAsset }) {
 	assert.equal(review.schema, 'rinspace-published-texlive-runtime/v1');
 	assert.equal(review.repository, 'rinspacehq/texlyre');
 	assert.equal(digest(sourceBytes), review.sourceReviewSha256, 'Runtime inputs changed; review a new reuse record or select a full rebuild');
@@ -89,17 +89,21 @@ async function prepareReviewedRuntime({ review, sourceBytes, runtime, cacheDir, 
 		assert.equal(matches[0].size, wanted.size);
 		assert.equal(matches[0].digest, `sha256:${wanted.sha256}`);
 	}
-	const output = path.resolve(outputDir);
-	await fsp.mkdir(output, { recursive: true });
-	assert.equal(await fsp.realpath(output), output);
-	assert.deepEqual(await fsp.readdir(output), [], 'Refusing to overwrite prior runtime output');
 	const cached = cacheDir && fs.existsSync(cacheDir);
+	if (verifyOnly) assert.ok(cached, 'Verification-only reuse requires the reviewed local runtime cache');
 	if (cached) {
 		assert.equal(await fsp.realpath(cacheDir), path.resolve(cacheDir));
 		assert.deepEqual((await fsp.readdir(cacheDir)).sort(), [...names].sort());
 		for (const name of names) await verifyFile(path.join(cacheDir, name), review.assets[name]);
 	}
+	const output = verifyOnly ? path.resolve(cacheDir) : path.resolve(outputDir);
+	if (!verifyOnly) {
+		await fsp.mkdir(output, { recursive: true });
+		assert.equal(await fsp.realpath(output), output);
+		assert.deepEqual(await fsp.readdir(output), [], 'Refusing to overwrite prior runtime output');
+	}
 	for (const name of names) {
+		if (verifyOnly) continue;
 		const target = path.join(output, name);
 		if (cached) await fsp.copyFile(path.join(cacheDir, name), target, fs.constants.COPYFILE_EXCL);
 		else await download(review, name, review.assets[name], target);
@@ -117,7 +121,7 @@ async function prepareReviewedRuntime({ review, sourceBytes, runtime, cacheDir, 
 	assert.deepEqual(manifest.index, { filename: runtime.indexFilename, size: review.assets[runtime.indexFilename].size, sha256: review.assets[runtime.indexFilename].sha256 });
 	const expectedChecksums = [runtime.packFilename, runtime.indexFilename, runtime.manifestFilename].map(name => `${review.assets[name].sha256}  ${name}\n`).join('');
 	assert.equal(await fsp.readFile(path.join(output, checksum), 'utf8'), expectedChecksums);
-	return { runtimeId: source.runtimeId, release: review.release, files: names.length, reused: true };
+	return { runtimeId: source.runtimeId, release: review.release, files: names.length, reused: true, verifyOnly };
 }
 
 module.exports = { prepareReviewedRuntime };
@@ -129,6 +133,7 @@ if (require.main === module) {
 		sourceBytes: read('config/rinspace/texlive-full-runtime.review.json'),
 		runtime: JSON.parse(read('config/rinspace/release.json')).texliveRuntime,
 		cacheDir: process.env.RINSPACE_TEXLIVE_ARTIFACT_CACHE_DIR,
-		outputDir: process.argv[2],
+		outputDir: process.argv.includes('--verify-only') ? undefined : process.argv[2],
+		verifyOnly: process.argv.includes('--verify-only'),
 	}).then(result => console.log(JSON.stringify(result))).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
