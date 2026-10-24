@@ -142,6 +142,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           REUSE_TEXLIVE_RUNTIME: ${{ inputs.reuse_texlive_runtime }}
+          # Node 24 fetch() must use the sandbox's allowlisted HTTPS proxy.
+          NODE_USE_ENV_PROXY: '1'
         run: |
           task_cpu="$(awk '/Cpus_allowed_list/ { split($2, ranges, /[-,]/); print ranges[1] }' /proc/self/status)"
           output="$RUNNER_TEMP/texlyre-release"
