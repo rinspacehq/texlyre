@@ -36,6 +36,7 @@ test('release work uses the protected runner while public checks use hosted runn
 	assert.match(releaseWorkflow, /reuse_texlive_runtime:[\s\S]*?default: true/);
 	assert.match(releaseWorkflow, /prepare-reviewed-texlive-runtime\.cjs/);
 	assert.match(releaseWorkflow, /prepare-reviewed-texlive-runtime\.cjs --verify-only/);
+	assert.match(releaseWorkflow, /Assemble exact source, notices and static artifacts[\s\S]*?NODE_USE_ENV_PROXY: '1'/);
 	assert.match(releaseWorkflow, /if \[\[ "\$REUSE_TEXLIVE_RUNTIME" == true \]\]; then[\s\S]*?texlive-runtime-reference\.json/);
 	assert.match(releaseWorkflow, /else\s+runtime_dir="\$RUNNER_TEMP\/texlyre-texlive-runtime"/);
 	assert.match(releaseWorkflow, /if: \$\{\{ !inputs\.reuse_texlive_runtime \}\}/);
