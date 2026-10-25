@@ -129,14 +129,21 @@ test('a conditional content update never overwrites a newer browser value', asyn
 });
 
 test('a conditional content update accepts the same UTF-8 baseline stored as bytes', async () => {
-	const projectId = `conditional-bytes-${Date.now()}`;
 	const store = new FileStoreService();
-	store.setProjectId(projectId);
-	await store.initialize();
-	await store.db?.put('files', {
-		...originalFile(),
-		content: new TextEncoder().encode('中文 $x^2$').buffer,
-	});
+	store.setProjectId('conditional-bytes');
+	const put = jest.fn(async () => undefined);
+	store.db = {
+		transaction: jest.fn(() => ({
+			store: {
+				get: jest.fn(async () => ({
+					...originalFile(),
+					content: new TextEncoder().encode('中文 $x^2$').buffer,
+				})),
+				put,
+			},
+			done: Promise.resolve(),
+		})),
+	} as unknown as IDBPDatabase;
 
 	await expect(
 		store.updateFileContentIfUnchanged('main', '中文 $x^2$', '中文 $y^2$'),
@@ -144,5 +151,7 @@ test('a conditional content update accepts the same UTF-8 baseline stored as byt
 		status: 'updated',
 		file: { content: '中文 $y^2$' },
 	});
-	store.cleanup();
+	expect(put).toHaveBeenCalledWith(
+		expect.objectContaining({ content: '中文 $y^2$' }),
+	);
 });
