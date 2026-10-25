@@ -375,8 +375,24 @@ class CollabService {
 
 			const ymap = doc.getMap('data');
 			const docData = ymap.toJSON();
-
-			return (docData?.projectMetadata as any) ?? null;
+			const metadata = docData?.projectMetadata;
+			if (
+				metadata &&
+				typeof metadata === 'object' &&
+				'name' in metadata &&
+				'description' in metadata &&
+				'type' in metadata &&
+				typeof metadata.name === 'string' &&
+				typeof metadata.description === 'string' &&
+				typeof metadata.type === 'string'
+			) {
+				return {
+					name: metadata.name,
+					description: metadata.description,
+					type: metadata.type,
+				};
+			}
+			return null;
 		} catch (error) {
 			moduleLog.error('Error checking document metadata:', error);
 			return null;
