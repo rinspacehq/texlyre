@@ -217,6 +217,55 @@ test('aborts pending run creation when the ownership-scoped panel unmounts', asy
 	expect(lateController.run).not.toHaveBeenCalled();
 });
 
+test('detaches on page unload without aborting the durable run', async () => {
+	const controller = {
+		runId: 'run-refresh',
+		run: jest.fn(async () => undefined),
+		abort: jest.fn(),
+		detach: jest.fn(),
+		subscribe: jest.fn(() => jest.fn()),
+	};
+	mockCreate.mockResolvedValue(controller);
+	const { unmount } = render(
+		<RinspaceAgentPanel context={context} projectId='project-1' />,
+	);
+	const composer = screen.getByPlaceholderText('让琳阅读、修改、编译或提交当前项目…');
+	await waitFor(() => expect(composer).toBeEnabled());
+	fireEvent.change(composer, { target: { value: '刷新后继续' } });
+	fireEvent.click(screen.getByRole('button', { name: '发送' }));
+	await waitFor(() => expect(controller.run).toHaveBeenCalled());
+
+	fireEvent(window, new Event('pagehide'));
+	unmount();
+
+	expect(controller.detach).toHaveBeenCalledTimes(1);
+	expect(controller.abort).not.toHaveBeenCalled();
+});
+
+test('aborts a durable run on an ordinary ownership teardown', async () => {
+	const controller = {
+		runId: 'run-switch',
+		run: jest.fn(async () => undefined),
+		abort: jest.fn(),
+		detach: jest.fn(),
+		subscribe: jest.fn(() => jest.fn()),
+	};
+	mockCreate.mockResolvedValue(controller);
+	const { unmount } = render(
+		<RinspaceAgentPanel context={context} projectId='project-1' />,
+	);
+	const composer = screen.getByPlaceholderText('让琳阅读、修改、编译或提交当前项目…');
+	await waitFor(() => expect(composer).toBeEnabled());
+	fireEvent.change(composer, { target: { value: '切换前任务' } });
+	fireEvent.click(screen.getByRole('button', { name: '发送' }));
+	await waitFor(() => expect(controller.run).toHaveBeenCalled());
+
+	unmount();
+
+	expect(controller.abort).toHaveBeenCalledTimes(1);
+	expect(controller.detach).not.toHaveBeenCalled();
+});
+
 test('clears a terminal server run instead of restoring it as writable', async () => {
 	mockLoadState.mockReturnValue({
 		version: 1,
@@ -249,6 +298,60 @@ test('clears a terminal server run instead of restoring it as writable', async (
 	);
 	expect(mockRestore).not.toHaveBeenCalled();
 	expect(screen.getByText('上一项琳任务已结束，请开始新任务')).toBeInTheDocument();
+});
+
+test('single-flights recovery across repeated renders', async () => {
+	mockLoadState.mockReturnValue({
+		version: 1,
+		runId: 'run-recovering',
+		messages: [],
+		usage: {
+			inputTokens: 1,
+			outputTokens: 1,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		savedAt: 1,
+	});
+	let resolveRun: ((run: unknown) => void) | undefined;
+	mockLoadRun.mockImplementation(
+		() => new Promise((resolve) => {
+			resolveRun = resolve;
+		}),
+	);
+	const restored = {
+		runId: 'run-recovering',
+		run: jest.fn(),
+		abort: jest.fn(),
+		detach: jest.fn(),
+		subscribe: jest.fn(() => jest.fn()),
+	};
+	mockRestore.mockReturnValue(restored);
+	const { rerender } = render(
+		<RinspaceAgentPanel context={context} projectId='project-1' />,
+	);
+	await waitFor(() => expect(mockLoadRun).toHaveBeenCalledTimes(1));
+
+	rerender(<RinspaceAgentPanel context={{ ...context }} projectId='project-1' />);
+	rerender(<RinspaceAgentPanel context={{ ...context }} projectId='project-1' />);
+	expect(mockLoadRun).toHaveBeenCalledTimes(1);
+
+	await act(async () => {
+		resolveRun?.({
+			id: 'run-recovering',
+			projectId: 'project-1',
+			status: 'ACTIVE',
+			confirmedTurns: [],
+			usage: {
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		});
+		await Promise.resolve();
+	});
+	expect(mockRestore).toHaveBeenCalledTimes(1);
 });
 
 test('does not submit Enter while an input method composition is active', async () => {

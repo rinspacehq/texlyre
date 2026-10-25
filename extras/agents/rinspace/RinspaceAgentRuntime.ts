@@ -478,12 +478,16 @@ export class RinspaceAgentController {
 	}
 
 	abort(): void {
-		this.resolveApproval?.({ approved: false, reason: 'Agent task stopped' });
-		this.clearApproval();
-		this.runtime.abort('Agent task stopped');
+		this.detach();
 		void abortRun(this.runId).catch(() => {
 			// The durable run is recovered on the next read when abort delivery is unknown.
 		});
+	}
+
+	detach(): void {
+		this.resolveApproval?.({ approved: false, reason: 'Agent task stopped' });
+		this.clearApproval();
+		this.runtime.abort('Agent task stopped');
 	}
 
 	respondToApproval(approved: boolean): void {

@@ -610,6 +610,46 @@ function requestJSON(request) {
 	return request.postData ? JSON.parse(request.postData) : {};
 }
 
+const emptyUsage = () => ({
+	inputTokens: 0,
+	outputTokens: 0,
+	cacheReadTokens: 0,
+	cacheWriteTokens: 0,
+});
+
+function addUsage(base, current) {
+	return {
+		inputTokens: base.inputTokens + current.inputTokens,
+		outputTokens: base.outputTokens + current.outputTokens,
+		cacheReadTokens: base.cacheReadTokens + current.cacheReadTokens,
+		cacheWriteTokens: base.cacheWriteTokens + current.cacheWriteTokens,
+	};
+}
+
+function confirmedTurnResponse(run, requestBody, responseBody) {
+	assert.match(
+		requestBody.operationKey,
+		/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+	);
+	run.confirmedTurns.push({
+		iteration: run.turns.length,
+		operationId: requestBody.operationKey,
+		text: responseBody.text ?? '',
+		toolCalls: (responseBody.toolCalls ?? []).map((call) => ({
+			id: call.id,
+			name: call.name,
+		})),
+		finishReason: responseBody.finishReason,
+		requestId: responseBody.requestId,
+		usage: responseBody.usage,
+		createdAt: new Date(
+			Date.UTC(2026, 9, 25, 23, 0, run.turns.length),
+		).toISOString(),
+	});
+	run.usage = addUsage(run.usage, responseBody.usage);
+	return jsonResponse(responseBody);
+}
+
 async function apiResponse(repository, agentFixture, request, url) {
 	if (url.pathname === '/api/identity/v1/session') {
 		return jsonResponse({
@@ -730,6 +770,10 @@ async function apiResponse(repository, agentFixture, request, url) {
 			project,
 			projectId: body.projectId,
 			turns: [],
+			confirmedTurns: [],
+			usage: emptyUsage(),
+			recoveryReads: 0,
+			abortCount: 0,
 			write: {
 				patchMarker: `琳自动修改：${project.format} 中文与数学 $q^2$。\n`,
 				collaboratorText: `协作者并发输入：中文 English 数学 $u^2$；${'连续输入'.repeat(32)}。`,
@@ -740,6 +784,26 @@ async function apiResponse(repository, agentFixture, request, url) {
 			},
 		});
 		return jsonResponse({ id: runId });
+	}
+	const runMatch = url.pathname.match(
+		/^\/rinspace\/api\/editor\/v1\/agent\/runs\/([^/]+)$/,
+	);
+	if (runMatch && request.method === 'GET') {
+		const runId = decodeURIComponent(runMatch[1]);
+		const run = agentFixture.runs.get(runId);
+		if (!run) return jsonResponse({ error: 'fixture run not found' }, 404);
+		if (agentFixture.failNextRecovery) {
+			agentFixture.failNextRecovery = false;
+			return jsonResponse({ error: 'fixture recovery unavailable' }, 503);
+		}
+		run.recoveryReads += 1;
+		return jsonResponse({
+			id: runId,
+			projectId: run.projectId,
+			status: 'ACTIVE',
+			usage: run.usage,
+			confirmedTurns: run.confirmedTurns,
+		});
 	}
 	const turnMatch = url.pathname.match(
 		/^\/rinspace\/api\/editor\/v1\/agent\/runs\/([^/]+)\/turns$/,
@@ -752,7 +816,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 		run.turns.push(body);
 		if (run.turns.length === 1) {
 			const prefix = `${run.project.format}-${run.project.repository}`;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				toolCalls: [
 					{ id: `${prefix}-list`, name: 'list_project_files', input: {} },
 					{
@@ -818,7 +882,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 			run.write.originalSha256 = entry.contentSha256;
 			const appendLine = entry.content.split('\n').length;
 			const prefix = `${run.project.format}-${run.project.repository}`;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				toolCalls: [
 					{
 						id: `${prefix}-patch`,
@@ -895,7 +959,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 			run.awaitingCollaborator = false;
 			delete run.releaseAfterCollaborator;
 			const prefix = `${run.project.format}-${run.project.repository}`;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				toolCalls: [
 					{
 						id: `${prefix}-verify-list`,
@@ -942,7 +1006,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 		}
 		if (run.turns.length === 4) {
 			const prefix = `${run.project.format}-${run.project.repository}`;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				toolCalls: [
 					{
 						id: `${prefix}-compile`,
@@ -993,7 +1057,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 				commit: committed.output,
 			};
 			const prefix = `${run.project.format}-${run.project.repository}`;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				toolCalls: [
 					{
 						id: `${prefix}-push`,
@@ -1026,7 +1090,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 				);
 			}
 			run.delivery.push = pushed.output;
-			return jsonResponse({
+			return confirmedTurnResponse(run, body, {
 				text: `完成 ${run.project.format} 安全写入、编译、提交与 Push 验收`,
 				toolCalls: [],
 				finishReason: 'stop',
@@ -1045,6 +1109,9 @@ async function apiResponse(repository, agentFixture, request, url) {
 		/^\/rinspace\/api\/editor\/v1\/agent\/runs\/([^/]+)\/abort$/,
 	);
 	if (abortMatch && request.method === 'POST') {
+		const run = agentFixture.runs.get(decodeURIComponent(abortMatch[1]));
+		if (!run) return jsonResponse({ error: 'fixture run not found' }, 404);
+		run.abortCount += 1;
 		return { code: 204, body: Buffer.alloc(0), contentType: 'text/plain' };
 	}
 	return null;
@@ -1055,6 +1122,7 @@ async function waitForManagedProject(
 	scenario,
 	interceptionErrors,
 	requests,
+	expectGitFetch = true,
 ) {
 	const requestOffset = requests.length;
 	const targetUrl = `https://rinspace.com/editor/?mode=managed&owner=${scenario.owner}&repository=${scenario.repository}`;
@@ -1098,20 +1166,22 @@ async function waitForManagedProject(
 	);
 	assert.match(pageState?.hash ?? '', /^#yjs:/);
 	const projectRequests = requests.slice(requestOffset);
-	assert.ok(
-		projectRequests.some((request) =>
-			request.includes(
-				`/repos/${scenario.fullName}.git/info/refs?service=git-upload-pack`,
+	if (expectGitFetch) {
+		assert.ok(
+			projectRequests.some((request) =>
+				request.includes(
+					`/repos/${scenario.fullName}.git/info/refs?service=git-upload-pack`,
+				),
 			),
-		),
-		`${scenario.fullName} did not use Git Smart HTTP discovery`,
-	);
-	assert.ok(
-		projectRequests.some((request) =>
-			request.includes(`/repos/${scenario.fullName}.git/git-upload-pack`),
-		),
-		`${scenario.fullName} did not fetch the Git pack`,
-	);
+			`${scenario.fullName} did not use Git Smart HTTP discovery`,
+		);
+		assert.ok(
+			projectRequests.some((request) =>
+				request.includes(`/repos/${scenario.fullName}.git/git-upload-pack`),
+			),
+			`${scenario.fullName} did not fetch the Git pack`,
+		);
+	}
 	return pageState;
 }
 
@@ -1893,6 +1963,78 @@ async function runManagedAgentProject(client, scenario, agentFixture) {
 	);
 }
 
+async function waitForRecoveryState(client, expectedText, interceptionErrors) {
+	const deadline = Date.now() + timeoutMs;
+	let state;
+	while (Date.now() < deadline) {
+		if (interceptionErrors.length) {
+			throw new Error(interceptionErrors.join('\n'));
+		}
+		state = await evaluate(
+			client,
+			`(() => {
+				const panel = document.querySelector('section[data-role="agent"]');
+				const usage = panel?.querySelector('.rinspace-agent-usage')?.textContent ?? '';
+				const text = panel?.textContent ?? '';
+				const keys = Object.keys(sessionStorage).filter(key => key.startsWith('rinspace-agent:'));
+				return {
+					status: panel?.querySelector('.ui-badge')?.textContent?.trim(),
+					text,
+					usage,
+					error: panel?.querySelector('.ui-message[data-tone="error"]')?.textContent ?? '',
+					approval: Boolean(panel?.querySelector('.cline-ui-agent-approval-card')),
+					projectId: sessionStorage.getItem('currentProjectId'),
+					states: keys.map(key => ({ key, value: sessionStorage.getItem(key) })),
+				};
+			})()`,
+		);
+		if (
+			state.status === '就绪' &&
+			state.text.includes(expectedText) &&
+			state.usage.includes('412 输入 token') &&
+			state.usage.includes('92 输出 token')
+		) {
+			return state;
+		}
+		await wait(50);
+	}
+	throw new Error(`Agent recovery timed out: ${JSON.stringify(state)}`);
+}
+
+async function waitForRecoveryFailure(client, interceptionErrors) {
+	const deadline = Date.now() + timeoutMs;
+	let state;
+	while (Date.now() < deadline) {
+		if (interceptionErrors.length) {
+			throw new Error(interceptionErrors.join('\n'));
+		}
+		state = await evaluate(
+			client,
+			`(() => {
+				const panel = document.querySelector('section[data-role="agent"]');
+				return {
+					status: panel?.querySelector('.ui-badge')?.textContent?.trim(),
+					error: panel?.querySelector('.ui-message[data-tone="error"]')?.textContent ?? '',
+				};
+			})()`,
+		);
+		if (state.error.includes('Agent run recovery failed (503)')) return state;
+		await wait(50);
+	}
+	throw new Error(`Agent recovery failure was not surfaced: ${JSON.stringify(state)}`);
+}
+
+async function waitForObservedRequest(requests, offset, expected) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (requests.slice(offset).some((request) => request.includes(expected))) {
+			return;
+		}
+		await wait(25);
+	}
+	throw new Error(`Timed out waiting for request: ${expected}`);
+}
+
 const profile = await mkdtemp(
 	path.join(os.tmpdir(), 'rinspace-agent-managed-browser-'),
 );
@@ -1901,6 +2043,7 @@ const fixture = await mkdtemp(
 );
 let browser;
 let client;
+let recoveryClient;
 let largeAssetServer;
 let stderr = '';
 const interceptionErrors = [];
@@ -2267,6 +2410,130 @@ try {
 		await runManagedAgentProject(client, scenario, agentFixture);
 	}
 
+	const recoveryScenario = projectScenarios.at(-1);
+	assert.ok(recoveryScenario);
+	const recoveryRun = agentFixture.runs.get(
+		`fixture-${recoveryScenario.owner}-${recoveryScenario.repository}`,
+	);
+	assert.ok(recoveryRun);
+	const completionText = `完成 ${recoveryScenario.format} 安全写入、编译、提交与 Push 验收`;
+	const beforeRecovery = {
+		turns: recoveryRun.turns.length,
+		pushes: recoveryRun.project.pushCount,
+		aborts: recoveryRun.abortCount,
+	};
+	const saved = await waitForRecoveryState(
+		client,
+		completionText,
+		interceptionErrors,
+	);
+	assert.equal(saved.states.length, 1);
+	const savedEntry = saved.states[0];
+	assert.equal(
+		savedEntry.key,
+		`rinspace-agent:${encodeURIComponent('fixture-user-17')}:${encodeURIComponent(saved.projectId)}`,
+	);
+	const persisted = JSON.parse(savedEntry.value);
+	assert.equal(persisted.runId, `fixture-tags-44`);
+	for (const [field, value] of Object.entries(recoveryRun.usage)) {
+		assert.equal(persisted.usage[field], value);
+	}
+	assert.equal(persisted.usage.reasoningTokenCount, 0);
+	assert.equal(persisted.usage.totalCost, 0);
+
+	let recoveryRequestOffset = requests.length;
+	await client.send('Page.reload', { ignoreCache: true });
+	await waitForObservedRequest(
+		requests,
+		recoveryRequestOffset,
+		`/rinspace/api/editor/v1/agent/runs/${persisted.runId}`,
+	);
+	const refreshed = await waitForRecoveryState(
+		client,
+		completionText,
+		interceptionErrors,
+	);
+	assert.equal(refreshed.approval, false);
+	assert.equal(recoveryRun.recoveryReads, 1);
+	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
+	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
+	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
+
+	recoveryClient = await configurePageClient(await createPageTarget(port));
+	await recoveryClient.send('Emulation.setDeviceMetricsOverride', {
+		width: 1200,
+		height: 800,
+		deviceScaleFactor: 1,
+		mobile: false,
+	});
+	state = await waitForManagedProject(
+		recoveryClient,
+		recoveryScenario,
+		interceptionErrors,
+		requests,
+		false,
+	);
+	const secondProjectId = await evaluate(
+		recoveryClient,
+		`sessionStorage.getItem('currentProjectId')`,
+	);
+	assert.equal(secondProjectId, saved.projectId);
+	await evaluate(
+		recoveryClient,
+		`(() => {
+			const key = ${JSON.stringify(savedEntry.key)};
+			const raw = ${JSON.stringify(savedEntry.value)};
+			sessionStorage.setItem(key, raw);
+			const decoy = JSON.parse(raw);
+			decoy.messages = [{
+				id: 'decoy-message',
+				role: 'user',
+				content: [{ type: 'text', text: 'OTHER ACCOUNT OR PROJECT MUST NOT LEAK' }],
+				createdAt: 1,
+			}];
+			sessionStorage.setItem(
+				'rinspace-agent:' + encodeURIComponent('fixture-user-18') + ':' + encodeURIComponent(${JSON.stringify(saved.projectId)}),
+				JSON.stringify(decoy),
+			);
+			sessionStorage.setItem(
+				'rinspace-agent:' + encodeURIComponent('fixture-user-17') + ':' + encodeURIComponent('other-project'),
+				JSON.stringify(decoy),
+			);
+		})()`,
+	);
+	agentFixture.failNextRecovery = true;
+	recoveryRequestOffset = requests.length;
+	await recoveryClient.send('Page.reload', { ignoreCache: true });
+	await waitForObservedRequest(
+		requests,
+		recoveryRequestOffset,
+		`/rinspace/api/editor/v1/agent/runs/${persisted.runId}`,
+	);
+	await waitForRecoveryFailure(recoveryClient, interceptionErrors);
+	assert.equal(recoveryRun.recoveryReads, 1);
+	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
+	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
+	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
+
+	recoveryRequestOffset = requests.length;
+	await recoveryClient.send('Page.reload', { ignoreCache: true });
+	await waitForObservedRequest(
+		requests,
+		recoveryRequestOffset,
+		`/rinspace/api/editor/v1/agent/runs/${persisted.runId}`,
+	);
+	const reconnected = await waitForRecoveryState(
+		recoveryClient,
+		completionText,
+		interceptionErrors,
+	);
+	assert.equal(reconnected.approval, false);
+	assert.ok(!reconnected.text.includes('OTHER ACCOUNT OR PROJECT MUST NOT LEAK'));
+	assert.equal(recoveryRun.recoveryReads, 2);
+	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
+	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
+	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
+
 	assert.equal(agentFixture.runs.size, projectScenarios.length);
 	const completedRuns = [...agentFixture.runs.values()];
 	assert.equal(
@@ -2300,6 +2567,11 @@ try {
 				smartHttpDiscovery: true,
 				smartHttpPack: true,
 				smartHttpPush: true,
+				refreshRecoveries: recoveryRun.recoveryReads,
+				recoveryFailureRetries: 1,
+				isolatedRecoveryTabs: 2,
+				durableAbortRequests: recoveryRun.abortCount,
+				replayedTurnRequests: recoveryRun.turns.length - beforeRecovery.turns,
 				themeCombinations: checkedThemes.length,
 				managedToolProjects: completedRuns.length,
 				automaticReadToolResults: completedRuns.reduce(
@@ -2356,6 +2628,7 @@ try {
 	} catch {
 		// The browser may already have exited after a failed page load.
 	}
+	recoveryClient?.close();
 	client?.close();
 	if (browser?.exitCode === null) browser.kill('SIGTERM');
 	await Promise.all([

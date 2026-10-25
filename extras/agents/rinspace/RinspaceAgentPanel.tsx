@@ -258,6 +258,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const taskGeneration = useRef(0);
 	const composing = useRef(false);
 	const restoreStarted = useRef(false);
+	const pageUnloading = useRef(false);
 	const toolState = useRef<RinspaceAgentCompileState & {
 		documents: DocumentList['documents'];
 	}>({
@@ -507,14 +508,27 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	);
 	useEffect(() => {
 		const lifecycle = new AbortController();
+		const markPageUnloading = () => {
+			pageUnloading.current = true;
+		};
+		const markPageActive = () => {
+			pageUnloading.current = false;
+		};
 		lifecycleAbort.current = lifecycle;
 		mounted.current = true;
+		window.addEventListener('beforeunload', markPageUnloading);
+		window.addEventListener('pagehide', markPageUnloading);
+		window.addEventListener('pageshow', markPageActive);
 		return () => {
+			window.removeEventListener('beforeunload', markPageUnloading);
+			window.removeEventListener('pagehide', markPageUnloading);
+			window.removeEventListener('pageshow', markPageActive);
 			mounted.current = false;
 			lifecycle.abort();
 			pendingCreateAbort.current?.abort();
 			pendingCreateAbort.current = null;
-			controllerRef.current?.abort();
+			if (pageUnloading.current) controllerRef.current?.detach();
+			else controllerRef.current?.abort();
 			controllerRef.current = null;
 			if (lifecycleAbort.current === lifecycle) lifecycleAbort.current = null;
 		};
@@ -548,14 +562,11 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			return;
 		}
 		restoreStarted.current = true;
-		const abort = new AbortController();
-		let completed = false;
-		void loadRinspaceAgentRun(savedState.runId, projectId, abort.signal)
+		void loadRinspaceAgentRun(savedState.runId, projectId)
 			.then((run) => {
-				if (abort.signal.aborted || !mounted.current) return;
+				if (!mounted.current) return;
 				if (!isRinspaceAgentRunResumable(run.status)) {
 					clearAgentState(actorId, projectId);
-					completed = true;
 					setError('上一项琳任务已结束，请开始新任务');
 					return;
 				}
@@ -575,23 +586,18 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				}
 				controllerRef.current = restored;
 				setController(restored);
-				completed = true;
 				setRestoring(false);
 			})
 			.catch((reason: unknown) => {
-				if (!abort.signal.aborted) {
+				if (mounted.current) {
 					setError(
 						reason instanceof Error ? reason.message : '琳任务恢复失败',
 					);
 				}
 			})
 			.finally(() => {
-				if (!abort.signal.aborted) setRestoring(false);
+				if (mounted.current) setRestoring(false);
 			});
-		return () => {
-			abort.abort();
-			if (!completed) restoreStarted.current = false;
-		};
 	}, [actorId, config, managed, projectId, savedState, toolHost]);
 
 	useEffect(() => controller?.subscribe(setView), [controller]);
