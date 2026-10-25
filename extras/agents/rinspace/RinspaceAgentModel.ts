@@ -48,14 +48,34 @@ type ValidatedRinspaceTurnResponse = RinspaceTurnResponse & {
 	usage: Required<RinspaceTurnUsage>;
 };
 
-function projectMessage(message: AgentMessage): AgentMessage {
+function projectMessage(message: AgentMessage): {
+	role: AgentMessage['role'];
+	content: Array<Record<string, unknown>>;
+} {
 	return {
-		...message,
+		role: message.role,
 		content: message.content.map((part) => {
-			if (part.type === 'image' || part.type === 'media') {
-				throw new Error('Binary Agent message content is not supported');
+			switch (part.type) {
+				case 'text':
+					return { type: part.type, text: part.text };
+				case 'tool-call':
+					return {
+						type: part.type,
+						toolCallId: part.toolCallId,
+						toolName: part.toolName,
+						input: part.input,
+					};
+				case 'tool-result':
+					return {
+						type: part.type,
+						toolCallId: part.toolCallId,
+						toolName: part.toolName,
+						output: part.output,
+						...(part.isError ? { isError: true } : {}),
+					};
+				default:
+					throw new Error('Unsupported Agent message content');
 			}
-			return part;
 		}),
 	};
 }

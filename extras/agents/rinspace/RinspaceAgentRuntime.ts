@@ -174,6 +174,23 @@ async function createRun(
 	return value.id;
 }
 
+async function abortRun(runId: string): Promise<void> {
+	const session = await loadRinspaceSession(fetch);
+	const response = await fetch(
+		`/rinspace/api/editor/v1/agent/runs/${encodeURIComponent(runId)}/abort`,
+		{
+			method: 'POST',
+			credentials: 'include',
+			cache: 'no-store',
+			headers: {
+				Accept: 'application/json',
+				'X-Rinspace-CSRF': session.csrfToken,
+			},
+		},
+	);
+	if (!response.ok) throw new Error(`Agent abort failed (${response.status})`);
+}
+
 export class RinspaceAgentController {
 	private readonly listeners = new Set<Listener>();
 	private pendingApproval: ToolApprovalRequest | null = null;
@@ -275,6 +292,9 @@ export class RinspaceAgentController {
 		this.resolveApproval?.({ approved: false, reason: 'Agent task stopped' });
 		this.clearApproval();
 		this.runtime.abort('Agent task stopped');
+		void abortRun(this.runId).catch(() => {
+			// The durable run is recovered on the next read when abort delivery is unknown.
+		});
 	}
 
 	respondToApproval(approved: boolean): void {

@@ -910,6 +910,7 @@ export class RinspaceManagedWorkspaceRuntime {
 			},
 			binding: {
 				repositoryId: String(resolved.repository.id),
+				repositoryFullName: resolved.repository.fullName,
 				branchBindingId: await sha256Hex(
 					`${resolved.repository.id}\0${resolved.ref}`,
 				),
