@@ -151,8 +151,8 @@ importers:
         specifier: ^6.4.0
         version: 6.4.0(@codemirror/commands@6.11.0)(@codemirror/language@6.12.4)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/view@6.43.9)
       '@rinspacehq/cline-embed':
-        specifier: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz
-        version: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz(react@19.2.8)
+        specifier: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.2/cline-embed-v0.1.0-rinspace.2.tgz
+        version: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.2/cline-embed-v0.1.0-rinspace.2.tgz(react@19.2.8)
       '@swc/helpers':
         specifier: ^0.5.19
         version: 0.5.23
@@ -2061,9 +2061,9 @@ packages:
       '@codemirror/state': 6.x.x
       '@codemirror/view': 6.x.x
 
-  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz':
-    resolution: {tarball: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz}
-    version: 0.1.0-rinspace.1
+  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.2/cline-embed-v0.1.0-rinspace.2.tgz':
+    resolution: {tarball: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.2/cline-embed-v0.1.0-rinspace.2.tgz}
+    version: 0.1.0-rinspace.2
     engines: {node: '>=22'}
     peerDependencies:
       react: '>=18.3.0 <20'
@@ -8035,7 +8035,7 @@ snapshots:
       '@codemirror/view': 6.43.9
       '@replit/codemirror-vim-core': 0.1.0
 
-  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz(react@19.2.8)':
+  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.2/cline-embed-v0.1.0-rinspace.2.tgz(react@19.2.8)':
     dependencies:
       react: 19.2.8
 
