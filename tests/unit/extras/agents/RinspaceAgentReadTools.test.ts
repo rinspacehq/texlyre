@@ -112,9 +112,10 @@ function tool(name: string): AgentTool {
 }
 
 beforeAll(() => {
-	if (!globalThis.crypto?.subtle) {
-		Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
-	}
+	Object.defineProperty(globalThis, 'crypto', {
+		configurable: true,
+		value: webcrypto,
+	});
 });
 
 beforeEach(() => {
