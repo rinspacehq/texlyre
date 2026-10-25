@@ -329,6 +329,36 @@ test('search recomputes indexed matches from the current document and returns fi
 	);
 });
 
+test('search applies Unicode whole-word boundaries to the live document', async () => {
+	const search = tool('search_project');
+	const result = (await search.execute(
+		{ query: '琳', wholeWord: true, maxResults: 10 },
+		context,
+	)) as SuccessResponse;
+	expect(result.ok).toBe(true);
+	expect(result.results).toEqual([
+		expect.objectContaining({
+			path: 'main.tex',
+			matches: [expect.objectContaining({ line: 1, column: 7 })],
+		}),
+	]);
+	expect(mockSearch).toHaveBeenLastCalledWith(
+		'琳',
+		expect.objectContaining({
+			caseSensitive: false,
+			wholeWord: false,
+			useRegex: false,
+		}),
+	);
+
+	liveMainContent = '琳琅满目';
+	const adjacent = (await search.execute(
+		{ query: '琳', wholeWord: true, maxResults: 10 },
+		context,
+	)) as SuccessResponse;
+	expect(adjacent).toMatchObject({ ok: true, results: [] });
+});
+
 test('applies a baseline-bound patch through one host Yjs transaction', async () => {
 	const before = 'Hello 琳\nalpha beta';
 	const baseline = createHash('sha256').update(before).digest('hex');

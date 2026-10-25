@@ -867,9 +867,20 @@ function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
 	});
 }
 
-function searchPattern(query: string, caseSensitive: boolean, wholeWord: boolean): RegExp {
+function searchPattern(query: string, caseSensitive: boolean): RegExp {
 	const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	return new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, caseSensitive ? 'g' : 'gi');
+	return new RegExp(escaped, caseSensitive ? 'gu' : 'giu');
+}
+
+const unicodeWordCharacter = /[\p{L}\p{M}\p{N}\p{Pc}]/u;
+
+function isWholeWordMatch(line: string, index: number, length: number): boolean {
+	const before = Array.from(line.slice(0, index)).at(-1);
+	const after = Array.from(line.slice(index + length)).at(0);
+	return (
+		(before === undefined || !unicodeWordCharacter.test(before)) &&
+		(after === undefined || !unicodeWordCharacter.test(after))
+	);
 }
 
 function searchTool(host: RinspaceAgentToolHost): AgentTool {
@@ -924,8 +935,10 @@ function searchTool(host: RinspaceAgentToolHost): AgentTool {
 				});
 			}
 			const indexed = await dependencies.search.search(query, {
-				caseSensitive: input.caseSensitive === true,
-				wholeWord: input.wholeWord === true,
+				// The index is only a broad candidate source. Exact case and Unicode
+				// word-boundary semantics are recomputed from the current Y.Text view.
+				caseSensitive: false,
+				wholeWord: false,
 				useRegex: false,
 				includeFilenames: false,
 				includeContent: true,
@@ -934,7 +947,7 @@ function searchTool(host: RinspaceAgentToolHost): AgentTool {
 			if (changedAfterSearch) return changedAfterSearch;
 			const indexedIds = new Set(indexed.map((result) => result.fileId));
 			const candidates = metadata.filter(({ file }) => file.documentId || indexedIds.has(file.id));
-			const pattern = searchPattern(query, input.caseSensitive === true, input.wholeWord === true);
+			const pattern = searchPattern(query, input.caseSensitive === true);
 			const results = [];
 			let matchCount = 0;
 			for (const candidate of candidates) {
@@ -945,6 +958,12 @@ function searchTool(host: RinspaceAgentToolHost): AgentTool {
 					pattern.lastIndex = 0;
 					let match: RegExpExecArray | null;
 					while ((match = pattern.exec(line)) !== null) {
+						if (
+							input.wholeWord === true &&
+							!isWholeWordMatch(line, match.index, match[0].length)
+						) {
+							continue;
+						}
 						matchCount += 1;
 						if (matchCount > maxResults) {
 							return failure('limit_exceeded', 'Search exceeds the requested result limit', {
