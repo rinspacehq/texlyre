@@ -17,13 +17,13 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) =
 	const Panel = plugin.renderPanel;
 	const panelKey =
 		context.mode === 'managed'
-			? [
+			? JSON.stringify([
 					projectId,
 					context.identity.actorId,
 					context.identity.permissionEpoch,
 					context.binding.workspaceId,
 					context.binding.generation,
-				].join(':')
+				])
 			: `${projectId}:local`;
 	return (
 		<ResizablePanel

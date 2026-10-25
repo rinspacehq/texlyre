@@ -74,6 +74,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
 	const [restoring, setRestoring] = useState(savedState !== null);
+	const [starting, setStarting] = useState(false);
 	const [error, setError] = useState('');
 	const [markdownDiagnostic, setMarkdownDiagnostic] =
 		useState<RinspaceAgentDiagnosticSource>({
@@ -83,6 +84,11 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			log: '',
 		});
 	const mounted = useRef(true);
+	const lifecycleAbort = useRef<AbortController | null>(null);
+	const pendingCreateAbort = useRef<AbortController | null>(null);
+	const controllerRef = useRef<RinspaceAgentController | null>(null);
+	const startPending = useRef(false);
+	const taskGeneration = useRef(0);
 	const restoreStarted = useRef(false);
 	const toolState = useRef<{
 		documents: DocumentList['documents'];
@@ -383,11 +389,19 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		[changeProject, projectId, secrets],
 	);
 	useEffect(() => {
+		const lifecycle = new AbortController();
+		lifecycleAbort.current = lifecycle;
 		mounted.current = true;
 		return () => {
 			mounted.current = false;
+			lifecycle.abort();
+			pendingCreateAbort.current?.abort();
+			pendingCreateAbort.current = null;
+			controllerRef.current?.abort();
+			controllerRef.current = null;
+			if (lifecycleAbort.current === lifecycle) lifecycleAbort.current = null;
 		};
-	}, [projectId]);
+	}, []);
 	useEffect(() => {
 		if (!managed) return;
 		const abort = new AbortController();
@@ -429,13 +443,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 					savedState.messages,
 					run.usage,
 				);
-				setController((current) => {
-					if (current) {
-						restored.abort();
-						return current;
-					}
-					return restored;
-				});
+				if (controllerRef.current) {
+					restored.abort();
+					return;
+				}
+				controllerRef.current = restored;
+				setController(restored);
 				completed = true;
 				setRestoring(false);
 			})
@@ -456,10 +469,6 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	}, [actorId, config, managed, projectId, savedState, toolHost]);
 
 	useEffect(() => controller?.subscribe(setView), [controller]);
-	useEffect(
-		() => () => controller?.abort(),
-		[actorId, controller, projectId],
-	);
 
 	useEffect(() => {
 		if (!actorId || !controller || !view) return;
@@ -486,35 +495,98 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	);
 
 	const start = async () => {
-		if (!managed || !config || restoring || !prompt.trim()) return;
+		const lifecycle = lifecycleAbort.current;
+		if (
+			!managed ||
+			!config ||
+			restoring ||
+			!prompt.trim() ||
+			!lifecycle ||
+			lifecycle.signal.aborted ||
+			startPending.current
+		) {
+			return;
+		}
+		startPending.current = true;
+		const generation = taskGeneration.current;
 		setError('');
+		setStarting(true);
+		let createAbort: AbortController | null = null;
 		try {
-			const active =
-				controller ??
-				(await RinspaceAgentController.create(
+			let active = controllerRef.current;
+			if (!active) {
+				createAbort = new AbortController();
+				pendingCreateAbort.current = createAbort;
+				const created = await RinspaceAgentController.create(
 					managed,
 					projectId,
 					config,
 					toolHost,
-				));
-			if (!controller) setController(active);
+					[],
+					createAbort.signal,
+				);
+				if (
+					createAbort.signal.aborted ||
+					lifecycle.signal.aborted ||
+					!mounted.current ||
+					generation !== taskGeneration.current
+				) {
+					created.abort();
+					return;
+				}
+				if (controllerRef.current) {
+					created.abort();
+					active = controllerRef.current;
+				} else {
+					controllerRef.current = created;
+					active = created;
+					setController(created);
+				}
+			}
 			const input = prompt.trim();
 			setPrompt('');
 			await active.run(input);
 		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : '琳任务失败');
+			if (
+				mounted.current &&
+				!lifecycle.signal.aborted &&
+				generation === taskGeneration.current
+			) {
+				setError(reason instanceof Error ? reason.message : '琳任务失败');
+			}
+		} finally {
+			if (createAbort && pendingCreateAbort.current === createAbort) {
+				pendingCreateAbort.current = null;
+			}
+			startPending.current = false;
+			if (
+				mounted.current &&
+				!lifecycle.signal.aborted &&
+				generation === taskGeneration.current
+			) {
+				setStarting(false);
+			}
 		}
 	};
 
+	const stop = () => {
+		taskGeneration.current += 1;
+		pendingCreateAbort.current?.abort();
+		pendingCreateAbort.current = null;
+		controllerRef.current?.abort();
+		setStarting(false);
+	};
+
 	const reset = () => {
-		controller?.abort();
+		stop();
+		controllerRef.current = null;
 		setController(null);
 		setView(null);
 		setError('');
 		if (managed) clearAgentState(managed.identity.actorId, projectId);
 	};
 
-	const running = view?.snapshot.status === 'running';
+	const running = starting || view?.snapshot.status === 'running';
 	const approval = view?.pendingApproval;
 	return (
 		<section
@@ -534,7 +606,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 						新任务
 					</button>
 					{running && (
-						<button type='button' className='button secondary' onClick={() => controller?.abort()}>
+						<button type='button' className='button secondary' onClick={stop}>
 							停止
 						</button>
 					)}

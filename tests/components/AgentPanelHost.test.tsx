@@ -109,3 +109,21 @@ test('renders nothing when no Agent is available', () => {
 	);
 	expect(container).toBeEmptyDOMElement();
 });
+
+test('does not alias ownership tuples containing delimiters', () => {
+	const { rerender } = render(
+		<AgentPanelHost
+			context={managedContext({ actorId: 'actor' })}
+			projectId='project:scope'
+		/>,
+	);
+	const before = screen.getByTestId('agent-panel').dataset.instance;
+
+	rerender(
+		<AgentPanelHost
+			context={managedContext({ actorId: 'scope:actor' })}
+			projectId='project'
+		/>,
+	);
+	expect(screen.getByTestId('agent-panel').dataset.instance).not.toBe(before);
+});
