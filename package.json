@@ -27,6 +27,7 @@
 		"check:package-assets": "node scripts/rinspace/check-package-assets.cjs",
 		"check:source-candidate": "node scripts/rinspace/source-candidate.cjs",
 		"check:dependency-notices": "node scripts/rinspace/generate-dependency-notices.cjs",
+		"check:agent-local-browser": "node scripts/rinspace/agent-local-browser-check.mjs",
 		"test:fork-foundation": "node --test --test-concurrency=1 scripts/rinspace/*.test.mjs",
 		"build:local": "node scripts/pm.cjs tsx scripts/update-sw-version.js && node scripts/pm.cjs run generate:plugins && node scripts/pm.cjs tsc && node scripts/setup-assets.cjs && node scripts/pm.cjs vite build && node scripts/rinspace/apply-runtime-overlays.cjs && node scripts/rinspace/apply-busytex-rerun-overlay.cjs",
 		"preview": "node scripts/pm.cjs vite preview",
