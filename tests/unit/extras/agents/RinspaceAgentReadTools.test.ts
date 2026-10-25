@@ -461,6 +461,31 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 	);
 });
 
+test('rejects write targets that the project file UI cannot represent safely', async () => {
+	for (const path of ['CON.tex', 'parts/trailing-space /chapter.tex', 'bad:name.tex']) {
+		await expect(tool('create_project_file').execute(
+			{ path, content: 'unsafe target' },
+			{ ...context, toolCallId: `create-${path}` },
+		)).resolves.toMatchObject({
+			ok: false,
+			error: { code: 'path_forbidden' },
+		});
+	}
+	expect(mockFiles.createTextFileIfAbsent).not.toHaveBeenCalled();
+
+	const baseline = createHash('sha256')
+		.update('Hello 琳\nalpha beta')
+		.digest('hex');
+	await expect(tool('rename_project_file').execute(
+		{ path: 'main.tex', newPath: 'chapters/PRN', expectedSha256: baseline },
+		{ ...context, toolCallId: 'rename-invalid' },
+	)).resolves.toMatchObject({
+		ok: false,
+		error: { code: 'path_forbidden' },
+	});
+	expect(mockFiles.moveTextFileIfUnchanged).not.toHaveBeenCalled();
+});
+
 test('compensates the browser structure transaction when linked metadata changed', async () => {
 	const baseline = createHash('sha256')
 		.update('Hello 琳\nalpha beta')

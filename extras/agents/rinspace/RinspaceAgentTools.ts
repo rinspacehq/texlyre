@@ -29,6 +29,7 @@ import {
 	getMimeType,
 	isBinaryFile,
 	isTemporaryFile,
+	validateFileName,
 } from '@/utils/fileUtils';
 
 const LIMITS = {
@@ -228,6 +229,18 @@ function pathIsPrivate(path: string): boolean {
 				['.cache', '.git', '.svn', '.texlyre', 'node_modules'].includes(part),
 			)
 	);
+}
+
+function writablePathError(path: string): ToolError | null {
+	const invalid = path
+		.split('/')
+		.find((part) => part !== part.trim() || !validateFileName(part).valid);
+	return invalid
+		? failure(
+			'path_forbidden',
+			`Agent write target contains an invalid file name segment: ${invalid}`,
+		)
+		: null;
 }
 
 function activeError(host: RinspaceAgentToolHost, context?: AgentToolContext): ToolError | null {
@@ -636,6 +649,8 @@ function createFileTool(host: RinspaceAgentToolHost): AgentTool {
 			}
 			const path = normalizeAgentProjectPath(input.path);
 			if (typeof path !== 'string') return path;
+			const invalidPath = writablePathError(path);
+			if (invalidPath) return invalidPath;
 			if (pathIsPrivate(path) || isBinaryFile(path)) {
 				return failure('path_forbidden', `Private, generated or binary file path is forbidden: ${path}`);
 			}
@@ -708,6 +723,8 @@ function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
 			if (typeof path !== 'string') return path;
 			const newPath = normalizeAgentProjectPath(input.newPath);
 			if (typeof newPath !== 'string') return newPath;
+			const invalidNewPath = writablePathError(newPath);
+			if (invalidNewPath) return invalidNewPath;
 			if (path === newPath || pathIsPrivate(newPath) || isBinaryFile(newPath)) {
 				return failure('path_forbidden', 'Rename target must be a distinct visible text-file path');
 			}
