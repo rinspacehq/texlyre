@@ -359,21 +359,22 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 					outputBytes: toolState.current.outputBytes(source),
 				};
 			},
-			renameLinkedDocument: (documentId, path, origin) => {
+			renameLinkedDocument: (documentId, expectedPath, path, origin) => {
 				let renamed = false;
 				changeProject((current) => {
 					const document = current.documents?.find((item) => item.id === documentId);
-					if (!document) return;
+					if (!document || document.name.replace(/^\/+/, '') !== expectedPath) return;
 					document.name = `/${path}`;
 					renamed = true;
 				}, origin);
 				return renamed;
 			},
-			deleteLinkedDocument: (documentId, origin) => {
+			deleteLinkedDocument: (documentId, expectedPath, origin) => {
 				let deleted = false;
 				changeProject((current) => {
 					const index = current.documents?.findIndex((item) => item.id === documentId) ?? -1;
 					if (index < 0) return;
+					if (current.documents[index].name.replace(/^\/+/, '') !== expectedPath) return;
 					current.documents.splice(index, 1);
 					if (current.currentDocId === documentId) {
 						current.currentDocId = current.documents[0]?.id ?? '';

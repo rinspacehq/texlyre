@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import type { FileNode } from '../types/files';
-import { isBinaryFile, toArrayBuffer } from '../utils/fileUtils';
+import { getMimeType, isBinaryFile, toArrayBuffer } from '../utils/fileUtils';
 import {
 	type FileConflict,
 	mergeResolutionService,
@@ -34,6 +34,15 @@ export interface LocalWriteBaselineRecord {
 }
 
 export type ConditionalFileContentUpdate =
+	| { status: 'updated'; file: FileNode }
+	| { status: 'conflict' }
+	| { status: 'not-found' };
+
+export type ConditionalFileCreate =
+	| { status: 'created'; file: FileNode }
+	| { status: 'conflict' };
+
+export type ConditionalFileStructureUpdate =
 	| { status: 'updated'; file: FileNode }
 	| { status: 'conflict' }
 	| { status: 'not-found' };
@@ -1401,6 +1410,266 @@ export class FileStoreService {
 			lastModified: file.lastModified,
 		});
 		return { status: 'updated', file };
+	}
+
+	private textContent(file: FileNode): string | null {
+		if (typeof file.content === 'string') return file.content;
+		if (!(file.content instanceof ArrayBuffer)) return null;
+		try {
+			return new TextDecoder('utf-8', { fatal: true }).decode(file.content);
+		} catch {
+			return null;
+		}
+	}
+
+	async createTextFileIfAbsent(file: FileNode): Promise<ConditionalFileCreate> {
+		if (!this.db) await this.initialize();
+		if (file.type !== 'file' || this.textContent(file) === null) {
+			throw new Error(t('Only UTF-8 text files can be created conditionally'));
+		}
+		await quotaService.ensureSpace(this.getContentSize(file));
+		const db = this.requireDb();
+		const projectId = this.projectId;
+		const created = await this.guardWrite(async () => {
+			const tx = db.transaction(this.FILES_STORE, 'readwrite');
+			const store = tx.store;
+			const index = store.index('path');
+			try {
+				const parts = file.path.split('/').filter(Boolean);
+				let parentPath = '';
+				for (const part of parts.slice(0, -1)) {
+					parentPath += `/${part}`;
+					const entries = await index.getAll(parentPath) as FileNode[];
+					const active = entries.filter((entry) => !entry.isDeleted);
+					if (active.length > 1 || active.some((entry) => entry.type !== 'directory')) {
+						await tx.done;
+						return null;
+					}
+					if (active.length === 0) {
+						const deletedDirectory = entries.find((entry) => entry.type === 'directory');
+						await store.put({
+							...(deletedDirectory ?? {}),
+							id: deletedDirectory?.id ?? nanoid(),
+							name: part,
+							path: parentPath,
+							type: 'directory',
+							lastModified: Date.now(),
+							size: 0,
+							isDeleted: false,
+							content: undefined,
+						});
+					}
+				}
+				const targetEntries = await index.getAll(file.path) as FileNode[];
+				if (targetEntries.some((entry) => !entry.isDeleted)) {
+					await tx.done;
+					return null;
+				}
+				const deleted = targetEntries.find((entry) => entry.type === 'file');
+				const next: FileNode = {
+					...file,
+					id: deleted?.id ?? file.id,
+					isDeleted: false,
+					createdAt: deleted?.createdAt ?? file.createdAt ?? file.lastModified,
+				};
+				await store.put(next);
+				await tx.done;
+				this.assertDeletionScope(db, projectId);
+				return next;
+			} catch (error) {
+				try { tx.abort(); } catch { /* Transaction may already be settled. */ }
+				throw error;
+			}
+		});
+		if (!created) return { status: 'conflict' };
+		await fileHandlerService.mirrorFiles([created]);
+		this.assertDeletionScope(db, projectId);
+		fileStorageEventEmitter.emitChange({ kind: 'structure' });
+		return { status: 'created', file: created };
+	}
+
+	async moveTextFileIfUnchanged(
+		id: string,
+		expectedPath: string,
+		expectedContent: string,
+		targetPath: string,
+	): Promise<ConditionalFileStructureUpdate> {
+		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
+		let previous: FileNode | undefined;
+		const moved = await this.guardWrite(async () => {
+			const tx = db.transaction(this.FILES_STORE, 'readwrite');
+			const store = tx.store;
+			const index = store.index('path');
+			try {
+				const source = await store.get(id) as FileNode | undefined;
+				this.assertDeletionScope(db, projectId);
+				if (!source || source.isDeleted) {
+					await tx.done;
+					return { status: 'not-found' } as const;
+				}
+				if (
+					source.type !== 'file' ||
+					source.path !== expectedPath ||
+					this.textContent(source) !== expectedContent
+				) {
+					await tx.done;
+					return { status: 'conflict' } as const;
+				}
+				const targetEntries = await index.getAll(targetPath) as FileNode[];
+				if (targetEntries.some((entry) => !entry.isDeleted && entry.id !== id)) {
+					await tx.done;
+					return { status: 'conflict' } as const;
+				}
+				const parts = targetPath.split('/').filter(Boolean);
+				let parentPath = '';
+				for (const part of parts.slice(0, -1)) {
+					parentPath += `/${part}`;
+					const entries = await index.getAll(parentPath) as FileNode[];
+					const active = entries.filter((entry) => !entry.isDeleted);
+					if (active.length > 1 || active.some((entry) => entry.type !== 'directory')) {
+						await tx.done;
+						return { status: 'conflict' } as const;
+					}
+					if (active.length === 0) {
+						const deletedDirectory = entries.find((entry) => entry.type === 'directory');
+						await store.put({
+							...(deletedDirectory ?? {}),
+							id: deletedDirectory?.id ?? nanoid(),
+							name: part,
+							path: parentPath,
+							type: 'directory',
+							lastModified: Date.now(),
+							size: 0,
+							isDeleted: false,
+							content: undefined,
+						});
+					}
+				}
+				previous = { ...source };
+				const next: FileNode = {
+					...source,
+					name: targetPath.split('/').at(-1) ?? source.name,
+					path: targetPath,
+					mimeType: getMimeType(targetPath),
+					lastModified: Date.now(),
+				};
+				await store.put(next);
+				await tx.done;
+				this.assertDeletionScope(db, projectId);
+				return { status: 'updated', file: next } as const;
+			} catch (error) {
+				try { tx.abort(); } catch { /* Transaction may already be settled. */ }
+				throw error;
+			}
+		});
+		if (moved.status !== 'updated' || !previous) return moved;
+		await fileHandlerService.mirrorFiles([moved.file]);
+		await fileHandlerService.removeFromDisk([previous]);
+		this.assertDeletionScope(db, projectId);
+		fileStorageEventEmitter.emitChange({ kind: 'structure' });
+		return moved;
+	}
+
+	async deleteTextFileIfUnchanged(
+		id: string,
+		expectedPath: string,
+		expectedContent: string,
+	): Promise<ConditionalFileStructureUpdate> {
+		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
+		let previous: FileNode | undefined;
+		const deleted = await this.guardWrite(async () => {
+			const tx = db.transaction(this.FILES_STORE, 'readwrite');
+			try {
+				const source = await tx.store.get(id) as FileNode | undefined;
+				this.assertDeletionScope(db, projectId);
+				if (!source || source.isDeleted) {
+					await tx.done;
+					return { status: 'not-found' } as const;
+				}
+				if (
+					source.type !== 'file' ||
+					source.path !== expectedPath ||
+					this.textContent(source) !== expectedContent
+				) {
+					await tx.done;
+					return { status: 'conflict' } as const;
+				}
+				previous = { ...source };
+				const next: FileNode = {
+					...source,
+					isDeleted: true,
+					lastModified: Date.now(),
+				};
+				await tx.store.put(next);
+				await tx.done;
+				this.assertDeletionScope(db, projectId);
+				return { status: 'updated', file: next } as const;
+			} catch (error) {
+				try { tx.abort(); } catch { /* Transaction may already be settled. */ }
+				throw error;
+			}
+		});
+		if (deleted.status !== 'updated' || !previous) return deleted;
+		try {
+			await fileHandlerService.removeFromDisk([previous]);
+			this.assertDeletionScope(db, projectId);
+		} catch (error) {
+			const tx = db.transaction(this.FILES_STORE, 'readwrite');
+			const current = await tx.store.get(id) as FileNode | undefined;
+			if (current?.isDeleted && current.path === expectedPath) {
+				await tx.store.put(previous);
+			}
+			await tx.done;
+			fileStorageEventEmitter.emitChange({ kind: 'structure' });
+			throw error;
+		}
+		fileStorageEventEmitter.emitChange({ kind: 'structure' });
+		return deleted;
+	}
+
+	async restoreTextFileIfDeleted(
+		id: string,
+		expectedPath: string,
+		expectedContent: string,
+	): Promise<ConditionalFileStructureUpdate> {
+		if (!this.db) await this.initialize();
+		const db = this.requireDb();
+		const projectId = this.projectId;
+		const restored = await this.guardWrite(async () => {
+			const tx = db.transaction(this.FILES_STORE, 'readwrite');
+			try {
+				const source = await tx.store.get(id) as FileNode | undefined;
+				if (!source) {
+					await tx.done;
+					return { status: 'not-found' } as const;
+				}
+				if (
+					!source.isDeleted ||
+					source.path !== expectedPath ||
+					this.textContent(source) !== expectedContent
+				) {
+					await tx.done;
+					return { status: 'conflict' } as const;
+				}
+				const next = { ...source, isDeleted: false, lastModified: Date.now() };
+				await tx.store.put(next);
+				await tx.done;
+				this.assertDeletionScope(db, projectId);
+				return { status: 'updated', file: next } as const;
+			} catch (error) {
+				try { tx.abort(); } catch { /* Transaction may already be settled. */ }
+				throw error;
+			}
+		});
+		if (restored.status !== 'updated') return restored;
+		await fileHandlerService.mirrorFiles([restored.file]);
+		this.assertDeletionScope(db, projectId);
+		fileStorageEventEmitter.emitChange({ kind: 'structure' });
+		return restored;
 	}
 
 	private async createUniqueFile(file: FileNode): Promise<FileNode> {

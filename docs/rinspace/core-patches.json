@@ -13,11 +13,11 @@
     },
     {
       "id": "host-document-edit-transactions",
-      "files": ["src/services/DocumentTextEdits.ts", "src/services/CollabService.ts", "src/types/collab.ts", "src/contexts/CollabContext.tsx", "src/hooks/editor/useEditorView.ts"],
-      "purpose": "Let an optional host apply validated disjoint text edits through the existing Yjs document rather than deleting and reinserting the whole source. Carry a product-neutral transaction origin, keep each host operation in an isolated tracked undo item, preserve untouched collaborative positions and disconnect temporary document sessions even when a baseline callback rejects the write. Product names, Agent policy and tool schemas remain outside core.",
-      "tests": ["tests/services/DocumentTextEdits.test.ts", "tests/unit/extras/agents/RinspaceAgentReadTools.test.ts", "concurrent Yjs and native IME browser acceptance"],
+      "files": ["src/services/DocumentTextEdits.ts", "src/services/CollabService.ts", "src/services/FileStoreService.ts", "src/types/collab.ts", "src/contexts/CollabContext.tsx", "src/hooks/editor/useEditorView.ts"],
+      "purpose": "Let an optional host apply validated disjoint text edits through the existing Yjs document rather than deleting and reinserting the whole source. Carry a product-neutral transaction origin, keep each host operation in an isolated tracked undo item, preserve untouched collaborative positions and disconnect temporary document sessions even when a baseline callback rejects the write. Supply conditional UTF-8 create/move/delete/restore transactions that validate path and stored-content baselines, create nested parents in the same IndexedDB transaction, preserve stable file identity and retain recoverable deletion content without overwriting a concurrent browser writer. Product names, Agent policy and tool schemas remain outside core.",
+      "tests": ["tests/services/DocumentTextEdits.test.ts", "tests/services/FileStoreServiceConditionalStructure.test.ts", "tests/unit/extras/agents/RinspaceAgentReadTools.test.ts", "concurrent Yjs and native IME browser acceptance"],
       "upstreamIssue": null,
-      "removalCondition": "Upstream exposes equivalent bounded host edits with explicit origins, minimal Yjs mutations and isolated undo boundaries.",
+      "removalCondition": "Upstream exposes equivalent bounded host edits with explicit origins, minimal Yjs mutations, isolated undo boundaries and conditional structure transactions that preserve file identity and concurrent browser data.",
       "integrationStatus": "Source implementation for T04 is in progress; hosted checks and real concurrent-editor acceptance remain pending."
     },
     {

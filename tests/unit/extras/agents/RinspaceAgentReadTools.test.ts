@@ -52,10 +52,27 @@ const mockFiles = {
 		[mainFile, binaryFile, privateFile, plainFile].find((file) => file.path === path),
 	),
 	updateFileContentIfUnchanged: jest.fn(async () => ({ status: 'updated', file: mainFile })),
-	storeFile: jest.fn(async (file: { id: string }) => file.id),
-	createDirectoryPath: jest.fn(async () => undefined),
-	batchMoveFiles: jest.fn(async () => ['file-renamed']),
-	deleteFile: jest.fn(async () => undefined),
+	createTextFileIfAbsent: jest.fn(async (file: typeof mainFile) => ({
+		status: 'created',
+		file,
+	})),
+	moveTextFileIfUnchanged: jest.fn(async (
+		_id: string,
+		_expectedPath: string,
+		_expectedContent: string,
+		targetPath: string,
+	) => ({
+		status: 'updated',
+		file: { ...mainFile, path: targetPath, name: targetPath.split('/').at(-1) },
+	})),
+	deleteTextFileIfUnchanged: jest.fn(async () => ({
+		status: 'updated',
+		file: { ...mainFile, isDeleted: true },
+	})),
+	restoreTextFileIfDeleted: jest.fn(async () => ({
+		status: 'updated',
+		file: mainFile,
+	})),
 };
 const mockSearch = jest.fn(async () => [{ fileId: mainFile.id }]);
 let liveMainContent = 'Hello 琳\nalpha beta';
@@ -404,10 +421,8 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 		{ ...context, toolCallId: 'create-1' },
 	)) as Record<string, unknown>;
 	expect(created).toMatchObject({ ok: true, path: 'chapters/new.tex' });
-	expect(mockFiles.createDirectoryPath).toHaveBeenCalledWith('/chapters/new.tex');
-	expect(mockFiles.storeFile).toHaveBeenCalledWith(
+	expect(mockFiles.createTextFileIfAbsent).toHaveBeenCalledWith(
 		expect.objectContaining({ path: '/chapters/new.tex', isBinary: false }),
-		{ showConflictDialog: false },
 	);
 
 	const baseline = createHash('sha256')
@@ -422,9 +437,11 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 		oldPath: 'main.tex',
 		path: 'renamed.tex',
 	});
-	expect(mockFiles.batchMoveFiles).toHaveBeenCalledWith(
-		[{ fileId: 'file-main', targetPath: '/renamed.tex' }],
-		{ showConflictDialog: false },
+	expect(mockFiles.moveTextFileIfUnchanged).toHaveBeenCalledWith(
+		'file-main',
+		'/main.tex',
+		'stale content',
+		'/renamed.tex',
 	);
 
 	const deleted = (await tool('delete_project_file').execute(
@@ -432,11 +449,54 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 		{ ...context, toolCallId: 'delete-1' },
 	)) as Record<string, unknown>;
 	expect(deleted).toMatchObject({ ok: true, path: 'main.tex' });
-	expect(mockFiles.deleteFile).toHaveBeenCalledWith('file-main', {
-		showDeleteDialog: false,
-		hardDelete: false,
-		allowLinkedFileDelete: true,
+	expect(mockFiles.deleteTextFileIfUnchanged).toHaveBeenCalledWith(
+		'file-main',
+		'/main.tex',
+		'stale content',
+	);
+});
+
+test('compensates the browser structure transaction when linked metadata changed', async () => {
+	const baseline = createHash('sha256')
+		.update('Hello 琳\nalpha beta')
+		.digest('hex');
+	const changedHost: RinspaceAgentToolHost = {
+		...host,
+		renameLinkedDocument: () => false,
+		deleteLinkedDocument: () => false,
+	};
+	const changedTools = createRinspaceAgentTools(changedHost).tools;
+	const rename = changedTools.find((item) => item.name === 'rename_project_file');
+	const remove = changedTools.find((item) => item.name === 'delete_project_file');
+	if (!rename || !remove) throw new Error('Missing structure tools');
+
+	await expect(rename.execute(
+		{ path: 'main.tex', newPath: 'parts/renamed.tex', expectedSha256: baseline },
+		{ ...context, toolCallId: 'rename-conflict' },
+	)).resolves.toMatchObject({
+		ok: false,
+		error: { code: 'workspace_changed', message: expect.stringContaining('rolled back') },
 	});
+	expect(mockFiles.moveTextFileIfUnchanged).toHaveBeenNthCalledWith(
+		2,
+		'file-main',
+		'/parts/renamed.tex',
+		'stale content',
+		'/main.tex',
+	);
+
+	await expect(remove.execute(
+		{ path: 'main.tex', expectedSha256: baseline },
+		{ ...context, toolCallId: 'delete-conflict' },
+	)).resolves.toMatchObject({
+		ok: false,
+		error: { code: 'workspace_changed', message: expect.stringContaining('rolled back') },
+	});
+	expect(mockFiles.restoreTextFileIfDeleted).toHaveBeenCalledWith(
+		'file-main',
+		'/main.tex',
+		'stale content',
+	);
 });
 
 test('diagnostics resolve only current project files and Git status stays project-bound', async () => {

@@ -83,8 +83,17 @@ export interface RinspaceAgentToolHost {
 	isActive: () => boolean;
 	getDocuments: () => readonly Document[];
 	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
-	renameLinkedDocument: (documentId: string, path: string, origin: unknown) => boolean;
-	deleteLinkedDocument: (documentId: string, origin: unknown) => boolean;
+	renameLinkedDocument: (
+		documentId: string,
+		expectedPath: string,
+		path: string,
+		origin: unknown,
+	) => boolean;
+	deleteLinkedDocument: (
+		documentId: string,
+		expectedPath: string,
+		origin: unknown,
+	) => boolean;
 	compileProject: () => Promise<RinspaceAgentCompileResult>;
 	createGitCommit: (message: string) => Promise<string>;
 	prepareGitPush: () => Promise<GitPushPreview>;
@@ -124,7 +133,7 @@ interface TextRecord {
 const agentSearchService = new SearchService();
 
 interface ToolDependencies {
-	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContentIfUnchanged' | 'storeFile' | 'createDirectoryPath' | 'batchMoveFiles' | 'deleteFile'>;
+	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContentIfUnchanged' | 'createTextFileIfAbsent' | 'moveTextFileIfUnchanged' | 'deleteTextFileIfUnchanged' | 'restoreTextFileIfDeleted'>;
 	collab: Pick<typeof collabService, 'readDocumentContent' | 'updateDocumentContent'>;
 	search: Pick<SearchService, 'search'>;
 	git: Pick<typeof gitService, 'isInitialized' | 'getCurrentBranch' | 'getHeadOid' | 'getWorktreeBaseOid' | 'getChanges' | 'getWorktreeChanges' | 'compareFile'>;
@@ -642,10 +651,7 @@ function createFileTool(host: RinspaceAgentToolHost): AgentTool {
 					retry: { action: 'choose_another_path', path },
 				});
 			}
-			await dependencies.files.createDirectoryPath(`/${path}`);
-			const changedAfterDirectories = activeError(host, context);
-			if (changedAfterDirectories) return changedAfterDirectories;
-			const fileId = await dependencies.files.storeFile({
+			const created = await dependencies.files.createTextFileIfAbsent({
 				id: existing?.id ?? nanoid(),
 				name: path.split('/').at(-1) ?? path,
 				path: `/${path}`,
@@ -654,11 +660,16 @@ function createFileTool(host: RinspaceAgentToolHost): AgentTool {
 				isBinary: false,
 				mimeType: getMimeType(path),
 				lastModified: Date.now(),
-			}, { showConflictDialog: false });
+			});
+			if (created.status !== 'created') {
+				return failure('conflict', `A project entry was created at ${path} before the Agent write`, {
+					retry: { action: 'choose_another_path', path },
+				});
+			}
 			return {
 				ok: true,
 				projectId: host.projectId,
-				fileId,
+				fileId: created.file.id,
 				path,
 				contentSha256: await sha256(input.content),
 				bytes,
@@ -711,21 +722,42 @@ function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
 					retry: { action: 'choose_another_path', path: newPath },
 				});
 			}
-			const [newFileId] = await dependencies.files.batchMoveFiles([
-				{ fileId: record.fileId, targetPath: `/${newPath}` },
-			], { showConflictDialog: false });
-			if (!newFileId) return failure('conflict', 'File rename did not commit; inspect the current file tree');
+			const moved = await dependencies.files.moveTextFileIfUnchanged(
+				record.fileId,
+				`/${path}`,
+				record.storedContent,
+				`/${newPath}`,
+			);
+			if (moved.status !== 'updated') {
+				return failure('conflict', 'File content, source path or target changed before rename; read the tree again', {
+					retry: { action: 'read_project_files', path },
+				});
+			}
 			const origin = new HostDocumentEditOrigin(
 				'rinspace-agent',
 				`${host.runId}:${context.toolCallId}`,
 			);
-			if (record.documentId && !host.renameLinkedDocument(record.documentId, newPath, origin)) {
-				return failure('workspace_changed', 'Linked document changed during rename; refresh the project before continuing');
+			if (
+				record.documentId &&
+				!host.renameLinkedDocument(record.documentId, path, newPath, origin)
+			) {
+				const rollback = await dependencies.files.moveTextFileIfUnchanged(
+					record.fileId,
+					`/${newPath}`,
+					record.storedContent,
+					`/${path}`,
+				);
+				return failure(
+					'workspace_changed',
+					rollback.status === 'updated'
+						? 'Linked document changed during rename; the browser file rename was rolled back'
+						: 'Linked document changed and the browser rename could not be rolled back; refresh the project before continuing',
+				);
 			}
 			return {
 				ok: true,
 				projectId: host.projectId,
-				fileId: newFileId,
+				fileId: moved.file.id,
 				oldPath: path,
 				path: newPath,
 				contentSha256: record.contentSha256,
@@ -772,17 +804,35 @@ function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
 					retry: { action: 'read_project_files', path, actualSha256: confirmation.contentSha256 },
 				});
 			}
-			await dependencies.files.deleteFile(record.fileId, {
-				showDeleteDialog: false,
-				hardDelete: false,
-				allowLinkedFileDelete: true,
-			});
+			const deleted = await dependencies.files.deleteTextFileIfUnchanged(
+				record.fileId,
+				`/${path}`,
+				record.storedContent,
+			);
+			if (deleted.status !== 'updated') {
+				return failure('conflict', 'File content or structure changed before deletion; read it again', {
+					retry: { action: 'read_project_files', path },
+				});
+			}
 			const origin = new HostDocumentEditOrigin(
 				'rinspace-agent',
 				`${host.runId}:${context.toolCallId}`,
 			);
-			if (record.documentId && !host.deleteLinkedDocument(record.documentId, origin)) {
-				return failure('workspace_changed', 'Linked document changed during deletion; refresh the project before continuing');
+			if (
+				record.documentId &&
+				!host.deleteLinkedDocument(record.documentId, path, origin)
+			) {
+				const rollback = await dependencies.files.restoreTextFileIfDeleted(
+					record.fileId,
+					`/${path}`,
+					record.storedContent,
+				);
+				return failure(
+					'workspace_changed',
+					rollback.status === 'updated'
+						? 'Linked document changed during deletion; the browser deletion was rolled back'
+						: 'Linked document changed and the browser deletion could not be rolled back; refresh the project before continuing',
+				);
 			}
 			return {
 				ok: true,
