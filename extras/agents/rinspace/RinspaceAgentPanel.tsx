@@ -27,6 +27,7 @@ import { typesetterRegistryService } from '@/services/TypesetterRegistryService'
 import type { DocumentList } from '@/types/documents';
 import {
 	RinspaceAgentController,
+	isRinspaceAgentRunResumable,
 	loadRinspaceAgentConfig,
 	loadRinspaceAgentRun,
 	type RinspaceAgentConfig,
@@ -596,6 +597,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		void loadRinspaceAgentRun(savedState.runId, projectId, abort.signal)
 			.then((run) => {
 				if (abort.signal.aborted || !mounted.current) return;
+				if (!isRinspaceAgentRunResumable(run.status)) {
+					clearAgentState(actorId, projectId);
+					completed = true;
+					setError('上一项琳任务已结束，请开始新任务');
+					return;
+				}
 				const restored = RinspaceAgentController.restore(
 					run.id,
 					config,

@@ -3,11 +3,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react';
 
 import RinspaceAgentPanel from '@extras/agents/rinspace/RinspaceAgentPanel';
+import { clearAgentState } from '@extras/agents/rinspace/RinspaceAgentPersistence';
 import type { HostContext } from '@src/workspace/contracts';
 
 const mockCreate = jest.fn();
 const mockLoadConfig = jest.fn();
+const mockLoadRun = jest.fn();
 const mockLoadState = jest.fn();
+const mockRestore = jest.fn();
 
 jest.mock('@rinspacehq/cline-embed/ui', () => ({
 	AgentApprovalCard: () => <div data-testid='approval' />,
@@ -105,10 +108,12 @@ jest.mock('@extras/agents/rinspace/RinspaceAgentPersistence', () => ({
 jest.mock('@extras/agents/rinspace/RinspaceAgentRuntime', () => ({
 	RinspaceAgentController: {
 		create: (...args: unknown[]) => mockCreate(...args),
-		restore: jest.fn(),
+		restore: (...args: unknown[]) => mockRestore(...args),
 	},
+	isRinspaceAgentRunResumable: (status: string) =>
+		status === 'ACTIVE' || status === 'RECOVERY_REQUIRED',
 	loadRinspaceAgentConfig: (...args: unknown[]) => mockLoadConfig(...args),
-	loadRinspaceAgentRun: jest.fn(),
+	loadRinspaceAgentRun: (...args: unknown[]) => mockLoadRun(...args),
 }));
 
 jest.mock('@extras/agents/rinspace/RinspaceAgentTheme', () => ({
@@ -209,6 +214,40 @@ test('aborts pending run creation when the ownership-scoped panel unmounts', asy
 	});
 	expect(lateController.abort).toHaveBeenCalledTimes(1);
 	expect(lateController.run).not.toHaveBeenCalled();
+});
+
+test('clears a terminal server run instead of restoring it as writable', async () => {
+	mockLoadState.mockReturnValue({
+		version: 1,
+		runId: 'run-finished',
+		messages: [],
+		usage: {
+			inputTokens: 1,
+			outputTokens: 1,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		savedAt: 1,
+	});
+	mockLoadRun.mockResolvedValue({
+		id: 'run-finished',
+		projectId: 'project-1',
+		status: 'ABORTED',
+		usage: {
+			inputTokens: 1,
+			outputTokens: 1,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+	});
+
+	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
+
+	await waitFor(() =>
+		expect(clearAgentState).toHaveBeenCalledWith('actor-1', 'project-1'),
+	);
+	expect(mockRestore).not.toHaveBeenCalled();
+	expect(screen.getByText('上一项琳任务已结束，请开始新任务')).toBeInTheDocument();
 });
 
 test('does not submit Enter while an input method composition is active', async () => {

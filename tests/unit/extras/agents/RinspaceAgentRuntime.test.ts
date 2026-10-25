@@ -34,7 +34,7 @@ test('recovers authoritative usage only for the exact run and project', async ()
 		response({
 			id: 'run-1',
 			projectId: 'project-1',
-			status: 'waiting_for_user',
+			status: 'ACTIVE',
 			usage: {
 				inputTokens: 120,
 				outputTokens: 30,
@@ -48,7 +48,7 @@ test('recovers authoritative usage only for the exact run and project', async ()
 	await expect(loadRinspaceAgentRun('run-1', 'project-1', signal)).resolves.toEqual({
 		id: 'run-1',
 		projectId: 'project-1',
-		status: 'waiting_for_user',
+		status: 'ACTIVE',
 		usage: {
 			inputTokens: 120,
 			outputTokens: 30,
@@ -118,7 +118,7 @@ test('rejects cross-project and malformed billing projections', async () => {
 		response({
 			id: 'run-1',
 			projectId: 'project-other',
-			status: 'ready',
+			status: 'ACTIVE',
 			usage: {
 				inputTokens: 0,
 				outputTokens: 0,
@@ -135,7 +135,7 @@ test('rejects cross-project and malformed billing projections', async () => {
 		response({
 			id: 'run-1',
 			projectId: 'project-1',
-			status: 'ready',
+			status: 'ACTIVE',
 			usage: {
 				inputTokens: -1,
 				outputTokens: 0,
@@ -152,7 +152,7 @@ test('rejects cross-project and malformed billing projections', async () => {
 		response({
 			id: 'run-1',
 			projectId: 'project-1',
-			status: 'ready',
+			status: 'ACTIVE',
 			usage: {
 				inputTokens: 0,
 				outputTokens: 0,
@@ -164,6 +164,51 @@ test('rejects cross-project and malformed billing projections', async () => {
 	);
 	await expect(loadRinspaceAgentRun('run-1', 'project-1')).rejects.toThrow(
 		'usage is invalid',
+	);
+});
+
+test('accepts only the exact server run-state vocabulary', async () => {
+	for (const status of [
+		'ACTIVE',
+		'RECOVERY_REQUIRED',
+		'COMPLETED',
+		'ABORTED',
+		'FAILED_FINAL',
+	]) {
+		(fetch as jest.Mock).mockResolvedValueOnce(
+			response({
+				id: 'run-1',
+				projectId: 'project-1',
+				status,
+				usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			}),
+		);
+		await expect(loadRinspaceAgentRun('run-1', 'project-1')).resolves.toHaveProperty(
+			'status',
+			status,
+		);
+	}
+
+	(fetch as jest.Mock).mockResolvedValueOnce(
+		response({
+			id: 'run-1',
+			projectId: 'project-1',
+			status: 'waiting_for_user',
+			usage: {
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		}),
+	);
+	await expect(loadRinspaceAgentRun('run-1', 'project-1')).rejects.toThrow(
+		'recovery response is invalid',
 	);
 });
 

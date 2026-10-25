@@ -29,11 +29,32 @@ export interface RinspaceAgentViewState {
 	pendingApproval: ToolApprovalRequest | null;
 }
 
+export type RinspaceAgentRunStatus =
+	| 'ACTIVE'
+	| 'RECOVERY_REQUIRED'
+	| 'COMPLETED'
+	| 'ABORTED'
+	| 'FAILED_FINAL';
+
 export interface RinspaceAgentRunProjection {
 	id: string;
 	projectId: string;
-	status: string;
+	status: RinspaceAgentRunStatus;
 	usage: AgentUsage;
+}
+
+const rinspaceAgentRunStatuses = new Set<RinspaceAgentRunStatus>([
+	'ACTIVE',
+	'RECOVERY_REQUIRED',
+	'COMPLETED',
+	'ABORTED',
+	'FAILED_FINAL',
+]);
+
+export function isRinspaceAgentRunResumable(
+	status: RinspaceAgentRunStatus,
+): boolean {
+	return status === 'ACTIVE' || status === 'RECOVERY_REQUIRED';
 }
 
 type Listener = (state: RinspaceAgentViewState) => void;
@@ -155,14 +176,15 @@ export async function loadRinspaceAgentRun(
 	if (
 		value.id !== runId ||
 		value.projectId !== projectId ||
-		typeof value.status !== 'string'
+		typeof value.status !== 'string' ||
+		!rinspaceAgentRunStatuses.has(value.status as RinspaceAgentRunStatus)
 	) {
 		throw new Error('Agent run recovery response is invalid');
 	}
 	return {
 		id: runId,
 		projectId,
-		status: value.status,
+		status: value.status as RinspaceAgentRunStatus,
 		usage: validateUsage(value.usage),
 	};
 }
