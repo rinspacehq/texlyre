@@ -16,28 +16,44 @@ describe('Rinspace Git remote provider', () => {
 		jest.restoreAllMocks();
 	});
 
-	it('uses the token-hiding Editor BFF for account metadata', async () => {
-		const request = jest.fn(async () => response({
-			schemaVersion: 'rinspace-editor-projects/v2',
-			projects: [],
-			hasMore: false,
-		}));
+	it('establishes the browser Git session without probing the project catalog', async () => {
+		const queue = [
+			response({
+				status: 'authenticated',
+				csrfToken: 'csrf-proof',
+				user: { id: 'rin-user-1', sessionEpoch: 2, identityVersion: 3 },
+				currentSession: { sid: 'session-1', version: 4 },
+			}),
+			response(null, 204),
+			response(null),
+		];
+		const request = jest.fn(async () => {
+			const next = queue.shift();
+			if (!next) throw new Error('unexpected request');
+			return next;
+		});
 		global.fetch = request as typeof fetch;
 
 		await expect(rinspaceGitRemoteProvider.testConnection('ignored')).resolves.toBe(true);
-		expect(request).toHaveBeenCalledWith(
-			'/rinspace/api/editor/v1/projects?limit=1',
-			expect.objectContaining({
-				credentials: 'include',
-				cache: 'no-store',
-			}),
-		);
+		expect(request.mock.calls.map(([url]) => url)).toEqual([
+			'/api/identity/v1/session',
+			'/api/gitea/sso',
+			'/repos/',
+		]);
 		expect(JSON.stringify(request.mock.calls)).not.toMatch(/authorization|token/i);
+	});
+
+	it('reports an unavailable browser Git session without consulting the catalog', async () => {
+		const request = jest.fn(async () => response(null, 401));
+		global.fetch = request as typeof fetch;
+		await expect(rinspaceGitRemoteProvider.testConnection('')).resolves.toBe(false);
+		expect(request).toHaveBeenCalledTimes(1);
+		expect(request).toHaveBeenCalledWith('/api/identity/v1/session', expect.anything());
 	});
 
 	it('rejects a legacy catalog while keeping project detail and branch responses on v1', async () => {
 		global.fetch = jest.fn(async () => response({ schemaVersion: 'rinspace-editor-projects/v1', projects: [], hasMore: false })) as typeof fetch;
-		await expect(rinspaceGitRemoteProvider.testConnection('')).resolves.toBe(false);
+		await expect(rinspaceGitRemoteProvider.listRepositories('')).rejects.toThrow('response is invalid');
 	});
 
 	it('uses bounded keyset pages to include repositories beyond the first page', async () => {

@@ -150,8 +150,12 @@ export function createRinspaceGitRemoteProvider(
 		},
 		testConnection: async () => {
 			try {
-				const result = await request<CatalogWire>('?limit=1');
-				requireSchema(result, CATALOG_SCHEMA);
+				// A managed project has already been resolved and authorized before
+				// GitSyncService binds its fixed remote. Testing that remote must only
+				// establish the browser's Gitea Smart HTTP session; coupling it to the
+				// independent project catalog makes a catalog/session race prevent an
+				// otherwise valid direct project open.
+				await ensureRinspaceGitSession();
 				return true;
 			} catch {
 				return false;
