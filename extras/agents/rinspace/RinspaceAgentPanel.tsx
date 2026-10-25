@@ -3,8 +3,11 @@ import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	AgentApprovalCard,
+	AgentDiffFile,
 	AgentMessageList,
+	AgentToolView,
 	type AgentMessageView,
+	type ToolActivityStatus,
 } from '@rinspacehq/cline-embed/ui';
 import '@rinspacehq/cline-embed/styles.css';
 
@@ -43,16 +46,171 @@ import type {
 } from './RinspaceAgentTools';
 import './styles.css';
 
-function messageText(message: RinspaceAgentViewState['snapshot']['messages'][number]): string {
-	return message.content
-		.map((part) => {
-			if (part.type === 'text' || part.type === 'reasoning') return part.text;
-			if (part.type === 'tool-call') return `调用工具：${part.toolName}`;
-			if (part.type === 'tool-result') return `${part.toolName} 已完成`;
-			return '';
-		})
-		.filter(Boolean)
-		.join('\n');
+type AgentMessage = RinspaceAgentViewState['snapshot']['messages'][number];
+type AgentMessagePart = AgentMessage['content'][number];
+
+const TOOL_LABELS: Readonly<Record<string, string>> = {
+	list_project_files: '列出项目文件',
+	read_project_files: '读取项目文件',
+	search_project: '搜索项目',
+	read_compile_diagnostics: '读取编译诊断',
+	git_status: '检查 Git 状态',
+	compile_project: '编译项目',
+	apply_project_patch: '修改项目文件',
+	create_project_file: '新建项目文件',
+	rename_project_file: '重命名项目文件',
+	delete_project_file: '删除项目文件',
+	create_git_commit: '创建 Git 提交',
+	push_git_commits: 'Push Git 提交',
+};
+
+const TOOL_DETAIL_LIMIT = 12_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedJson(value: unknown): string {
+	let text: string;
+	try {
+		text = JSON.stringify(value, null, 2) ?? String(value);
+	} catch {
+		text = '[无法显示工具详情]';
+	}
+	return text.length > TOOL_DETAIL_LIMIT
+		? `${text.slice(0, TOOL_DETAIL_LIMIT)}\n…（详情已截断）`
+		: text;
+}
+
+function changedLineCounts(before: string, after: string): {
+	additions: number;
+	deletions: number;
+} {
+	const beforeLines = before ? before.split('\n') : [];
+	const afterLines = after ? after.split('\n') : [];
+	let prefix = 0;
+	while (
+		prefix < beforeLines.length &&
+		prefix < afterLines.length &&
+		beforeLines[prefix] === afterLines[prefix]
+	) {
+		prefix += 1;
+	}
+	let suffix = 0;
+	while (
+		suffix < beforeLines.length - prefix &&
+		suffix < afterLines.length - prefix &&
+		beforeLines[beforeLines.length - suffix - 1] ===
+			afterLines[afterLines.length - suffix - 1]
+	) {
+		suffix += 1;
+	}
+	return {
+		additions: afterLines.length - prefix - suffix,
+		deletions: beforeLines.length - prefix - suffix,
+	};
+}
+
+function ToolDiffs({ output }: { output: unknown }) {
+	if (!isRecord(output) || !Array.isArray(output.comparisons)) return null;
+	const comparisons = output.comparisons.filter(
+		(comparison): comparison is Record<string, unknown> =>
+			isRecord(comparison) &&
+			typeof comparison.path === 'string' &&
+			typeof comparison.before === 'string' &&
+			typeof comparison.after === 'string',
+	);
+	if (comparisons.length === 0) return null;
+	return (
+		<div className='rinspace-agent-diffs' aria-label='项目文件差异'>
+			{comparisons.map((comparison) => {
+				const path = comparison.path as string;
+				const before = comparison.before as string;
+				const after = comparison.after as string;
+				const counts = changedLineCounts(before, after);
+				return (
+					<AgentDiffFile
+						key={path}
+						path={path}
+						additions={counts.additions}
+						deletions={counts.deletions}
+						onCopyPath={() => void navigator.clipboard?.writeText(path)}
+					>
+						<div className='rinspace-agent-diff-columns'>
+							<div>
+								<strong>修改前</strong>
+								<pre>{before}</pre>
+							</div>
+							<div>
+								<strong>修改后</strong>
+								<pre>{after}</pre>
+							</div>
+						</div>
+					</AgentDiffFile>
+				);
+			})}
+		</div>
+	);
+}
+
+function toolStatus(
+	part: Extract<AgentMessagePart, { type: 'tool-call' }>,
+	resultById: ReadonlyMap<string, Extract<AgentMessagePart, { type: 'tool-result' }>>,
+	pendingToolCalls: ReadonlySet<string>,
+): ToolActivityStatus {
+	const result = resultById.get(part.toolCallId);
+	if (result) return result.isError ? 'error' : 'success';
+	return pendingToolCalls.has(part.toolCallId) ? 'pending' : 'running';
+}
+
+function MessageContent({
+	message,
+	pendingToolCalls,
+	resultById,
+}: {
+	message: AgentMessage;
+	pendingToolCalls: ReadonlySet<string>;
+	resultById: ReadonlyMap<
+		string,
+		Extract<AgentMessagePart, { type: 'tool-result' }>
+	>;
+}) {
+	return (
+		<div className='rinspace-agent-message-parts'>
+			{message.content.map((part, index) => {
+				if (part.type === 'text' || part.type === 'reasoning') {
+					return <p key={`${part.type}-${index}`}>{part.text}</p>;
+				}
+				if (part.type === 'tool-call') {
+					return (
+						<AgentToolView
+							key={`call-${part.toolCallId}`}
+							label={TOOL_LABELS[part.toolName] ?? part.toolName}
+							status={toolStatus(part, resultById, pendingToolCalls)}
+						>
+							<pre>{boundedJson(part.input)}</pre>
+						</AgentToolView>
+					);
+				}
+				if (part.type === 'tool-result') {
+					return (
+						<AgentToolView
+							key={`result-${part.toolCallId}`}
+							label={`${TOOL_LABELS[part.toolName] ?? part.toolName}${part.isError ? '失败' : '完成'}`}
+							status={part.isError ? 'error' : 'success'}
+						>
+							<ToolDiffs output={part.output} />
+							<pre>{boundedJson(part.output)}</pre>
+						</AgentToolView>
+					);
+				}
+				if (part.type === 'file') {
+					return <pre key={`file-${index}`}>{part.path}\n{part.content}</pre>;
+				}
+				return null;
+			})}
+		</div>
+	);
 }
 
 const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
@@ -486,15 +644,31 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		});
 	}, [actorId, controller, projectId, view]);
 
-	const messages = useMemo<AgentMessageView[]>(
-		() =>
-			(view?.snapshot.messages ?? []).map((message) => ({
-				id: message.id,
-				role: message.role === 'tool' ? 'status' : message.role,
-				content: messageText(message),
-			})),
-		[view?.snapshot.messages],
-	);
+	const messages = useMemo<AgentMessageView[]>(() => {
+		const snapshot = view?.snapshot;
+		const source = snapshot?.messages ?? [];
+		const resultById = new Map<
+			string,
+			Extract<AgentMessagePart, { type: 'tool-result' }>
+		>();
+		for (const message of source) {
+			for (const part of message.content) {
+				if (part.type === 'tool-result') resultById.set(part.toolCallId, part);
+			}
+		}
+		const pendingToolCalls = new Set(snapshot?.pendingToolCalls ?? []);
+		return source.map((message) => ({
+			id: message.id,
+			role: message.role === 'tool' ? 'status' : message.role,
+			content: (
+				<MessageContent
+					message={message}
+					pendingToolCalls={pendingToolCalls}
+					resultById={resultById}
+				/>
+			),
+		}));
+	}, [view?.snapshot]);
 
 	const start = async () => {
 		const lifecycle = lifecycleAbort.current;
@@ -592,7 +766,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const approval = view?.pendingApproval;
 	return (
 		<section
-			className={`rinspace-agent ui-panel ${collapsed ? 'collapsed' : 'expanded'}`}
+			className={`rinspace-agent rinspace-cline-embed ui-panel ${collapsed ? 'collapsed' : 'expanded'}`}
 			data-role='agent'
 			style={rinspaceAgentTheme as React.CSSProperties}
 		>

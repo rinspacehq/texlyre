@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 
 import RinspaceAgentPanel from '@extras/agents/rinspace/RinspaceAgentPanel';
 import type { HostContext } from '@src/workspace/contracts';
@@ -10,7 +11,39 @@ const mockLoadState = jest.fn();
 
 jest.mock('@rinspacehq/cline-embed/ui', () => ({
 	AgentApprovalCard: () => <div data-testid='approval' />,
-	AgentMessageList: () => <div data-testid='messages' />,
+	AgentDiffFile: ({
+		path,
+		additions,
+		deletions,
+		children,
+	}: {
+		path: string;
+		additions: number;
+		deletions: number;
+		children: ReactNode;
+	}) => (
+		<div data-testid='diff-file' data-path={path} data-additions={additions} data-deletions={deletions}>
+			{children}
+		</div>
+	),
+	AgentMessageList: ({
+		messages,
+	}: {
+		messages: Array<{ id: string; content: ReactNode }>;
+	}) => (
+		<div data-testid='messages'>
+			{messages.map((message) => <div key={message.id}>{message.content}</div>)}
+		</div>
+	),
+	AgentToolView: ({
+		label,
+		status,
+		children,
+	}: {
+		label: ReactNode;
+		status: string;
+		children: ReactNode;
+	}) => <div data-testid='tool-card' data-status={status}>{label}{children}</div>,
 }));
 
 jest.mock('@src/components/common/Icons', () => ({
@@ -199,4 +232,84 @@ test('does not submit Enter while an input method composition is active', async 
 	fireEvent.keyDown(composer, { key: 'Enter', keyCode: 13 });
 	await waitFor(() => expect(controller.run).toHaveBeenCalledWith('输入中文'));
 	expect(mockCreate).toHaveBeenCalledTimes(1);
+});
+
+test('renders Cline tool cards and bounded project diff cards', async () => {
+	let listener: ((view: unknown) => void) | undefined;
+	const controller = {
+		runId: 'run-cards',
+		run: jest.fn(async () => undefined),
+		abort: jest.fn(),
+		subscribe: jest.fn((next: (view: unknown) => void) => {
+			listener = next;
+			return jest.fn();
+		}),
+	};
+	mockCreate.mockResolvedValue(controller);
+	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
+	const composer = screen.getByPlaceholderText('让琳阅读、修改、编译或提交当前项目…');
+	await waitFor(() => expect(composer).toBeEnabled());
+	expect(composer.closest('.rinspace-agent')).toHaveClass('rinspace-cline-embed');
+	fireEvent.change(composer, { target: { value: '检查修改' } });
+	fireEvent.click(screen.getByRole('button', { name: '发送' }));
+	await waitFor(() => expect(controller.subscribe).toHaveBeenCalled());
+
+	act(() => {
+		listener?.({
+			pendingApproval: null,
+			snapshot: {
+				agentId: 'agent-1',
+				status: 'completed',
+				iteration: 1,
+				pendingToolCalls: [],
+				usage: {
+					inputTokens: 8,
+					outputTokens: 5,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				messages: [
+					{
+						id: 'assistant-call',
+						role: 'assistant',
+						createdAt: 1,
+						content: [{
+							type: 'tool-call',
+							toolCallId: 'call-1',
+							toolName: 'git_status',
+							input: { includeComparisons: true },
+						}],
+					},
+					{
+						id: 'tool-result',
+						role: 'tool',
+						createdAt: 2,
+						content: [{
+							type: 'tool-result',
+							toolCallId: 'call-1',
+							toolName: 'git_status',
+							output: {
+								ok: true,
+								comparisons: [{
+									path: 'main.tex',
+									before: '旧标题\n正文',
+									after: '新标题\n正文',
+								}],
+							},
+						}],
+					},
+				],
+			},
+		});
+	});
+
+	expect(screen.getAllByTestId('tool-card')).toHaveLength(2);
+	expect(screen.getByText('检查 Git 状态')).toBeInTheDocument();
+	expect(screen.getByText('检查 Git 状态完成')).toBeInTheDocument();
+	const diff = screen.getByTestId('diff-file');
+	expect(diff).toHaveAttribute('data-path', 'main.tex');
+	expect(diff).toHaveAttribute('data-additions', '1');
+	expect(diff).toHaveAttribute('data-deletions', '1');
+	expect(diff).toHaveTextContent('旧标题');
+	expect(diff).toHaveTextContent('新标题');
 });
