@@ -1352,8 +1352,8 @@ export class FileStoreService {
 		}
 
 		const cachedDiskContent = this.contentCache.get(id);
-		const expectedDiskContent = cachedDiskContent === undefined
-			? stored.content
+		const expectedDiskContent: string | ArrayBuffer | null = cachedDiskContent === undefined
+			? (stored.content ?? null)
 			: cachedDiskContent;
 		const file: FileNode = {
 			...stored,
