@@ -43,10 +43,20 @@ function validateConfig(value: unknown): RinspaceAgentConfig {
 	const config = value as RinspaceAgentConfig;
 	if (
 		typeof config.enabled !== 'boolean' ||
-		!config.model?.trim() ||
+		config.model !== 'deepseek-flash' ||
 		!Number.isSafeInteger(config.maxIterations) ||
+		config.maxIterations < 0 ||
+		config.maxIterations > 128 ||
 		!Number.isSafeInteger(config.maxOutputTokens) ||
-		!Number.isFinite(config.maxGoodness)
+		config.maxOutputTokens < 0 ||
+		config.maxOutputTokens > 4096 ||
+		!Number.isSafeInteger(config.maxGoodness) ||
+		config.maxGoodness < 0 ||
+		config.maxGoodness > 1_000_000_000_000 ||
+		(config.enabled &&
+			(config.maxIterations === 0 ||
+				config.maxOutputTokens === 0 ||
+				config.maxGoodness === 0))
 	) {
 		throw new Error('Agent config is invalid');
 	}
@@ -67,6 +77,13 @@ function validateUsage(value: unknown): AgentUsage {
 		if (!Number.isSafeInteger(usage[field]) || Number(usage[field]) < 0) {
 			throw new Error('Agent run usage is invalid');
 		}
+	}
+	if (
+		usage.reasoningTokenCount !== undefined &&
+		(!Number.isSafeInteger(usage.reasoningTokenCount) ||
+			Number(usage.reasoningTokenCount) < 0)
+	) {
+		throw new Error('Agent run usage is invalid');
 	}
 	if (
 		usage.totalCost !== undefined &&
