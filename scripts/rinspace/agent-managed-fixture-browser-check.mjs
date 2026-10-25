@@ -270,49 +270,150 @@ function jsonResponse(value, code = 200) {
 	};
 }
 
-async function createRepository(fixture) {
-	const worktree = path.join(fixture, 'article-worktree');
+const projectScenarios = [
+	{
+		owner: 'a',
+		repository: '42',
+		fullName: 'a/42',
+		contentType: 'article',
+		format: 'latex',
+		entry: 'main.tex',
+		secondary: 'sections/content.tex',
+		private: true,
+		files: {
+			'rinspace.yaml': [
+				'type: blog',
+				'status: draft',
+				'sourceVisibility: private',
+				'title: Browser fixture LaTeX article',
+				'entry: main.tex',
+				'build:',
+				'  format: latex',
+				'metadata:',
+				'  rinspacePostId: "42"',
+				'',
+			].join('\n'),
+			'main.tex': [
+				'\\documentclass{article}',
+				'\\begin{document}',
+				'中文 LaTeX 主文，数学公式 $E = mc^2$。',
+				'\\input{sections/content}',
+				'\\end{document}',
+				'',
+			].join('\n'),
+			'sections/content.tex': '跨文件标记：LaTeX 章节内容。\n',
+		},
+	},
+	{
+		owner: 'b',
+		repository: '43',
+		fullName: 'b/43',
+		contentType: 'book',
+		format: 'typst',
+		entry: 'main.typ',
+		secondary: 'chapters/content.typ',
+		private: true,
+		files: {
+			'rinspace.yaml': [
+				'type: book',
+				'status: draft',
+				'sourceVisibility: private',
+				'title: Browser fixture Typst book',
+				'entry: main.typ',
+				'build:',
+				'  format: typst',
+				'metadata:',
+				'  rinspacePostId: "43"',
+				'',
+			].join('\n'),
+			'main.typ': [
+				'= 中文 Typst 主文',
+				'数学公式 $ x^2 + y^2 = z^2 $.',
+				'#include "chapters/content.typ"',
+				'',
+			].join('\n'),
+			'chapters/content.typ': '= 跨文件章节\n跨文件标记：Typst 章节内容。\n',
+		},
+	},
+	{
+		owner: 'tags',
+		repository: '44',
+		fullName: 'tags/44',
+		contentType: 'tag-wiki',
+		format: 'markdown',
+		entry: 'README.md',
+		secondary: 'sections/content.md',
+		private: false,
+		files: {
+			'rinspace.yaml': [
+				'type: tag-wiki',
+				'status: published',
+				'sourceVisibility: open',
+				'title: Browser fixture Markdown tag',
+				'entry: README.md',
+				'build:',
+				'  format: markdown',
+				'metadata:',
+				'  rinspaceTagId: "44"',
+				'  templateVersion: "1"',
+				'',
+			].join('\n'),
+			'README.md': [
+				'# 中文 Markdown 标签',
+				'',
+				'数学公式 $a^2 + b^2 = c^2$。',
+				'',
+				'参见 `sections/content.md`。',
+				'',
+			].join('\n'),
+			'sections/content.md':
+				'## 跨文件章节\n\n跨文件标记：Markdown 标签内容。\n',
+		},
+	},
+];
+
+async function createRepositories(fixture) {
 	const gitRoot = path.join(fixture, 'git-root');
-	const bare = path.join(gitRoot, 'a', '42.git');
-	await mkdir(worktree, { recursive: true });
-	await mkdir(path.dirname(bare), { recursive: true });
-	await writeFile(
-		path.join(worktree, 'rinspace.yaml'),
-		[
-			'type: blog',
-			'status: draft',
-			'sourceVisibility: private',
-			'title: Browser fixture article',
-			'entry: main.tex',
-			'build:',
-			'  format: latex',
-			'metadata:',
-			'  rinspacePostId: "42"',
-			'',
-		].join('\n'),
-	);
-	await writeFile(
-		path.join(worktree, 'main.tex'),
-		'\\documentclass{article}\n\\begin{document}\nManaged browser fixture\n\\end{document}\n',
-	);
-	await run('git', ['init', '--initial-branch=main'], { cwd: worktree });
-	await run('git', ['config', 'user.name', 'Rinspace Browser Fixture'], {
-		cwd: worktree,
-	});
-	await run(
-		'git',
-		['config', 'user.email', 'browser-fixture@invalid.example'],
-		{ cwd: worktree },
-	);
-	await run('git', ['add', '.'], { cwd: worktree });
-	await run('git', ['commit', '-m', 'fixture: initial managed article'], {
-		cwd: worktree,
-	});
-	const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: worktree }))
-		.toString('utf8')
-		.trim();
-	await run('git', ['clone', '--bare', worktree, bare]);
-	return { bare, gitRoot, head };
+	const projects = new Map();
+	for (const scenario of projectScenarios) {
+		const worktree = path.join(
+			fixture,
+			`${scenario.owner}-${scenario.repository}-worktree`,
+		);
+		const bare = path.join(
+			gitRoot,
+			scenario.owner,
+			`${scenario.repository}.git`,
+		);
+		await mkdir(worktree, { recursive: true });
+		await mkdir(path.dirname(bare), { recursive: true });
+		for (const [file, content] of Object.entries(scenario.files)) {
+			const destination = path.join(worktree, file);
+			await mkdir(path.dirname(destination), { recursive: true });
+			await writeFile(destination, content);
+		}
+		await run('git', ['init', '--initial-branch=main'], { cwd: worktree });
+		await run('git', ['config', 'user.name', 'Rinspace Browser Fixture'], {
+			cwd: worktree,
+		});
+		await run(
+			'git',
+			['config', 'user.email', 'browser-fixture@invalid.example'],
+			{ cwd: worktree },
+		);
+		await run('git', ['add', '.'], { cwd: worktree });
+		await run(
+			'git',
+			['commit', '-m', `fixture: initial managed ${scenario.format} project`],
+			{ cwd: worktree },
+		);
+		const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: worktree }))
+			.toString('utf8')
+			.trim();
+		await run('git', ['clone', '--bare', worktree, bare]);
+		projects.set(scenario.fullName, { ...scenario, bare, head });
+	}
+	return { gitRoot, projects };
 }
 
 function parseCgiResponse(output) {
@@ -365,7 +466,11 @@ async function gitResponse(repository, request, url) {
 	return parseCgiResponse(output);
 }
 
-function apiResponse(repository, request, url) {
+function requestJSON(request) {
+	return request.postData ? JSON.parse(request.postData) : {};
+}
+
+function apiResponse(repository, agentFixture, request, url) {
 	if (url.pathname === '/api/identity/v1/session') {
 		return jsonResponse({
 			status: 'authenticated',
@@ -377,6 +482,9 @@ function apiResponse(repository, request, url) {
 	if (url.pathname === '/api/gitea/sso' && request.method === 'POST') {
 		return { code: 204, body: Buffer.alloc(0), contentType: 'text/plain' };
 	}
+	if (url.pathname === '/api/profile') {
+		return jsonResponse({ uid: 'fixture-user-17', nickname: '浏览器夹具用户' });
+	}
 	if (url.pathname === '/repos/') {
 		return {
 			code: 200,
@@ -384,27 +492,79 @@ function apiResponse(repository, request, url) {
 			contentType: 'text/html; charset=utf-8',
 		};
 	}
-	if (url.pathname === '/rinspace/api/editor/v1/projects/a/42') {
+	const projectMatch = url.pathname.match(
+		/^\/rinspace\/api\/editor\/v1\/projects\/(a|b|tags)\/([1-9][0-9]*)$/,
+	);
+	if (projectMatch) {
+		const fullName = `${projectMatch[1]}/${projectMatch[2]}`;
+		const project = repository.projects.get(fullName);
+		if (!project)
+			return jsonResponse({ error: 'fixture project not found' }, 404);
+		agentFixture.currentProject = fullName;
 		return jsonResponse({
 			schemaVersion: 'rinspace-editor-projects/v1',
 			account: { id: 17, login: 'fixture-user' },
 			project: {
-				id: 42,
-				name: '42',
-				fullName: 'a/42',
+				id: Number(project.repository),
+				name: project.repository,
+				fullName: project.fullName,
 				defaultBranch: 'main',
 				objectFormat: 'sha1',
-				private: true,
+				private: project.private,
 				archived: false,
-				rinspaceContentType: 'article',
+				rinspaceContentType: project.contentType,
 				permissions: { admin: false, push: true, pull: true },
 			},
 			ref: url.searchParams.get('ref') ?? 'main',
-			remoteHead: repository.head,
+			remoteHead: project.head,
 			commitIdentity: {
 				name: 'Rinspace Browser Fixture',
 				email: 'browser-fixture@invalid.example',
 			},
+		});
+	}
+	if (url.pathname === '/rinspace/api/editor/v1/projects') {
+		const limit = Number.parseInt(url.searchParams.get('limit') ?? '12', 10);
+		const page = Number.parseInt(url.searchParams.get('page') ?? '1', 10);
+		const query = url.searchParams.get('q')?.trim() ?? '';
+		const current = repository.projects.get(agentFixture.currentProject);
+		const candidates = [current, ...repository.projects.values()]
+			.filter(Boolean)
+			.filter(
+				(project, index, values) =>
+					values.findIndex(
+						(candidate) => candidate.fullName === project.fullName,
+					) === index,
+			)
+			.filter((project) => query || project.contentType !== 'tag-wiki')
+			.filter(
+				(project) =>
+					!query ||
+					project.fullName.toLowerCase().includes(query.toLowerCase()),
+			)
+			.slice(0, Number.isSafeInteger(limit) && limit > 0 ? limit : 12)
+			.map((project) => ({
+				id: Number(project.repository),
+				name: project.repository,
+				fullName: project.fullName,
+				description: `${project.format} browser fixture`,
+				private: project.private,
+				archived: false,
+				defaultBranch: 'main',
+				objectFormat: 'sha1',
+				rinspaceTitle: `${project.format} fixture`,
+				rinspaceContentType: project.contentType,
+				access: 'owner',
+				permissions: { admin: false, push: true, pull: true },
+			}));
+		return jsonResponse({
+			schemaVersion: 'rinspace-editor-projects/v2',
+			account: { id: 17, login: 'fixture-user' },
+			projects: candidates,
+			page,
+			pageSize: limit,
+			...(query ? { query } : {}),
+			hasMore: false,
 		});
 	}
 	if (url.pathname === '/rinspace/api/editor/v1/agent/config') {
@@ -416,7 +576,367 @@ function apiResponse(repository, request, url) {
 			maxGoodness: 100,
 		});
 	}
+	if (
+		url.pathname === '/rinspace/api/editor/v1/agent/runs' &&
+		request.method === 'POST'
+	) {
+		const body = requestJSON(request);
+		const fullName = body.binding?.repositoryFullName;
+		const project = repository.projects.get(fullName);
+		if (!project)
+			return jsonResponse({ error: 'fixture binding not found' }, 400);
+		const runId = `fixture-${project.owner}-${project.repository}`;
+		agentFixture.runs.set(runId, {
+			project,
+			projectId: body.projectId,
+			turns: [],
+		});
+		return jsonResponse({ id: runId });
+	}
+	const turnMatch = url.pathname.match(
+		/^\/rinspace\/api\/editor\/v1\/agent\/runs\/([^/]+)\/turns$/,
+	);
+	if (turnMatch && request.method === 'POST') {
+		const runId = decodeURIComponent(turnMatch[1]);
+		const run = agentFixture.runs.get(runId);
+		if (!run) return jsonResponse({ error: 'fixture run not found' }, 404);
+		const body = requestJSON(request);
+		run.turns.push(body);
+		if (run.turns.length === 1) {
+			const prefix = `${run.project.format}-${run.project.repository}`;
+			return jsonResponse({
+				toolCalls: [
+					{ id: `${prefix}-list`, name: 'list_project_files', input: {} },
+					{
+						id: `${prefix}-read`,
+						name: 'read_project_files',
+						input: {
+							files: [
+								{ path: run.project.entry },
+								{ path: run.project.secondary },
+							],
+						},
+					},
+					{
+						id: `${prefix}-search`,
+						name: 'search_project',
+						input: {
+							query: '跨文件标记',
+							wholeWord: false,
+							maxResults: 10,
+						},
+					},
+					{
+						id: `${prefix}-diagnostics`,
+						name: 'read_compile_diagnostics',
+						input: {},
+					},
+					{
+						id: `${prefix}-git`,
+						name: 'git_status',
+						input: { includeComparisons: true, maxChanges: 10 },
+					},
+				],
+				finishReason: 'tool-calls',
+				requestId: `${prefix}-request-1`,
+				usage: {
+					inputTokens: 20,
+					outputTokens: 10,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		if (run.turns.length === 2) {
+			return jsonResponse({
+				text: `完成 ${run.project.format} 只读验收`,
+				toolCalls: [],
+				finishReason: 'stop',
+				requestId: `${run.project.format}-${run.project.repository}-request-2`,
+				usage: {
+					inputTokens: 40,
+					outputTokens: 8,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		return jsonResponse({ error: 'unexpected fixture turn' }, 409);
+	}
+	const abortMatch = url.pathname.match(
+		/^\/rinspace\/api\/editor\/v1\/agent\/runs\/([^/]+)\/abort$/,
+	);
+	if (abortMatch && request.method === 'POST') {
+		return { code: 204, body: Buffer.alloc(0), contentType: 'text/plain' };
+	}
 	return null;
+}
+
+async function waitForManagedProject(
+	client,
+	scenario,
+	interceptionErrors,
+	requests,
+) {
+	const requestOffset = requests.length;
+	await client.send('Page.navigate', {
+		url: `https://rinspace.com/editor/?mode=managed&owner=${scenario.owner}&repository=${scenario.repository}`,
+	});
+	const deadline = Date.now() + timeoutMs;
+	let pageState;
+	while (Date.now() < deadline) {
+		if (interceptionErrors.length)
+			throw new Error(interceptionErrors.join('\n'));
+		pageState = await evaluate(
+			client,
+			`({
+				ready: Boolean(document.querySelector('header[data-role="editor"]')),
+				agent: Boolean(document.querySelector('section[data-role="agent"]')),
+				status: document.querySelector('section[data-role="agent"] .ui-badge')?.textContent?.trim(),
+				hash: location.hash,
+				origin: location.origin,
+				bodyText: document.body?.innerText?.slice(0, 4000)
+			})`,
+		);
+		if (pageState.ready && pageState.agent && pageState.status === '就绪') {
+			break;
+		}
+		await wait(100);
+	}
+	assert.equal(pageState?.origin, 'https://rinspace.com');
+	assert.equal(
+		pageState?.ready,
+		true,
+		`${scenario.fullName} did not reach the real editor: ${JSON.stringify(pageState)}`,
+	);
+	assert.equal(
+		pageState?.agent,
+		true,
+		`${scenario.fullName} did not lazy-mount the Agent panel: ${JSON.stringify(pageState)}`,
+	);
+	assert.equal(
+		pageState?.status,
+		'就绪',
+		`${scenario.fullName} Agent config did not reach ready`,
+	);
+	assert.match(pageState?.hash ?? '', /^#yjs:/);
+	const projectRequests = requests.slice(requestOffset);
+	assert.ok(
+		projectRequests.some((request) =>
+			request.includes(
+				`/repos/${scenario.fullName}.git/info/refs?service=git-upload-pack`,
+			),
+		),
+		`${scenario.fullName} did not use Git Smart HTTP discovery`,
+	);
+	assert.ok(
+		projectRequests.some((request) =>
+			request.includes(`/repos/${scenario.fullName}.git/git-upload-pack`),
+		),
+		`${scenario.fullName} did not fetch the Git pack`,
+	);
+	return pageState;
+}
+
+function toolResults(turn) {
+	return (turn.messages ?? [])
+		.flatMap((message) => message.content ?? [])
+		.filter((part) => part.type === 'tool-result');
+}
+
+function verifyReadOnlyRun(run) {
+	assert.equal(run.turns.length, 2, `${run.project.fullName} turn count`);
+	const results = toolResults(run.turns[1]);
+	assert.equal(results.length, 5, `${run.project.fullName} tool result count`);
+	const byName = new Map(results.map((result) => [result.toolName, result]));
+	for (const name of [
+		'list_project_files',
+		'read_project_files',
+		'search_project',
+		'read_compile_diagnostics',
+		'git_status',
+	]) {
+		const result = byName.get(name);
+		assert.ok(result, `${run.project.fullName} omitted ${name}`);
+		assert.notEqual(
+			result.isError,
+			true,
+			`${run.project.fullName} failed ${name}`,
+		);
+		assert.equal(
+			result.output?.ok,
+			true,
+			`${run.project.fullName} ${name} did not return ok`,
+		);
+		assert.equal(
+			result.output.projectId,
+			run.projectId,
+			`${run.project.fullName} ${name} crossed the active project boundary`,
+		);
+	}
+
+	const listed = byName.get('list_project_files').output.entries;
+	assert.ok(Array.isArray(listed));
+	const allowedPaths = new Set([
+		'rinspace.yaml',
+		run.project.entry,
+		run.project.secondary,
+		path.posix.dirname(run.project.secondary),
+	]);
+	assert.ok(
+		listed.every((entry) => allowedPaths.has(entry.path)),
+		`${run.project.fullName} listed data outside its repository`,
+	);
+	for (const expected of [
+		'rinspace.yaml',
+		run.project.entry,
+		run.project.secondary,
+	]) {
+		assert.ok(
+			listed.some(
+				(entry) => entry.path === expected && typeof entry.fileId === 'string',
+			),
+			`${run.project.fullName} did not list ${expected} with a file ID`,
+		);
+	}
+
+	const readFiles = byName.get('read_project_files').output.files;
+	assert.ok(Array.isArray(readFiles));
+	for (const expected of [run.project.entry, run.project.secondary]) {
+		const file = readFiles.find((candidate) => candidate.path === expected);
+		assert.ok(file, `${run.project.fullName} did not read ${expected}`);
+		assert.equal(file.content, run.project.files[expected]);
+		assert.equal(typeof file.fileId, 'string');
+		assert.match(file.contentSha256, /^[0-9a-f]{64}$/);
+		assert.ok(Number.isSafeInteger(file.bytes) && file.bytes > 0);
+	}
+	assert.match(
+		readFiles.find((file) => file.path === run.project.entry).content,
+		/中文/u,
+	);
+	assert.match(
+		readFiles.find((file) => file.path === run.project.entry).content,
+		/\$[^\n]+\$/u,
+	);
+	assert.match(
+		readFiles.find((file) => file.path === run.project.secondary).content,
+		/跨文件标记/u,
+	);
+
+	const searched = byName.get('search_project').output.results;
+	assert.ok(Array.isArray(searched));
+	assert.ok(
+		searched.every((result) => result.path === run.project.secondary),
+		`${run.project.fullName} search returned another workspace path`,
+	);
+	const secondaryMatch = searched.find(
+		(result) => result.path === run.project.secondary,
+	);
+	assert.ok(
+		secondaryMatch,
+		`${run.project.fullName} search missed the secondary file`,
+	);
+	assert.match(secondaryMatch.contentSha256, /^[0-9a-f]{64}$/);
+	assert.ok(
+		secondaryMatch.matches.some((match) =>
+			String(match.text).includes('跨文件标记'),
+		),
+	);
+
+	const sources = byName.get('read_compile_diagnostics').output.sources;
+	assert.ok(Array.isArray(sources) && sources.length >= 4);
+	for (const source of sources) {
+		assert.equal(typeof source.id, 'string');
+		assert.ok(Array.isArray(source.diagnostics));
+	}
+
+	const git = byName.get('git_status').output;
+	assert.equal(git.initialized, true);
+	assert.equal(git.branch, 'main');
+	assert.equal(git.headOid, run.project.head);
+	assert.equal(git.worktreeBaseOid, run.project.head);
+	assert.deepEqual(git.changes, []);
+	assert.deepEqual(git.worktreeChanges, []);
+	assert.deepEqual(git.comparisons, []);
+}
+
+async function runReadOnlyAgentProject(client, scenario, agentFixture) {
+	await evaluate(
+		client,
+		`(() => {
+			const panel = document.querySelector('section[data-role="agent"]');
+			if (!panel) throw new Error('Agent panel is unavailable');
+			window.__rinspaceFixtureApprovalSeen = 0;
+			new MutationObserver(() => {
+				if (panel.textContent?.includes('确认 Push')) {
+					window.__rinspaceFixtureApprovalSeen += 1;
+				}
+			}).observe(panel, { childList: true, subtree: true, characterData: true });
+			const textarea = panel.querySelector('textarea');
+			if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Agent textarea is unavailable');
+			const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+			if (!setter) throw new Error('Textarea value setter is unavailable');
+			setter.call(textarea, ${JSON.stringify('自动运行五个只读工具并报告结果')});
+			textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		})()`,
+	);
+	const sendDeadline = Date.now() + 3_000;
+	let sent = false;
+	while (!sent && Date.now() < sendDeadline) {
+		sent = await evaluate(
+			client,
+			`(() => {
+				const button = [...document.querySelectorAll('section[data-role="agent"] button')]
+					.find(candidate => candidate.textContent?.trim() === '发送');
+				if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+				button.click();
+				return true;
+			})()`,
+		);
+		if (!sent) await wait(50);
+	}
+	assert.equal(sent, true, `${scenario.fullName} Agent prompt was not sent`);
+
+	const runId = `fixture-${scenario.owner}-${scenario.repository}`;
+	const deadline = Date.now() + timeoutMs;
+	let taskState;
+	while (Date.now() < deadline) {
+		const run = agentFixture.runs.get(runId);
+		taskState = await evaluate(
+			client,
+			`(() => {
+				const panel = document.querySelector('section[data-role="agent"]');
+				return {
+					status: panel?.querySelector('.ui-badge')?.textContent?.trim(),
+					text: panel?.textContent?.slice(-16000),
+					error: panel?.querySelector('.ui-message[data-tone="error"]')?.textContent,
+					approvalSeen: window.__rinspaceFixtureApprovalSeen ?? 0,
+				};
+			})()`,
+		);
+		if (taskState.error) {
+			throw new Error(
+				`${scenario.fullName} Agent UI error: ${taskState.error}`,
+			);
+		}
+		assert.equal(
+			taskState.approvalSeen,
+			0,
+			`${scenario.fullName} requested approval for read-only tools`,
+		);
+		if (
+			run?.turns.length === 2 &&
+			taskState.status === '就绪' &&
+			taskState.text?.includes(`完成 ${scenario.format} 只读验收`)
+		) {
+			verifyReadOnlyRun(run);
+			return;
+		}
+		await wait(50);
+	}
+	throw new Error(
+		`${scenario.fullName} read-only Agent run timed out: ${JSON.stringify(taskState)}`,
+	);
 }
 
 const profile = await mkdtemp(
@@ -431,10 +951,11 @@ let stderr = '';
 const interceptionErrors = [];
 const requests = [];
 const browserErrors = [];
+const agentFixture = { runs: new Map() };
 let state;
 try {
 	await access(path.join(dist, 'index.html'));
-	const repository = await createRepository(fixture);
+	const repository = await createRepositories(fixture);
 	const port = await availablePort();
 	browser = spawn(
 		await browserBinary(),
@@ -476,8 +997,11 @@ try {
 		void (async () => {
 			const url = new URL(event.request.url);
 			requests.push(`${event.request.method} ${url.pathname}${url.search}`);
-			let response = apiResponse(repository, event.request, url);
-			if (!response && url.pathname.startsWith('/repos/a/42.git/')) {
+			let response = apiResponse(repository, agentFixture, event.request, url);
+			if (
+				!response &&
+				/^\/repos\/(?:a|b|tags)\/[1-9][0-9]*\.git\//.test(url.pathname)
+			) {
 				const git = await gitResponse(repository, event.request, url);
 				await client.send('Fetch.fulfillRequest', {
 					requestId: event.requestId,
@@ -525,61 +1049,20 @@ try {
 		client.send('Page.enable'),
 		client.send('Runtime.enable'),
 		client.send('Log.enable'),
+		client.send('Network.enable'),
 	]);
+	await client.send('Network.setBypassServiceWorker', { bypass: true });
 	await client.send('Emulation.setDeviceMetricsOverride', {
 		width: 1200,
 		height: 800,
 		deviceScaleFactor: 1,
 		mobile: false,
 	});
-	await client.send('Page.navigate', {
-		url: 'https://rinspace.com/editor/?mode=managed&owner=a&repository=42',
-	});
-
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		if (interceptionErrors.length)
-			throw new Error(interceptionErrors.join('\n'));
-		state = await evaluate(
-			client,
-			`({
-				ready: Boolean(document.querySelector('header[data-role="editor"]')),
-				agent: Boolean(document.querySelector('section[data-role="agent"]')),
-				status: document.querySelector('section[data-role="agent"] .ui-badge')?.textContent?.trim(),
-				hash: location.hash,
-				origin: location.origin,
-				bodyText: document.body?.innerText?.slice(0, 2000)
-			})`,
-		);
-		if (state.ready && state.agent && state.status === '就绪') break;
-		await wait(100);
-	}
-	assert.equal(state?.origin, 'https://rinspace.com');
-	assert.equal(
-		state?.ready,
-		true,
-		'the managed project did not reach the real editor',
-	);
-	assert.equal(
-		state?.agent,
-		true,
-		'the Agent panel did not lazy-mount in managed mode',
-	);
-	assert.equal(
-		state?.status,
-		'就绪',
-		'the Agent config did not reach the ready state',
-	);
-	assert.match(state?.hash ?? '', /^#yjs:/);
-	assert.ok(
-		requests.some((request) =>
-			request.includes('/info/refs?service=git-upload-pack'),
-		),
-		'the managed browser did not use Git Smart HTTP discovery',
-	);
-	assert.ok(
-		requests.some((request) => request.includes('/git-upload-pack')),
-		'the managed browser did not fetch the Git pack',
+	state = await waitForManagedProject(
+		client,
+		projectScenarios[0],
+		interceptionErrors,
+		requests,
 	);
 
 	const themePlugins = [
@@ -763,6 +1246,56 @@ try {
 		}
 	}
 
+	for (const [index, scenario] of projectScenarios.entries()) {
+		await client.send('Emulation.setDeviceMetricsOverride', {
+			width: 1200,
+			height: 800,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
+		await client.send('Emulation.setEmulatedMedia', {
+			features: [{ name: 'prefers-color-scheme', value: 'light' }],
+		});
+		await evaluate(
+			client,
+			`(async () => {
+				const userId = localStorage.getItem('texlyre-current-user');
+				if (!userId) throw new Error('managed local profile is unavailable');
+				const key = 'texlyre-user-' + userId + '-settings';
+				const settings = JSON.parse(localStorage.getItem(key) || '{}');
+				settings['theme-plugin'] = 'texlyre-wide-theme';
+				settings['theme-variant'] = 'light';
+				localStorage.setItem(key, JSON.stringify(settings));
+				localStorage.setItem('rinspace-theme-v2', 'light');
+				window.dispatchEvent(new Event('rinspace-theme-changed'));
+				window.dispatchEvent(new CustomEvent('chelys-account-store-changed', { detail: { store: 'settings' } }));
+				const deadline = Date.now() + 3000;
+				while ((document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.layout !== 'texlyre-wide') && Date.now() < deadline) {
+					await new Promise(resolve => setTimeout(resolve, 20));
+				}
+			})()`,
+		);
+		if (index > 0) {
+			state = await waitForManagedProject(
+				client,
+				scenario,
+				interceptionErrors,
+				requests,
+			);
+		}
+		await runReadOnlyAgentProject(client, scenario, agentFixture);
+	}
+
+	assert.equal(agentFixture.runs.size, projectScenarios.length);
+	const completedRuns = [...agentFixture.runs.values()];
+	assert.equal(
+		completedRuns.reduce(
+			(total, run) => total + toolResults(run.turns[1]).length,
+			0,
+		),
+		15,
+	);
+
 	process.stdout.write(
 		`${JSON.stringify(
 			{
@@ -770,10 +1303,22 @@ try {
 				origin: state.origin,
 				editorReady: state.ready,
 				agentMounted: state.agent,
-				gitHead: repository.head,
+				gitHead: repository.projects.get('a/42').head,
+				gitHeads: Object.fromEntries(
+					[...repository.projects].map(([name, project]) => [
+						name,
+						project.head,
+					]),
+				),
 				smartHttpDiscovery: true,
 				smartHttpPack: true,
 				themeCombinations: checkedThemes.length,
+				managedToolProjects: completedRuns.length,
+				automaticToolResults: completedRuns.reduce(
+					(total, run) => total + toolResults(run.turns[1]).length,
+					0,
+				),
+				approvalRequests: 0,
 				observedRequests: requests.length,
 			},
 			null,
