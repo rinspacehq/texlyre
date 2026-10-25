@@ -38,8 +38,14 @@ export interface RinspaceAgentRunProjection {
 
 type Listener = (state: RinspaceAgentViewState) => void;
 
+export const RINSPACE_AGENT_SYSTEM_PROMPT = `你是 Rinspace 写作工作台中的工程助手「琳」。只处理当前 TeXlyre 项目，并且只使用宿主提供的工具。
+先读取当前项目事实再修改；写入遇到基线冲突时必须重新读取，不得覆盖用户或协作者的新内容。不得请求或推断 Shell、任意网络、凭据、其他项目存储或未声明能力。
+编译、Git 提交和文件操作必须通过对应工具完成。Push 必须使用 push_git_commits，由宿主逐次取得用户确认；不得建议强推、删除远端分支或改写已推历史。
+不要声称执行了尚未由工具结果确认的操作。任务完成时用简洁文字说明结果、未完成项和需要用户决定的事项。`;
+
 function validateConfig(value: unknown): RinspaceAgentConfig {
-	if (!value || typeof value !== 'object') throw new Error('Agent config is invalid');
+	if (!value || typeof value !== 'object')
+		throw new Error('Agent config is invalid');
 	const config = value as RinspaceAgentConfig;
 	if (
 		typeof config.enabled !== 'boolean' ||
@@ -105,10 +111,10 @@ function addUsage(base: AgentUsage, current: AgentUsage): AgentUsage {
 		...(base.reasoningTokenCount !== undefined ||
 		current.reasoningTokenCount !== undefined
 			? {
-				reasoningTokenCount:
-					(base.reasoningTokenCount ?? 0) +
-					(current.reasoningTokenCount ?? 0),
-			}
+					reasoningTokenCount:
+						(base.reasoningTokenCount ?? 0) +
+						(current.reasoningTokenCount ?? 0),
+				}
 			: {}),
 		...(base.totalCost !== undefined || current.totalCost !== undefined
 			? { totalCost: (base.totalCost ?? 0) + (current.totalCost ?? 0) }
@@ -116,7 +122,9 @@ function addUsage(base: AgentUsage, current: AgentUsage): AgentUsage {
 	};
 }
 
-export async function loadRinspaceAgentConfig(signal?: AbortSignal): Promise<RinspaceAgentConfig> {
+export async function loadRinspaceAgentConfig(
+	signal?: AbortSignal,
+): Promise<RinspaceAgentConfig> {
 	const response = await fetch('/rinspace/api/editor/v1/agent/config', {
 		credentials: 'include',
 		cache: 'no-store',
@@ -141,7 +149,8 @@ export async function loadRinspaceAgentRun(
 			signal,
 		},
 	);
-	if (!response.ok) throw new Error(`Agent run recovery failed (${response.status})`);
+	if (!response.ok)
+		throw new Error(`Agent run recovery failed (${response.status})`);
 	const value = (await response.json()) as Record<string, unknown>;
 	if (
 		value.id !== runId ||
@@ -183,7 +192,8 @@ async function createRun(
 			maxGoodness: config.maxGoodness,
 		}),
 	});
-	if (!response.ok) throw new Error(`Agent run creation failed (${response.status})`);
+	if (!response.ok)
+		throw new Error(`Agent run creation failed (${response.status})`);
 	const value = (await response.json()) as { id?: unknown };
 	if (typeof value.id !== 'string' || !value.id.trim()) {
 		throw new Error('Agent run response is invalid');
@@ -231,18 +241,12 @@ export class RinspaceAgentController {
 		signal?: AbortSignal,
 	): Promise<RinspaceAgentController> {
 		const runId = await createRun(context, projectId, config, signal);
-		return this.fromRun(
-			runId,
-			config,
-			toolHost,
-			initialMessages,
-			{
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-			},
-		);
+		return this.fromRun(runId, config, toolHost, initialMessages, {
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		});
 	}
 
 	static restore(
@@ -272,6 +276,7 @@ export class RinspaceAgentController {
 		const controllerRef: { current?: RinspaceAgentController } = {};
 		const runtime = new AgentRuntime({
 			model: new RinspaceAgentModel(runId),
+			systemPrompt: RINSPACE_AGENT_SYSTEM_PROMPT,
 			initialMessages,
 			sessionId: runId,
 			conversationId: runId,
@@ -322,11 +327,19 @@ export class RinspaceAgentController {
 		this.clearApproval();
 	}
 
-	private requestApproval(request: ToolApprovalRequest): Promise<ToolApprovalResult> {
+	private requestApproval(
+		request: ToolApprovalRequest,
+	): Promise<ToolApprovalResult> {
 		if (request.toolName !== 'push_git_commits') {
-			return Promise.resolve({ approved: false, reason: 'Only Push can request approval' });
+			return Promise.resolve({
+				approved: false,
+				reason: 'Only Push can request approval',
+			});
 		}
-		this.resolveApproval?.({ approved: false, reason: 'Approval request replaced' });
+		this.resolveApproval?.({
+			approved: false,
+			reason: 'Approval request replaced',
+		});
 		this.pendingApproval = request;
 		this.emit();
 		return new Promise((resolve) => {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { webcrypto } from 'node:crypto';
 import type { AgentModelEvent } from '@rinspacehq/cline-embed';
 
 import { RinspaceAgentModel } from '@extras/agents/rinspace/RinspaceAgentModel';
@@ -30,6 +31,9 @@ const collect = async (model: RinspaceAgentModel, signal?: AbortSignal) => {
 
 beforeEach(() => {
 	jest.clearAllMocks();
+	jest.mocked(crypto.subtle.digest).mockImplementation(
+		webcrypto.subtle.digest.bind(webcrypto.subtle),
+	);
 	jest.mocked(loadRinspaceSession).mockResolvedValue({
 		status: 'authenticated',
 		csrfToken: 'csrf-proof',
@@ -87,7 +91,36 @@ test('projects one bounded validated turn and forwards the cancellation signal',
 		}),
 	);
 	const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body as string);
-	expect(body.operationKey).toBe('00000000-0000-0000-0000-000000000000');
+	expect(body.operationKey).toMatch(
+		/^[a-f0-9]{8}-[a-f0-9]{4}-8[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+	);
+});
+
+test('reuses one operation key for an exact turn across retries and reloads', async () => {
+	(fetch as jest.Mock).mockResolvedValue(
+		response(
+			JSON.stringify({
+				text: 'done',
+				finishReason: 'stop',
+				requestId: 'receipt-stable',
+				usage: {
+					inputTokens: 1,
+					outputTokens: 1,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			}),
+		),
+	);
+
+	await collect(new RinspaceAgentModel('run-stable'));
+	await collect(new RinspaceAgentModel('run-stable'));
+	await collect(new RinspaceAgentModel('run-other'));
+	const bodies = (fetch as jest.Mock).mock.calls.map((call) =>
+		JSON.parse(call[1].body as string),
+	);
+	expect(bodies[0].operationKey).toBe(bodies[1].operationKey);
+	expect(bodies[0].operationKey).not.toBe(bodies[2].operationKey);
 });
 
 const invalidResponses: Array<[string, unknown, string]> = [
@@ -223,16 +256,48 @@ test('rejects declared and actual oversized responses plus malformed JSON', asyn
 	await expect(collect(model)).rejects.toThrow('response is not valid JSON');
 });
 
-test('surfaces auth, quota, policy and network failures without retrying the operation', async () => {
-	for (const status of [401, 402, 429, 503]) {
+test('surfaces policy failures and marks temporary failures for an idempotent retry', async () => {
+	for (const status of [401, 402, 429]) {
 		(fetch as jest.Mock).mockResolvedValueOnce(response('{}', status));
 		await expect(collect(new RinspaceAgentModel('run-1'))).rejects.toThrow(
 			`Agent turn failed (${status})`,
 		);
 	}
-	expect(fetch).toHaveBeenCalledTimes(4);
+	expect(fetch).toHaveBeenCalledTimes(3);
+
+	(fetch as jest.Mock).mockResolvedValueOnce(response('{}', 503));
+	await expect(collect(new RinspaceAgentModel('run-1'))).resolves.toEqual([
+		{
+			type: 'finish',
+			reason: 'error',
+			error: 'Agent turn is temporarily unavailable (503)',
+			errorClass: 'unknown',
+			errorRetryable: true,
+		},
+	]);
 
 	(fetch as jest.Mock).mockRejectedValueOnce(new TypeError('offline'));
-	await expect(collect(new RinspaceAgentModel('run-1'))).rejects.toThrow('offline');
-	expect(fetch).toHaveBeenCalledTimes(5);
+	await expect(collect(new RinspaceAgentModel('run-1'))).resolves.toEqual([
+		{
+			type: 'finish',
+			reason: 'error',
+			error: 'Agent turn network failure',
+			errorClass: 'unknown',
+			errorRetryable: true,
+		},
+	]);
+
+	const interrupted = response('{}');
+	jest.mocked(interrupted.text).mockRejectedValueOnce(new TypeError('closed'));
+	(fetch as jest.Mock).mockResolvedValueOnce(interrupted);
+	await expect(collect(new RinspaceAgentModel('run-1'))).resolves.toEqual([
+		{
+			type: 'finish',
+			reason: 'error',
+			error: 'Agent turn response was interrupted',
+			errorClass: 'unknown',
+			errorRetryable: true,
+		},
+	]);
+	expect(fetch).toHaveBeenCalledTimes(6);
 });

@@ -40,3 +40,21 @@ export function isRinspaceAgentJSONObject(
 ): value is Record<string, unknown> {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+export async function createRinspaceAgentOperationKey(
+	runId: string,
+	request: unknown,
+): Promise<string> {
+	const encoded = new TextEncoder().encode(
+		JSON.stringify({ domain: 'rinspace-agent-turn-v1', runId, request }),
+	);
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoded));
+	const uuid = digest.slice(0, 16);
+	// RFC 9562 version 8 is reserved for application-defined deterministic UUIDs.
+	uuid[6] = (uuid[6] & 0x0f) | 0x80;
+	uuid[8] = (uuid[8] & 0x3f) | 0x80;
+	const hex = Array.from(uuid, (value) =>
+		value.toString(16).padStart(2, '0'),
+	).join('');
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

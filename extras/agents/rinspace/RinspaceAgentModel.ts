@@ -9,6 +9,7 @@ import type {
 
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import {
+	createRinspaceAgentOperationKey,
 	isRinspaceAgentCallId,
 	isRinspaceAgentJSONObject,
 	isRinspaceAgentToolName,
@@ -48,6 +49,16 @@ type ValidatedRinspaceTurnResponse = RinspaceTurnResponse & {
 	requestId: string;
 	usage: Required<RinspaceTurnUsage>;
 };
+
+function retryableTurnFailure(error: string): AgentModelEvent {
+	return {
+		type: 'finish',
+		reason: 'error',
+		error,
+		errorClass: 'unknown',
+		errorRetryable: true,
+	};
+}
 
 function projectMessage(message: AgentMessage): {
 	role: AgentMessage['role'];
@@ -182,32 +193,57 @@ export class RinspaceAgentModel implements AgentModel {
 
 	async *stream(request: AgentModelRequest): AsyncIterable<AgentModelEvent> {
 		const session = await loadRinspaceSession(fetch, request.signal);
-		const body = JSON.stringify({
-			operationKey: crypto.randomUUID(),
+		const projectedRequest = {
 			systemPrompt: request.systemPrompt,
 			messages: request.messages.map(projectMessage),
 			tools: request.tools,
-		});
+		};
+		const operationKey = await createRinspaceAgentOperationKey(
+			this.runId,
+			projectedRequest,
+		);
+		const body = JSON.stringify({ operationKey, ...projectedRequest });
 		if (new TextEncoder().encode(body).byteLength > TURN_LIMIT) {
 			throw new Error('Agent turn exceeds the browser request limit');
 		}
-		const result = await fetch(
-			`/rinspace/api/editor/v1/agent/runs/${encodeURIComponent(this.runId)}/turns`,
-			{
-				method: 'POST',
-				credentials: 'include',
-				cache: 'no-store',
-				signal: request.signal,
-				headers: {
-					Accept: 'application/json',
-					'Content-Type': 'application/json',
-					'X-Rinspace-CSRF': session.csrfToken,
+		let result: Response;
+		try {
+			result = await fetch(
+				`/rinspace/api/editor/v1/agent/runs/${encodeURIComponent(this.runId)}/turns`,
+				{
+					method: 'POST',
+					credentials: 'include',
+					cache: 'no-store',
+					signal: request.signal,
+					headers: {
+						Accept: 'application/json',
+						'Content-Type': 'application/json',
+						'X-Rinspace-CSRF': session.csrfToken,
+					},
+					body,
 				},
-				body,
-			},
-		);
+			);
+		} catch (error) {
+			if (request.signal?.aborted) throw error;
+			yield retryableTurnFailure('Agent turn network failure');
+			return;
+		}
+		if (result.status >= 500 && result.status <= 599) {
+			yield retryableTurnFailure(
+				`Agent turn is temporarily unavailable (${result.status})`,
+			);
+			return;
+		}
 		if (!result.ok) throw new Error(`Agent turn failed (${result.status})`);
-		const response = requireResponse(await readBoundedResponse(result));
+		let rawResponse: unknown;
+		try {
+			rawResponse = await readBoundedResponse(result);
+		} catch (error) {
+			if (request.signal?.aborted || !(error instanceof TypeError)) throw error;
+			yield retryableTurnFailure('Agent turn response was interrupted');
+			return;
+		}
+		const response = requireResponse(rawResponse);
 		if (response.text) yield { type: 'text-delta', text: response.text };
 		for (const call of response.toolCalls ?? []) {
 			yield {

@@ -2,6 +2,7 @@
 import {
 	loadRinspaceAgentConfig,
 	loadRinspaceAgentRun,
+	RINSPACE_AGENT_SYSTEM_PROMPT,
 } from '@extras/agents/rinspace/RinspaceAgentRuntime';
 
 jest.mock('@rinspacehq/cline-embed', () => ({
@@ -18,6 +19,13 @@ const response = (body: unknown, status = 200) =>
 
 beforeEach(() => {
 	global.fetch = jest.fn();
+});
+
+test('uses a nonempty project-only prompt with the closed execution boundary', () => {
+	expect(RINSPACE_AGENT_SYSTEM_PROMPT).toContain('当前 TeXlyre 项目');
+	expect(RINSPACE_AGENT_SYSTEM_PROMPT).toContain('push_git_commits');
+	expect(RINSPACE_AGENT_SYSTEM_PROMPT).toContain('不得请求或推断 Shell');
+	expect(RINSPACE_AGENT_SYSTEM_PROMPT).not.toMatch(/DeepSeek|API key|token/i);
 });
 
 test('recovers authoritative usage only for the exact run and project', async () => {
