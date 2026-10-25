@@ -54,6 +54,7 @@ test('keeps a long IME composition and cursor stable across one Agent Yjs transa
 	);
 	view.dispatch({
 		changes: { from: compositionAt, insert: '输入法候选' },
+		selection: { anchor: compositionAt + '输入法候选'.length },
 		userEvent: 'input.type.compose',
 	});
 	const cursorAfterComposition = compositionAt + '输入法候选'.length;
@@ -70,6 +71,7 @@ test('keeps a long IME composition and cursor stable across one Agent Yjs transa
 	expect(view.state.selection.main.head).toBe(cursorAfterComposition);
 	view.dispatch({
 		changes: { from: cursorAfterComposition, insert: '继续输入' },
+		selection: { anchor: cursorAfterComposition + '继续输入'.length },
 		userEvent: 'input.type.compose',
 	});
 	view.contentDOM.dispatchEvent(
