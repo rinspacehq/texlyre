@@ -484,7 +484,7 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 	expect(mockFiles.moveTextFileIfUnchanged).toHaveBeenCalledWith(
 		'file-main',
 		'/main.tex',
-		'stale content',
+		'Hello 琳\nalpha beta',
 		'/renamed.tex',
 	);
 
@@ -496,8 +496,27 @@ test('creates, renames and recoverably deletes only explicit project files', asy
 	expect(mockFiles.deleteTextFileIfUnchanged).toHaveBeenCalledWith(
 		'file-main',
 		'/main.tex',
-		'stale content',
+		'Hello 琳\nalpha beta',
 	);
+});
+
+test('fails structure edits closed when live content cannot be synchronized', async () => {
+	mockFiles.updateFileContentIfUnchanged.mockResolvedValueOnce({
+		status: 'conflict',
+		file: mainFile,
+	});
+	const baseline = createHash('sha256')
+		.update('Hello 琳\nalpha beta')
+		.digest('hex');
+
+	await expect(tool('rename_project_file').execute(
+		{ path: 'main.tex', newPath: 'renamed.tex', expectedSha256: baseline },
+		{ ...context, toolCallId: 'rename-storage-conflict' },
+	)).resolves.toMatchObject({
+		ok: false,
+		error: { code: 'conflict' },
+	});
+	expect(mockFiles.moveTextFileIfUnchanged).not.toHaveBeenCalled();
 });
 
 test('rejects write targets that the project file UI cannot represent safely', async () => {
@@ -550,7 +569,7 @@ test('compensates the browser structure transaction when linked metadata changed
 		2,
 		'file-main',
 		'/parts/renamed.tex',
-		'stale content',
+		'Hello 琳\nalpha beta',
 		'/main.tex',
 	);
 
@@ -564,7 +583,7 @@ test('compensates the browser structure transaction when linked metadata changed
 	expect(mockFiles.restoreTextFileIfDeleted).toHaveBeenCalledWith(
 		'file-main',
 		'/main.tex',
-		'stale content',
+		'Hello 琳\nalpha beta',
 	);
 });
 

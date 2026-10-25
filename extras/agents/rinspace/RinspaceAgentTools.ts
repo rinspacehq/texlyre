@@ -305,6 +305,34 @@ async function readText(path: string, host: RinspaceAgentToolHost): Promise<Text
 	};
 }
 
+async function synchronizeStoredText(
+	record: TextRecord,
+	host: RinspaceAgentToolHost,
+): Promise<string | ToolError> {
+	if (record.storedContent === record.content) return record.content;
+	const synchronized = await dependencies.files.updateFileContentIfUnchanged(
+		record.fileId,
+		record.storedContent,
+		record.content,
+	);
+	const changed = activeError(host);
+	if (changed) return changed;
+	if (synchronized.status === 'updated') return record.content;
+
+	const latest = await dependencies.files.getFile(record.fileId);
+	const changedAfterRead = activeError(host);
+	if (changedAfterRead) return changedAfterRead;
+	const latestContent = latest?.content === undefined
+		? null
+		: decodeText(latest.content);
+	if (latestContent === record.content) return record.content;
+	return failure(
+		'conflict',
+		`Stored content changed before the file structure update: ${record.path}`,
+		{ retry: { action: 'read_project_files', path: record.path } },
+	);
+}
+
 function bound<T extends object>(value: T, retry: Record<string, unknown>): T | ToolError {
 	const actual = byteLength(JSON.stringify(value));
 	return actual <= LIMITS.outputBytes
@@ -743,10 +771,23 @@ function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
 					retry: { action: 'choose_another_path', path: newPath },
 				});
 			}
+			const confirmation = await readText(path, host);
+			if (!('content' in confirmation)) return confirmation;
+			if (confirmation.contentSha256 !== record.contentSha256) {
+				return failure('conflict', 'File content changed while preparing rename; read it again', {
+					retry: {
+						action: 'read_project_files',
+						path,
+						actualSha256: confirmation.contentSha256,
+					},
+				});
+			}
+			const expectedStoredContent = await synchronizeStoredText(confirmation, host);
+			if (typeof expectedStoredContent !== 'string') return expectedStoredContent;
 			const moved = await dependencies.files.moveTextFileIfUnchanged(
-				record.fileId,
+				confirmation.fileId,
 				`/${path}`,
-				record.storedContent,
+				expectedStoredContent,
 				`/${newPath}`,
 			);
 			if (moved.status !== 'updated') {
@@ -759,13 +800,13 @@ function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
 				`${host.runId}:${context.toolCallId}`,
 			);
 			if (
-				record.documentId &&
-				!host.renameLinkedDocument(record.documentId, path, newPath, origin)
+				confirmation.documentId &&
+				!host.renameLinkedDocument(confirmation.documentId, path, newPath, origin)
 			) {
 				const rollback = await dependencies.files.moveTextFileIfUnchanged(
-					record.fileId,
+					confirmation.fileId,
 					`/${newPath}`,
-					record.storedContent,
+					expectedStoredContent,
 					`/${path}`,
 				);
 				return failure(
@@ -781,7 +822,7 @@ function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
 				fileId: moved.file.id,
 				oldPath: path,
 				path: newPath,
-				contentSha256: record.contentSha256,
+				contentSha256: confirmation.contentSha256,
 				transactionOrigin: origin.operationId,
 			};
 		},
@@ -825,10 +866,12 @@ function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
 					retry: { action: 'read_project_files', path, actualSha256: confirmation.contentSha256 },
 				});
 			}
+			const expectedStoredContent = await synchronizeStoredText(confirmation, host);
+			if (typeof expectedStoredContent !== 'string') return expectedStoredContent;
 			const deleted = await dependencies.files.deleteTextFileIfUnchanged(
-				record.fileId,
+				confirmation.fileId,
 				`/${path}`,
-				record.storedContent,
+				expectedStoredContent,
 			);
 			if (deleted.status !== 'updated') {
 				return failure('conflict', 'File content or structure changed before deletion; read it again', {
@@ -840,13 +883,13 @@ function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
 				`${host.runId}:${context.toolCallId}`,
 			);
 			if (
-				record.documentId &&
-				!host.deleteLinkedDocument(record.documentId, path, origin)
+				confirmation.documentId &&
+				!host.deleteLinkedDocument(confirmation.documentId, path, origin)
 			) {
 				const rollback = await dependencies.files.restoreTextFileIfDeleted(
-					record.fileId,
+					confirmation.fileId,
 					`/${path}`,
-					record.storedContent,
+					expectedStoredContent,
 				);
 				return failure(
 					'workspace_changed',
@@ -858,9 +901,9 @@ function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
 			return {
 				ok: true,
 				projectId: host.projectId,
-				fileId: record.fileId,
+				fileId: confirmation.fileId,
 				path,
-				deletedSha256: record.contentSha256,
+				deletedSha256: confirmation.contentSha256,
 				transactionOrigin: origin.operationId,
 			};
 		},
