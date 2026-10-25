@@ -132,12 +132,15 @@ test('a conditional content update accepts the same UTF-8 baseline stored as byt
 	const store = new FileStoreService();
 	store.setProjectId('conditional-bytes');
 	const put = jest.fn(async () => undefined);
+	const encoded = new TextEncoder().encode('中文 $x^2$');
+	const storedContent = new ArrayBuffer(encoded.byteLength);
+	new Uint8Array(storedContent).set(encoded);
 	store.db = {
 		transaction: jest.fn(() => ({
 			store: {
 				get: jest.fn(async () => ({
 					...originalFile(),
-					content: new TextEncoder().encode('中文 $x^2$').buffer,
+					content: storedContent,
 				})),
 				put,
 			},
