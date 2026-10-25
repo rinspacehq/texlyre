@@ -249,6 +249,34 @@ test('applies a baseline-bound patch through one host Yjs transaction', async ()
 	);
 });
 
+test('returns a conflict without applying stale Agent edits after a collaborator update', async () => {
+	mockUpdateDocumentContent.mockImplementationOnce(async (
+		_projectId: string,
+		_documentId: string,
+		updater: (content: string) => string,
+	) => updater('Hello 琳\n协作者的新内容'));
+	const before = 'Hello 琳\nalpha beta';
+	const baseline = createHash('sha256').update(before).digest('hex');
+	const result = (await tool('apply_project_patch').execute(
+		{
+			path: 'main.tex',
+			expectedSha256: baseline,
+			edits: [{
+				startLine: 2,
+				startColumn: 1,
+				endLine: 2,
+				endColumn: 6,
+				replacement: 'stale-agent-edit',
+			}],
+		},
+		{ ...context, toolCallId: 'tool-call-conflict' },
+	)) as ErrorResponse;
+	expect(result).toMatchObject({
+		ok: false,
+		error: { code: 'conflict' },
+	});
+});
+
 test('applies an unlinked-file patch through atomic FileStore baseline validation', async () => {
 	const baseline = createHash('sha256').update(plainFile.content).digest('hex');
 	const result = (await tool('apply_project_patch').execute(
