@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import {
 	access,
 	mkdir,
@@ -11,7 +12,8 @@ import {
 	stat,
 	writeFile,
 } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +84,8 @@ function run(command, args, options = {}) {
 	});
 }
 
+const runCommand = run;
+
 class DevToolsClient {
 	#nextId = 0;
 	#pending = new Map();
@@ -139,7 +143,7 @@ class DevToolsClient {
 }
 
 async function availablePort() {
-	const server = createServer();
+	const server = createNetServer();
 	await new Promise((resolve, reject) => {
 		server.once('error', reject);
 		server.listen(0, '127.0.0.1', resolve);
@@ -150,6 +154,72 @@ async function availablePort() {
 		server.close((error) => (error ? reject(error) : resolve())),
 	);
 	return address.port;
+}
+
+async function startLargeAssetServer() {
+	const server = createHttpServer((request, response) => {
+		void (async () => {
+			if (request.method === 'OPTIONS') {
+				response.writeHead(204, {
+					'Access-Control-Allow-Methods': 'GET, OPTIONS',
+					'Access-Control-Allow-Origin': 'https://rinspace.com',
+					'Access-Control-Allow-Private-Network': 'true',
+				}).end();
+				return;
+			}
+			if (request.method !== 'GET') {
+				response.writeHead(405, { Allow: 'GET, OPTIONS' }).end();
+				return;
+			}
+			const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+			const pathname = decodeURIComponent(url.pathname);
+			if (!pathname.startsWith('/editor/') || pathname.includes('\0')) {
+				response.writeHead(404).end();
+				return;
+			}
+			const candidate = path.resolve(dist, pathname.slice('/editor/'.length));
+			if (candidate === dist || !candidate.startsWith(`${dist}${path.sep}`)) {
+				response.writeHead(404).end();
+				return;
+			}
+			let info;
+			try {
+				info = await stat(candidate);
+			} catch {
+				response.writeHead(404).end();
+				return;
+			}
+			if (!info.isFile()) {
+				response.writeHead(404).end();
+				return;
+			}
+			response.writeHead(200, {
+				'Access-Control-Allow-Origin': 'https://rinspace.com',
+				'Access-Control-Allow-Private-Network': 'true',
+				'Cache-Control': 'no-store',
+				'Content-Length': String(info.size),
+				'Content-Type':
+					mimeTypes.get(path.extname(candidate).toLowerCase()) ??
+					'application/octet-stream',
+			});
+			createReadStream(candidate).pipe(response);
+		})().catch((error) => {
+			response.destroy(error instanceof Error ? error : new Error(String(error)));
+		});
+	});
+	await new Promise((resolve, reject) => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', resolve);
+	});
+	const address = server.address();
+	assert.ok(address && typeof address === 'object');
+	return {
+		origin: `http://127.0.0.1:${address.port}`,
+		close: () =>
+			new Promise((resolve, reject) =>
+				server.close((error) => (error ? reject(error) : resolve())),
+			),
+	};
 }
 
 async function pageTarget(port) {
@@ -270,7 +340,7 @@ const responseHeaders = (contentType, length, extra = []) => [
 	...extra,
 ];
 
-async function staticResponse(url) {
+async function staticResponse(url, largeAssetOrigin) {
 	const pathname = decodeURIComponent(url.pathname);
 	let relative =
 		pathname === '/editor/' ? 'index.html' : pathname.slice('/editor/'.length);
@@ -280,7 +350,21 @@ async function staticResponse(url) {
 	if (candidate !== dist && !candidate.startsWith(`${dist}${path.sep}`))
 		return null;
 	try {
-		if (!(await stat(candidate)).isFile()) return null;
+		const info = await stat(candidate);
+		if (!info.isFile()) return null;
+		if (info.size > 64 * 1024 * 1024) {
+			return {
+				code: 302,
+				body: Buffer.alloc(0),
+				contentType: 'text/plain; charset=utf-8',
+				extraHeaders: [
+					{
+						name: 'Location',
+						value: `${largeAssetOrigin}${url.pathname}`,
+					},
+				],
+			};
+		}
 		const body = await readFile(candidate);
 		return {
 			code: 200,
@@ -288,6 +372,7 @@ async function staticResponse(url) {
 			contentType:
 				mimeTypes.get(path.extname(candidate).toLowerCase()) ??
 				'application/octet-stream',
+			extraHeaders: [],
 		};
 	} catch {
 		return null;
@@ -443,7 +528,8 @@ async function createRepositories(fixture) {
 			.toString('utf8')
 			.trim();
 		await run('git', ['clone', '--bare', worktree, bare]);
-		projects.set(scenario.fullName, { ...scenario, bare, head });
+		await run('git', ['config', '--file', path.join(bare, 'config'), 'http.receivepack', 'true']);
+		projects.set(scenario.fullName, { ...scenario, bare, head, initialHead: head });
 	}
 	return { gitRoot, projects };
 }
@@ -475,9 +561,14 @@ function parseCgiResponse(output) {
 async function gitResponse(repository, request, url) {
 	const prefix = '/repos';
 	const pathInfo = url.pathname.slice(prefix.length);
-	const input = request.postData
-		? Buffer.from(request.postData, 'utf8')
-		: undefined;
+	const encodedEntries = request.postDataEntries
+		?.map((entry) => entry.bytes)
+		.filter((bytes) => typeof bytes === 'string');
+	const input = encodedEntries?.length
+		? Buffer.concat(encodedEntries.map((bytes) => Buffer.from(bytes, 'base64')))
+		: request.postData
+			? Buffer.from(request.postData, 'utf8')
+			: undefined;
 	const output = await run('git', ['http-backend'], {
 		input,
 		env: {
@@ -495,7 +586,24 @@ async function gitResponse(repository, request, url) {
 			REMOTE_USER: 'rinspace-browser-fixture',
 		},
 	});
-	return parseCgiResponse(output);
+	const response = parseCgiResponse(output);
+	const pushed = pathInfo.match(
+		/^\/(a|b|tags)\/([1-9][0-9]*)\.git\/git-receive-pack$/,
+	);
+	if (pushed) {
+		const project = repository.projects.get(`${pushed[1]}/${pushed[2]}`);
+		if (!project) throw new Error('Git Push targeted an unknown fixture project');
+		project.head = (
+			await run(
+				'git',
+				['--git-dir', project.bare, 'rev-parse', 'refs/heads/main'],
+			)
+		)
+			.toString('utf8')
+			.trim();
+		project.pushCount = (project.pushCount ?? 0) + 1;
+	}
+	return response;
 }
 
 function requestJSON(request) {
@@ -833,14 +941,99 @@ async function apiResponse(repository, agentFixture, request, url) {
 			});
 		}
 		if (run.turns.length === 4) {
+			const prefix = `${run.project.format}-${run.project.repository}`;
 			return jsonResponse({
-				text: `完成 ${run.project.format} 安全写入验收`,
-				toolCalls: [],
-				finishReason: 'stop',
+				toolCalls: [
+					{
+						id: `${prefix}-compile`,
+						name: 'compile_project',
+						input: {},
+					},
+					{
+						id: `${prefix}-commit`,
+						name: 'create_git_commit',
+						input: {
+							message: `agent: verify ${run.project.format} managed flow`,
+						},
+					},
+				],
+				finishReason: 'tool-calls',
 				requestId: `${run.project.format}-${run.project.repository}-request-4`,
 				usage: {
 					inputTokens: 80,
-					outputTokens: 10,
+					outputTokens: 18,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		if (run.turns.length === 5) {
+			const results = toolResults(body);
+			const compiled = results.find(
+				(result) => result.toolName === 'compile_project',
+			);
+			const committed = results.find(
+				(result) => result.toolName === 'create_git_commit',
+			);
+			if (
+				compiled?.isError ||
+				compiled?.output?.ok !== true ||
+				compiled.output.status !== 'success' ||
+				committed?.isError ||
+				committed?.output?.ok !== true ||
+				typeof committed.output.commitOid !== 'string'
+			) {
+				return jsonResponse(
+					{ error: 'fixture compile or commit result is incomplete' },
+					409,
+				);
+			}
+			run.delivery = {
+				compile: compiled.output,
+				commit: committed.output,
+			};
+			const prefix = `${run.project.format}-${run.project.repository}`;
+			return jsonResponse({
+				toolCalls: [
+					{
+						id: `${prefix}-push`,
+						name: 'push_git_commits',
+						input: {},
+					},
+				],
+				finishReason: 'tool-calls',
+				requestId: `${prefix}-request-5`,
+				usage: {
+					inputTokens: 96,
+					outputTokens: 8,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		if (run.turns.length === 6) {
+			const pushed = toolResults(body).find(
+				(result) => result.toolName === 'push_git_commits',
+			);
+			if (
+				pushed?.isError ||
+				pushed?.output?.ok !== true ||
+				pushed.output.canonicalOid !== run.delivery?.commit?.commitOid
+			) {
+				return jsonResponse(
+					{ error: 'fixture Push result is incomplete' },
+					409,
+				);
+			}
+			run.delivery.push = pushed.output;
+			return jsonResponse({
+				text: `完成 ${run.project.format} 安全写入、编译、提交与 Push 验收`,
+				toolCalls: [],
+				finishReason: 'stop',
+				requestId: `${run.project.format}-${run.project.repository}-request-6`,
+				usage: {
+					inputTokens: 112,
+					outputTokens: 12,
 					cacheReadTokens: 0,
 					cacheWriteTokens: 0,
 				},
@@ -940,6 +1133,14 @@ const toolResultPhases = {
 	verification: {
 		turn: 3,
 		suffixes: ['verify-list', 'verify-read', 'verify-git', 'stale-patch'],
+	},
+	delivery: {
+		turn: 4,
+		suffixes: ['compile', 'commit'],
+	},
+	push: {
+		turn: 5,
+		suffixes: ['push'],
 	},
 };
 
@@ -1062,8 +1263,8 @@ function verifyReadOnlyRun(run) {
 	const git = byName.get('git_status').output;
 	assert.equal(git.initialized, true);
 	assert.equal(git.branch, 'main');
-	assert.equal(git.headOid, run.project.head);
-	assert.equal(git.worktreeBaseOid, run.project.head);
+	assert.equal(git.headOid, run.project.initialHead);
+	assert.equal(git.worktreeBaseOid, run.project.initialHead);
 	assert.deepEqual(git.changes, []);
 	assert.deepEqual(git.worktreeChanges, []);
 	assert.deepEqual(git.comparisons, []);
@@ -1092,7 +1293,7 @@ async function persistedFileContent(client, run) {
 }
 
 async function verifyWriteRun(client, run) {
-	assert.equal(run.turns.length, 4, `${run.project.fullName} turn count`);
+	assert.equal(run.turns.length, 6, `${run.project.fullName} turn count`);
 	const writeResults = phaseToolResults(run, 'write');
 	assert.equal(
 		writeResults.length,
@@ -1219,8 +1420,8 @@ async function verifyWriteRun(client, run) {
 	const git = verification.get('git_status').output;
 	assert.equal(git.initialized, true);
 	assert.equal(git.branch, 'main');
-	assert.equal(git.headOid, run.project.head);
-	assert.equal(git.worktreeBaseOid, run.project.head);
+	assert.equal(git.headOid, run.project.initialHead);
+	assert.equal(git.worktreeBaseOid, run.project.initialHead);
 	const visibleChanges = [...git.changes, ...git.worktreeChanges];
 	const persistedContent = await persistedFileContent(client, run);
 	assert.ok(
@@ -1243,6 +1444,77 @@ async function verifyWriteRun(client, run) {
 	assert.ok(conflict, `${run.project.fullName} omitted the stale patch result`);
 	assert.equal(conflict.output?.ok, false);
 	assert.equal(conflict.output?.error?.code, 'conflict');
+}
+
+async function verifyDeliveryRun(client, run) {
+	const deliveryResults = phaseToolResults(run, 'delivery');
+	assert.equal(
+		deliveryResults.length,
+		2,
+		`${run.project.fullName} delivery result count`,
+	);
+	const delivery = new Map(
+		deliveryResults.map((result) => [result.toolName, result]),
+	);
+	const compiled = delivery.get('compile_project');
+	assert.ok(compiled, `${run.project.fullName} omitted compile_project`);
+	assert.notEqual(compiled.isError, true);
+	assert.equal(compiled.output?.ok, true);
+	assert.equal(compiled.output.projectId, run.projectId);
+	assert.equal(compiled.output.mainFile, `/${run.project.entry}`);
+	assert.equal(compiled.output.status, 'success');
+	assert.equal(compiled.output.error, null);
+	assert.ok(
+		Number.isSafeInteger(compiled.output.outputBytes) &&
+			compiled.output.outputBytes > 0,
+		`${run.project.fullName} compile produced no output`,
+	);
+	const expectedCompiler = {
+		latex: 'internal:latex',
+		typst: 'internal:typst',
+		markdown: 'milkdown-preview',
+	}[run.project.format];
+	assert.equal(compiled.output.compilerId, expectedCompiler);
+
+	const committed = delivery.get('create_git_commit');
+	assert.ok(committed, `${run.project.fullName} omitted create_git_commit`);
+	assert.notEqual(committed.isError, true);
+	assert.equal(committed.output?.ok, true);
+	assert.equal(committed.output.projectId, run.projectId);
+	assert.match(committed.output.commitOid, /^[0-9a-f]{40}$/);
+	assert.equal(
+		committed.output.message,
+		`agent: verify ${run.project.format} managed flow`,
+	);
+	assert.equal(run.delivery?.commit?.commitOid, committed.output.commitOid);
+
+	const pushResults = phaseToolResults(run, 'push');
+	assert.equal(pushResults.length, 1, `${run.project.fullName} Push result count`);
+	const pushed = pushResults[0];
+	assert.equal(pushed.toolName, 'push_git_commits');
+	assert.notEqual(pushed.isError, true);
+	assert.equal(pushed.output?.ok, true);
+	assert.equal(pushed.output.projectId, run.projectId);
+	assert.equal(pushed.output.remoteBranch, 'main');
+	assert.equal(pushed.output.previousLocalOid, committed.output.commitOid);
+	assert.equal(pushed.output.canonicalOid, committed.output.commitOid);
+	assert.equal(pushed.output.pushedCommits, 1);
+	assert.equal(run.project.pushCount, 1);
+	assert.equal(run.project.head, committed.output.commitOid);
+	const remoteEntry = (
+		await runCommand(
+			'git',
+			[
+				'--git-dir',
+				run.project.bare,
+				'show',
+				`${committed.output.commitOid}:${run.project.entry}`,
+			],
+		)
+	).toString('utf8');
+	const persistedContent = await persistedFileContent(client, run);
+	assert.equal(remoteEntry, persistedContent);
+	assert.ok(remoteEntry.includes(visiblePatchMarker(run)));
 }
 
 async function editorText(client) {
@@ -1473,16 +1745,19 @@ async function runManagedAgentProject(client, scenario, agentFixture) {
 			const panel = document.querySelector('section[data-role="agent"]');
 			if (!panel) throw new Error('Agent panel is unavailable');
 			window.__rinspaceFixtureApprovalSeen = 0;
+			let approvalVisible = false;
 			new MutationObserver(() => {
-				if (panel.textContent?.includes('确认 Push')) {
+				const visible = panel.textContent?.includes('确认 Push') ?? false;
+				if (visible && !approvalVisible) {
 					window.__rinspaceFixtureApprovalSeen += 1;
 				}
+				approvalVisible = visible;
 			}).observe(panel, { childList: true, subtree: true, characterData: true });
 			const textarea = panel.querySelector('textarea');
 			if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Agent textarea is unavailable');
 			const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
 			if (!setter) throw new Error('Textarea value setter is unavailable');
-			setter.call(textarea, ${JSON.stringify('自动读取并安全修改当前项目，验证文件结构和冲突保护')});
+			setter.call(textarea, ${JSON.stringify('自动读取并安全修改当前项目，验证文件结构和冲突保护，然后编译、提交并申请 Push')});
 			textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		})()`,
 	);
@@ -1517,6 +1792,54 @@ async function runManagedAgentProject(client, scenario, agentFixture) {
 			run.collaboratorEntered = true;
 			run.releaseAfterCollaborator();
 		}
+		if (run?.turns.length === 5 && !run.approvalHandled) {
+			const approval = await evaluate(
+				client,
+				`(() => {
+					const card = document.querySelector('.cline-ui-agent-approval-card');
+					const detail = card?.querySelector('.cline-ui-agent-approval-card__detail')?.textContent;
+					const approve = card?.querySelector('.cline-ui-agent-approval-card__button--approve');
+					const reject = card?.querySelector('.cline-ui-agent-approval-card__button--reject');
+					return {
+						title: card?.querySelector('.cline-ui-agent-approval-card__title')?.textContent?.trim(),
+						detail,
+						approve: approve?.textContent?.trim(),
+						reject: reject?.textContent?.trim(),
+					};
+				})()`,
+			);
+			if (approval.title) {
+				assert.equal(approval.title, '确认 Push');
+				assert.equal(approval.approve, 'Approve');
+				assert.equal(approval.reject, 'Reject');
+				const preview = JSON.parse(approval.detail);
+				assert.equal(preview.providerName, 'Rinspace Gitea');
+				assert.equal(preview.repositoryId, run.project.fullName);
+				assert.equal(preview.repositoryLabel, run.project.fullName);
+				assert.equal(preview.localBranch, 'main');
+				assert.equal(preview.remoteBranch, 'main');
+				assert.equal(preview.localHead, run.delivery.commit.commitOid);
+				assert.equal(preview.remoteHead, run.project.initialHead);
+				assert.deepEqual(preview.commits, [
+					{
+						oid: run.delivery.commit.commitOid,
+						subject: `agent: verify ${run.project.format} managed flow`,
+					},
+				]);
+				assert.equal(run.project.pushCount ?? 0, 0);
+				run.approvalHandled = true;
+				const clicked = await evaluate(
+					client,
+					`(() => {
+						const approve = document.querySelector('.cline-ui-agent-approval-card__button--approve');
+						if (!(approve instanceof HTMLButtonElement) || approve.disabled) return false;
+						approve.click();
+						return true;
+					})()`,
+				);
+				assert.equal(clicked, true, `${scenario.fullName} Push approval was unavailable`);
+			}
+		}
 		taskState = await evaluate(
 			client,
 			`(() => {
@@ -1534,19 +1857,33 @@ async function runManagedAgentProject(client, scenario, agentFixture) {
 				`${scenario.fullName} Agent UI error: ${taskState.error}`,
 			);
 		}
-		assert.equal(
-			taskState.approvalSeen,
-			0,
-			`${scenario.fullName} requested approval for automatic tools`,
+		assert.ok(
+			taskState.approvalSeen <= 1,
+			`${scenario.fullName} requested duplicate Push approvals`,
 		);
+		if ((run?.turns.length ?? 0) < 5) {
+			assert.equal(
+				taskState.approvalSeen,
+				0,
+				`${scenario.fullName} requested approval for an automatic tool`,
+			);
+		}
 		if (
-			run?.turns.length === 4 &&
+			run?.turns.length === 6 &&
 			taskState.status === '就绪' &&
-			taskState.text?.includes(`完成 ${scenario.format} 安全写入验收`)
+			taskState.text?.includes(
+				`完成 ${scenario.format} 安全写入、编译、提交与 Push 验收`,
+			)
 		) {
+			assert.equal(
+				taskState.approvalSeen,
+				1,
+				`${scenario.fullName} did not request exactly one Push approval`,
+			);
 			verifyReadOnlyRun(run);
 			await verifyWriteRun(client, run);
 			await verifyUndoBoundaries(client, run);
+			await verifyDeliveryRun(client, run);
 			return;
 		}
 		await wait(50);
@@ -1564,6 +1901,7 @@ const fixture = await mkdtemp(
 );
 let browser;
 let client;
+let largeAssetServer;
 let stderr = '';
 const interceptionErrors = [];
 const requests = [];
@@ -1573,6 +1911,7 @@ let state;
 try {
 	await access(path.join(dist, 'index.html'));
 	const repository = await createRepositories(fixture);
+	largeAssetServer = await startLargeAssetServer();
 	const port = await availablePort();
 	browser = spawn(
 		await browserBinary(),
@@ -1583,7 +1922,10 @@ try {
 			'--disable-background-networking',
 			'--disable-component-update',
 			'--disable-default-apps',
+			'--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessPermissionPrompt,PrivateNetworkAccessChecks,PrivateNetworkAccessPermissionPrompt',
 			'--disable-sync',
+			'--allow-running-insecure-content',
+			`--unsafely-treat-insecure-origin-as-secure=${largeAssetServer.origin}`,
 			'--metrics-recording-only',
 			'--no-first-run',
 			'--remote-debugging-address=127.0.0.1',
@@ -1633,7 +1975,7 @@ try {
 					});
 					return;
 				}
-				response ??= await staticResponse(url);
+				response ??= await staticResponse(url, largeAssetServer.origin);
 				response ??= {
 					code: 404,
 					body: Buffer.from('fixture route not found'),
@@ -1645,6 +1987,7 @@ try {
 					responseHeaders: responseHeaders(
 						response.contentType,
 						response.body.byteLength,
+						response.extraHeaders,
 					),
 					body: response.body.toString('base64'),
 				});
@@ -1907,6 +2250,10 @@ try {
 				const settings = JSON.parse(localStorage.getItem(key) || '{}');
 				settings['theme-plugin'] = 'texlyre-wide-theme';
 				settings['theme-variant'] = 'light';
+				if (${JSON.stringify(scenario.format)} === 'latex') {
+					settings['latex-engine'] = 'busytex-pdftex';
+					settings['latex-busytex-bundles'] = 'basic';
+				}
 				localStorage.setItem(key, JSON.stringify(settings));
 				localStorage.setItem('rinspace-theme-v2', 'light');
 				window.dispatchEvent(new Event('rinspace-theme-changed'));
@@ -1928,10 +2275,12 @@ try {
 				total +
 				phaseToolResults(run, 'read').length +
 				phaseToolResults(run, 'write').length +
-				phaseToolResults(run, 'verification').length,
+				phaseToolResults(run, 'verification').length +
+				phaseToolResults(run, 'delivery').length +
+				phaseToolResults(run, 'push').length,
 			0,
 		),
-		39,
+		48,
 	);
 
 	process.stdout.write(
@@ -1950,6 +2299,7 @@ try {
 				),
 				smartHttpDiscovery: true,
 				smartHttpPack: true,
+				smartHttpPush: true,
 				themeCombinations: checkedThemes.length,
 				managedToolProjects: completedRuns.length,
 				automaticReadToolResults: completedRuns.reduce(
@@ -1964,15 +2314,27 @@ try {
 					(total, run) => total + phaseToolResults(run, 'verification').length,
 					0,
 				),
+				automaticDeliveryToolResults: completedRuns.reduce(
+					(total, run) => total + phaseToolResults(run, 'delivery').length,
+					0,
+				),
+				approvedPushToolResults: completedRuns.reduce(
+					(total, run) => total + phaseToolResults(run, 'push').length,
+					0,
+				),
 				automaticToolResults: completedRuns.reduce(
 					(total, run) =>
 						total +
 						phaseToolResults(run, 'read').length +
 						phaseToolResults(run, 'write').length +
-						phaseToolResults(run, 'verification').length,
+						phaseToolResults(run, 'verification').length +
+						phaseToolResults(run, 'delivery').length,
 					0,
 				),
-				approvalRequests: 0,
+				approvalRequests: completedRuns.reduce(
+					(total, run) => total + (run.approvalHandled ? 1 : 0),
+					0,
+				),
 				observedRequests: requests.length,
 			},
 			null,
@@ -1997,6 +2359,7 @@ try {
 	client?.close();
 	if (browser?.exitCode === null) browser.kill('SIGTERM');
 	await Promise.all([
+		largeAssetServer?.close(),
 		rm(profile, { recursive: true, force: true }),
 		rm(fixture, { recursive: true, force: true }),
 	]);

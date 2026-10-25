@@ -495,7 +495,10 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				}, origin);
 				return deleted;
 			},
-			createGitCommit: (message) => gitService.commit(projectId, message, null),
+			createGitCommit: async (message) => {
+				await autoSaveService.flushPendingSaves(projectId);
+				return gitService.commit(projectId, message, null);
+			},
 			prepareGitPush: () => gitSyncService.preparePush(projectId, secrets),
 			pushGitCommits: (preview) =>
 				gitSyncService.push(projectId, secrets, preview),
