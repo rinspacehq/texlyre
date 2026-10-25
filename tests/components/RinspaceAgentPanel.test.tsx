@@ -112,6 +112,7 @@ jest.mock('@extras/agents/rinspace/RinspaceAgentRuntime', () => ({
 	},
 	isRinspaceAgentRunResumable: (status: string) =>
 		status === 'ACTIVE' || status === 'RECOVERY_REQUIRED',
+	reconcileRinspaceAgentMessages: (messages: unknown) => messages,
 	loadRinspaceAgentConfig: (...args: unknown[]) => mockLoadConfig(...args),
 	loadRinspaceAgentRun: (...args: unknown[]) => mockLoadRun(...args),
 }));

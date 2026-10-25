@@ -30,6 +30,7 @@ import {
 	isRinspaceAgentRunResumable,
 	loadRinspaceAgentConfig,
 	loadRinspaceAgentRun,
+	reconcileRinspaceAgentMessages,
 	type RinspaceAgentConfig,
 	type RinspaceAgentViewState,
 } from './RinspaceAgentRuntime';
@@ -607,7 +608,10 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 					run.id,
 					config,
 					toolHost,
-					savedState.messages,
+					reconcileRinspaceAgentMessages(
+						savedState.messages,
+						run.confirmedTurns,
+					),
 					run.usage,
 				);
 				if (controllerRef.current) {

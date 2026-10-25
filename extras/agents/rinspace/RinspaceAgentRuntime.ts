@@ -12,6 +12,10 @@ import type { HostContext } from '@/workspace/contracts';
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import { RinspaceAgentModel } from './RinspaceAgentModel';
 import {
+	isRinspaceAgentCallId,
+	isRinspaceAgentToolName,
+} from './RinspaceAgentProtocol';
+import {
 	createRinspaceAgentTools,
 	type RinspaceAgentToolHost,
 } from './RinspaceAgentTools';
@@ -41,6 +45,18 @@ export interface RinspaceAgentRunProjection {
 	projectId: string;
 	status: RinspaceAgentRunStatus;
 	usage: AgentUsage;
+	confirmedTurns: readonly RinspaceAgentConfirmedTurn[];
+}
+
+export interface RinspaceAgentConfirmedTurn {
+	iteration: number;
+	operationId: string;
+	text: string;
+	toolCalls: readonly { id: string; name: string }[];
+	finishReason: 'stop' | 'tool-calls' | 'max-tokens';
+	requestId: string;
+	usage: AgentUsage;
+	createdAt: string;
 }
 
 const rinspaceAgentRunStatuses = new Set<RinspaceAgentRunStatus>([
@@ -123,6 +139,134 @@ function validateUsage(value: unknown): AgentUsage {
 	return usage as unknown as AgentUsage;
 }
 
+function validateConfirmedTurns(value: unknown): RinspaceAgentConfirmedTurn[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value) || value.length > 128) {
+		throw new Error('Agent confirmed turns are invalid');
+	}
+	let previous = 0;
+	return value.map((item) => {
+		if (!item || typeof item !== 'object' || Array.isArray(item)) {
+			throw new Error('Agent confirmed turns are invalid');
+		}
+		const turn = item as Record<string, unknown>;
+		const iteration = Number(turn.iteration);
+		const text = turn.text ?? '';
+		const finishReason = turn.finishReason;
+		const toolCalls = turn.toolCalls ?? [];
+		if (
+			!Number.isSafeInteger(iteration) ||
+			iteration < 1 ||
+			iteration > 128 ||
+			iteration <= previous ||
+			typeof turn.operationId !== 'string' ||
+			!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+				turn.operationId,
+			) ||
+			typeof text !== 'string' ||
+			new TextEncoder().encode(text).byteLength > 64 * 1024 ||
+			!Array.isArray(toolCalls) ||
+			toolCalls.length > 32 ||
+			!['stop', 'tool-calls', 'max-tokens'].includes(String(finishReason)) ||
+			typeof turn.requestId !== 'string' ||
+			!turn.requestId.trim() ||
+			turn.requestId.length > 256 ||
+			typeof turn.createdAt !== 'string' ||
+			!Number.isFinite(Date.parse(turn.createdAt))
+		) {
+			throw new Error('Agent confirmed turns are invalid');
+		}
+		const seen = new Set<string>();
+		const calls = toolCalls.map((call) => {
+			if (
+				!call ||
+				typeof call !== 'object' ||
+				Array.isArray(call) ||
+				!isRinspaceAgentCallId((call as { id?: unknown }).id) ||
+				!isRinspaceAgentToolName((call as { name?: unknown }).name) ||
+				seen.has((call as { id: string }).id)
+			) {
+				throw new Error('Agent confirmed turns are invalid');
+			}
+			seen.add((call as { id: string }).id);
+			return { id: (call as { id: string }).id, name: (call as { name: string }).name };
+		});
+		const hasText = Boolean(text.trim());
+		if (
+			(finishReason === 'stop' && (!hasText || calls.length !== 0)) ||
+			(finishReason === 'tool-calls' && calls.length === 0) ||
+			(finishReason === 'max-tokens' && !hasText && calls.length === 0)
+		) {
+			throw new Error('Agent confirmed turns are invalid');
+		}
+		previous = iteration;
+		return {
+			iteration,
+			operationId: turn.operationId as string,
+			text,
+			toolCalls: calls,
+			finishReason: finishReason as RinspaceAgentConfirmedTurn['finishReason'],
+			requestId: turn.requestId as string,
+			usage: validateUsage(turn.usage),
+			createdAt: turn.createdAt as string,
+		};
+	});
+}
+
+function assistantProjection(message: AgentMessage): {
+	text: string;
+	toolCalls: Array<{ id: string; name: string }>;
+} {
+	return {
+		text: message.content
+			.filter((part) => part.type === 'text')
+			.map((part) => part.text)
+			.join(''),
+		toolCalls: message.content
+			.filter((part) => part.type === 'tool-call')
+			.map((part) => ({ id: part.toolCallId, name: part.toolName })),
+	};
+}
+
+export function reconcileRinspaceAgentMessages(
+	messages: readonly AgentMessage[],
+	confirmedTurns: readonly RinspaceAgentConfirmedTurn[],
+): AgentMessage[] {
+	if (confirmedTurns.length === 0) return [...messages];
+	const assistants = messages.filter((message) => message.role === 'assistant');
+	if (assistants.length > confirmedTurns.length) {
+		throw new Error('Agent local history is ahead of confirmed server state');
+	}
+	for (let index = 0; index < assistants.length; index += 1) {
+		const local = assistantProjection(assistants[index]);
+		const confirmed = confirmedTurns[index];
+		if (
+			local.text !== confirmed.text ||
+			local.toolCalls.length !== confirmed.toolCalls.length ||
+			local.toolCalls.some(
+				(call, callIndex) =>
+					call.id !== confirmed.toolCalls[callIndex]?.id ||
+					call.name !== confirmed.toolCalls[callIndex]?.name,
+			)
+		) {
+			throw new Error('Agent local history conflicts with confirmed server state');
+		}
+	}
+	const result = [...messages];
+	for (const confirmed of confirmedTurns.slice(assistants.length)) {
+		if (confirmed.toolCalls.length > 0) {
+			throw new Error('Agent confirmed a tool turn that cannot be replayed safely');
+		}
+		result.push({
+			id: `server-turn-${confirmed.iteration}-${confirmed.operationId}`,
+			role: 'assistant',
+			content: [{ type: 'text', text: confirmed.text }],
+			createdAt: Date.parse(confirmed.createdAt),
+		});
+	}
+	return result;
+}
+
 function addUsage(base: AgentUsage, current: AgentUsage): AgentUsage {
 	return {
 		inputTokens: base.inputTokens + current.inputTokens,
@@ -186,6 +330,7 @@ export async function loadRinspaceAgentRun(
 		projectId,
 		status: value.status as RinspaceAgentRunStatus,
 		usage: validateUsage(value.usage),
+		confirmedTurns: validateConfirmedTurns(value.confirmedTurns),
 	};
 }
 

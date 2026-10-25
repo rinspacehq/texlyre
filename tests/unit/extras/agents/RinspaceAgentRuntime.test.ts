@@ -2,6 +2,7 @@
 import {
 	loadRinspaceAgentConfig,
 	loadRinspaceAgentRun,
+	reconcileRinspaceAgentMessages,
 	RINSPACE_AGENT_SYSTEM_PROMPT,
 } from '@extras/agents/rinspace/RinspaceAgentRuntime';
 
@@ -49,6 +50,7 @@ test('recovers authoritative usage only for the exact run and project', async ()
 		id: 'run-1',
 		projectId: 'project-1',
 		status: 'ACTIVE',
+		confirmedTurns: [],
 		usage: {
 			inputTokens: 120,
 			outputTokens: 30,
@@ -64,6 +66,80 @@ test('recovers authoritative usage only for the exact run and project', async ()
 			cache: 'no-store',
 			signal,
 		}),
+	);
+});
+
+test('reconciles only confirmed text turns and never replays missing tools', () => {
+	const messages = [{
+		id: 'user-1',
+		role: 'user' as const,
+		content: [{ type: 'text' as const, text: '检查项目' }],
+		createdAt: 1,
+	}];
+	const confirmed = {
+		iteration: 1,
+		operationId: '10000000-0000-8000-8000-000000000001',
+		text: '检查完成',
+		toolCalls: [],
+		finishReason: 'stop' as const,
+		requestId: 'provider-1',
+		usage: {
+			inputTokens: 4,
+			outputTokens: 2,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		createdAt: '2026-10-25T17:00:00Z',
+	};
+	const reconciled = reconcileRinspaceAgentMessages(messages, [confirmed]);
+	expect(reconciled).toHaveLength(2);
+	expect(reconciled[1]).toMatchObject({
+		role: 'assistant',
+		content: [{ type: 'text', text: '检查完成' }],
+	});
+
+	expect(() => reconcileRinspaceAgentMessages(messages, [{
+		...confirmed,
+		text: '',
+		toolCalls: [{ id: 'call-1', name: 'git_status' }],
+		finishReason: 'tool-calls',
+	}])).toThrow('cannot be replayed safely');
+});
+
+test('validates confirmed server turns before reconciliation', async () => {
+	const turn = {
+		iteration: 1,
+		operationId: '10000000-0000-8000-8000-000000000001',
+		text: '',
+		toolCalls: [{ id: 'call-1', name: 'git_status' }],
+		finishReason: 'tool-calls',
+		requestId: 'provider-1',
+		usage: {
+			inputTokens: 4,
+			outputTokens: 2,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		createdAt: '2026-10-25T17:00:00Z',
+	};
+	const run = {
+		id: 'run-1',
+		projectId: 'project-1',
+		status: 'ACTIVE',
+		usage: turn.usage,
+		confirmedTurns: [turn],
+	};
+	(fetch as jest.Mock).mockResolvedValueOnce(response(run));
+	await expect(loadRinspaceAgentRun('run-1', 'project-1')).resolves.toMatchObject({
+		confirmedTurns: [{ iteration: 1, toolCalls: [{ name: 'git_status' }] }],
+	});
+
+	(fetch as jest.Mock).mockResolvedValueOnce(response({
+		...run,
+		confirmedTurns: [{ ...turn, toolCalls: [{ id: 'call-1', name: 'shell' }] }],
+	}));
+	await expect(loadRinspaceAgentRun('run-1', 'project-1')).rejects.toThrow(
+		'confirmed turns are invalid',
 	);
 });
 
