@@ -10,8 +10,11 @@ import type {
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 
 const TURN_LIMIT = 1024 * 1024;
+const RESPONSE_LIMIT = 1024 * 1024;
+const MAX_TOOL_CALLS = 64;
+const MAX_TOOL_CALL_ID = 256;
+const MAX_TOOL_NAME = 128;
 const finishReasons = new Set<AgentModelFinishReason>([
-	'unknown',
 	'stop',
 	'tool-calls',
 	'max-tokens',
@@ -19,6 +22,13 @@ const finishReasons = new Set<AgentModelFinishReason>([
 	'aborted',
 	'error',
 ]);
+
+interface RinspaceTurnUsage {
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+}
 
 interface RinspaceTurnResponse {
 	text?: string;
@@ -29,13 +39,14 @@ interface RinspaceTurnResponse {
 	}>;
 	finishReason?: AgentModelFinishReason;
 	requestId?: string;
-	usage?: {
-		inputTokens?: number;
-		outputTokens?: number;
-		cacheReadTokens?: number;
-		cacheWriteTokens?: number;
-	};
+	usage?: RinspaceTurnUsage;
 }
+
+type ValidatedRinspaceTurnResponse = RinspaceTurnResponse & {
+	finishReason: AgentModelFinishReason;
+	requestId: string;
+	usage: Required<RinspaceTurnUsage>;
+};
 
 function projectMessage(message: AgentMessage): AgentMessage {
 	return {
@@ -49,8 +60,10 @@ function projectMessage(message: AgentMessage): AgentMessage {
 	};
 }
 
-function requireResponse(value: unknown): RinspaceTurnResponse {
-	if (!value || typeof value !== 'object') throw new Error('Agent response is invalid');
+function requireResponse(value: unknown): ValidatedRinspaceTurnResponse {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('Agent response is invalid');
+	}
 	const response = value as RinspaceTurnResponse;
 	if (response.text !== undefined && typeof response.text !== 'string') {
 		throw new Error('Agent response text is invalid');
@@ -58,7 +71,73 @@ function requireResponse(value: unknown): RinspaceTurnResponse {
 	if (response.toolCalls !== undefined && !Array.isArray(response.toolCalls)) {
 		throw new Error('Agent response tools are invalid');
 	}
-	return response;
+	if ((response.toolCalls?.length ?? 0) > MAX_TOOL_CALLS) {
+		throw new Error('Agent response has too many tool calls');
+	}
+	const toolCallIds = new Set<string>();
+	for (const call of response.toolCalls ?? []) {
+		if (
+			!call ||
+			typeof call !== 'object' ||
+			typeof call.id !== 'string' ||
+			!call.id.trim() ||
+			call.id.length > MAX_TOOL_CALL_ID ||
+			typeof call.name !== 'string' ||
+			!call.name.trim() ||
+			call.name.length > MAX_TOOL_NAME ||
+			toolCallIds.has(call.id)
+		) {
+			throw new Error('Agent tool call is invalid');
+		}
+		toolCallIds.add(call.id);
+	}
+	if (
+		typeof response.finishReason !== 'string' ||
+		!finishReasons.has(response.finishReason)
+	) {
+		throw new Error('Agent finish reason is invalid');
+	}
+	if (
+		typeof response.requestId !== 'string' ||
+		!response.requestId.trim() ||
+		response.requestId.length > 256
+	) {
+		throw new Error('Agent request ID is invalid');
+	}
+	if (!response.usage || typeof response.usage !== 'object' || Array.isArray(response.usage)) {
+		throw new Error('Agent usage is invalid');
+	}
+	for (const field of [
+		'inputTokens',
+		'outputTokens',
+		'cacheReadTokens',
+		'cacheWriteTokens',
+	] as const) {
+		const count = response.usage[field];
+		if (count === undefined || !Number.isSafeInteger(count) || count < 0) {
+			throw new Error('Agent usage is invalid');
+		}
+	}
+	return response as ValidatedRinspaceTurnResponse;
+}
+
+async function readBoundedResponse(result: Response): Promise<unknown> {
+	const declaredLength = result.headers.get('Content-Length');
+	if (declaredLength !== null) {
+		const bytes = Number(declaredLength);
+		if (Number.isFinite(bytes) && bytes > RESPONSE_LIMIT) {
+			throw new Error('Agent response exceeds the browser limit');
+		}
+	}
+	const raw = await result.text();
+	if (new TextEncoder().encode(raw).byteLength > RESPONSE_LIMIT) {
+		throw new Error('Agent response exceeds the browser limit');
+	}
+	try {
+		return JSON.parse(raw) as unknown;
+	} catch {
+		throw new Error('Agent response is not valid JSON');
+	}
 }
 
 export class RinspaceAgentModel implements AgentModel {
@@ -91,12 +170,9 @@ export class RinspaceAgentModel implements AgentModel {
 			},
 		);
 		if (!result.ok) throw new Error(`Agent turn failed (${result.status})`);
-		const response = requireResponse(await result.json());
+		const response = requireResponse(await readBoundedResponse(result));
 		if (response.text) yield { type: 'text-delta', text: response.text };
 		for (const call of response.toolCalls ?? []) {
-			if (!call?.id?.trim() || !call.name?.trim()) {
-				throw new Error('Agent tool call is invalid');
-			}
 			yield {
 				type: 'tool-call-delta',
 				toolCallId: call.id,
@@ -104,13 +180,10 @@ export class RinspaceAgentModel implements AgentModel {
 				input: call.input,
 			};
 		}
-		if (response.usage) yield { type: 'usage', usage: response.usage };
-		const finishReason = finishReasons.has(response.finishReason ?? 'unknown')
-			? (response.finishReason ?? 'unknown')
-			: 'unknown';
+		yield { type: 'usage', usage: response.usage };
 		yield {
 			type: 'finish',
-			reason: finishReason,
+			reason: response.finishReason,
 			requestId: response.requestId,
 		};
 	}

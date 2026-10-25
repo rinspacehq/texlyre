@@ -89,6 +89,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const controllerRef = useRef<RinspaceAgentController | null>(null);
 	const startPending = useRef(false);
 	const taskGeneration = useRef(0);
+	const composing = useRef(false);
 	const restoreStarted = useRef(false);
 	const toolState = useRef<{
 		documents: DocumentList['documents'];
@@ -638,8 +639,20 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 							className='ui-field-control'
 							value={prompt}
 							onChange={(event) => setPrompt(event.target.value)}
+							onCompositionStart={() => {
+								composing.current = true;
+							}}
+							onCompositionEnd={() => {
+								composing.current = false;
+							}}
 							onKeyDown={(event) => {
-								if (event.key === 'Enter' && !event.shiftKey) {
+								if (
+									event.key === 'Enter' &&
+									!event.shiftKey &&
+									!composing.current &&
+									!event.nativeEvent.isComposing &&
+									event.nativeEvent.keyCode !== 229
+								) {
 									event.preventDefault();
 									void start();
 								}

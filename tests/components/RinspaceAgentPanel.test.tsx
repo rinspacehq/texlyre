@@ -177,3 +177,26 @@ test('aborts pending run creation when the ownership-scoped panel unmounts', asy
 	expect(lateController.abort).toHaveBeenCalledTimes(1);
 	expect(lateController.run).not.toHaveBeenCalled();
 });
+
+test('does not submit Enter while an input method composition is active', async () => {
+	const controller = {
+		runId: 'run-ime',
+		run: jest.fn(async () => undefined),
+		abort: jest.fn(),
+		subscribe: jest.fn(() => jest.fn()),
+	};
+	mockCreate.mockResolvedValue(controller);
+	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
+	const composer = screen.getByPlaceholderText('让琳阅读、修改、编译或提交当前项目…');
+	await waitFor(() => expect(composer).toBeEnabled());
+	fireEvent.change(composer, { target: { value: '输入中文' } });
+	fireEvent.compositionStart(composer);
+	fireEvent.keyDown(composer, { key: 'Enter', keyCode: 229, isComposing: true });
+	expect(mockCreate).not.toHaveBeenCalled();
+	expect(composer).toHaveValue('输入中文');
+
+	fireEvent.compositionEnd(composer);
+	fireEvent.keyDown(composer, { key: 'Enter', keyCode: 13 });
+	await waitFor(() => expect(controller.run).toHaveBeenCalledWith('输入中文'));
+	expect(mockCreate).toHaveBeenCalledTimes(1);
+});
