@@ -63,7 +63,7 @@ test('accepts only the bounded backend Agent configuration contract', async () =
 	(fetch as jest.Mock).mockResolvedValueOnce(
 		response({
 			enabled: true,
-			model: 'deepseek-flash',
+			model: 'managed-model',
 			maxIterations: 128,
 			maxOutputTokens: 4096,
 			maxGoodness: 1_000_000_000_000,
@@ -78,21 +78,21 @@ test('accepts only the bounded backend Agent configuration contract', async () =
 	for (const invalid of [
 		{
 			enabled: true,
-			model: 'unexpected-model',
+			model: '',
 			maxIterations: 12,
 			maxOutputTokens: 1024,
 			maxGoodness: 100,
 		},
 		{
 			enabled: true,
-			model: 'deepseek-flash',
+			model: 'managed-model',
 			maxIterations: 129,
 			maxOutputTokens: 1024,
 			maxGoodness: 100,
 		},
 		{
 			enabled: true,
-			model: 'deepseek-flash',
+			model: 'managed-model',
 			maxIterations: 12,
 			maxOutputTokens: 0,
 			maxGoodness: 100,

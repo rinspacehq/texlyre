@@ -43,7 +43,7 @@ function validateConfig(value: unknown): RinspaceAgentConfig {
 	const config = value as RinspaceAgentConfig;
 	if (
 		typeof config.enabled !== 'boolean' ||
-		config.model !== 'deepseek-flash' ||
+		!config.model?.trim() ||
 		!Number.isSafeInteger(config.maxIterations) ||
 		config.maxIterations < 0 ||
 		config.maxIterations > 128 ||
