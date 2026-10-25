@@ -1084,7 +1084,7 @@ function createGitCommitTool(host: RinspaceAgentToolHost): AgentTool {
 function isGitPushPreview(value: unknown): value is GitPushPreview {
 	if (!isRecord(value) || !Array.isArray(value.commits)) return false;
 	if (
-		!['providerId', 'providerName', 'repositoryId', 'repositoryLabel', 'localBranch', 'remoteBranch', 'localHead']
+		!['providerName', 'repositoryId', 'repositoryLabel', 'localBranch', 'remoteBranch', 'localHead']
 			.every((field) => typeof value[field] === 'string') ||
 		!(value.remoteHead === null || typeof value.remoteHead === 'string') ||
 		value.commits.length > 200

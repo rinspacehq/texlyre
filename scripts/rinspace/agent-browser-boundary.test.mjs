@@ -45,7 +45,7 @@ test('local workspaces cannot mount or fetch the lazy Agent panel', async () => 
 	assert.doesNotMatch(host, /RinspaceAgentPanel|rinspace\/api/);
 });
 
-test('Agent tools are a closed automatic project-scoped set', async () => {
+test('Agent tools are a closed project-scoped set with approval only for Push', async () => {
 	const tools = await readFile(
 		path.join(agentRoot, 'RinspaceAgentTools.ts'),
 		'utf8',
@@ -60,15 +60,18 @@ test('Agent tools are a closed automatic project-scoped set', async () => {
 		'create_project_file',
 		'rename_project_file',
 		'delete_project_file',
+		'create_git_commit',
+		'push_git_commits',
 	]) {
 		assert.match(tools, new RegExp(`name: '${name}'`));
 	}
-	assert.match(tools, /enabled: true, autoApprove: true/);
+	assert.match(tools, /autoApprove: tool\.name !== 'push_git_commits'/);
+	assert.match(tools, /policy: \{ enabled: true, autoApprove: false \}/);
+	assert.match(tools, /host\.prepareGitPush\(\)/);
 	assert.match(tools, /getCurrentProjectId\(\) !== host\.projectId/);
 	assert.match(tools, /part === '\.\.'|part === "\.\."/);
 	assert.match(tools, /isBinaryFile/);
 	assert.match(tools, /isTemporaryFile/);
 	assert.match(tools, /contentSha256/);
-	assert.doesNotMatch(tools, /name: 'push_git_commits'/);
 	assert.doesNotMatch(tools, /\bfetch\(/);
 });
