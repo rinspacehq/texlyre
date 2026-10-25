@@ -40,6 +40,10 @@ import {
 	saveAgentState,
 	settledAgentMessages,
 } from './RinspaceAgentPersistence';
+import {
+	compileConfiguredProject,
+	type RinspaceAgentCompileState,
+} from './RinspaceAgentCompile';
 import { rinspaceAgentTheme } from './RinspaceAgentTheme';
 import type {
 	RinspaceAgentDiagnosticSource,
@@ -251,17 +255,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const taskGeneration = useRef(0);
 	const composing = useRef(false);
 	const restoreStarted = useRef(false);
-	const toolState = useRef<{
+	const toolState = useRef<RinspaceAgentCompileState & {
 		documents: DocumentList['documents'];
-		diagnostics: RinspaceAgentDiagnosticSource[];
-		metadata: DocumentList['projectMetadata'];
-		revision: number;
-		busy: boolean;
-		compileLatex: (mainFile: string) => Promise<void>;
-		compileTypst: (mainFile: string) => Promise<void>;
-		compileExternal: (compilerId: string, mainFile: string) => Promise<void>;
-		compileMarkdown: (mainFile: string) => Promise<RinspaceAgentCompileResult>;
-		outputBytes: (source: 'latex' | 'typst' | 'external') => number | undefined;
 	}>({
 		documents: [],
 		diagnostics: [],
@@ -450,75 +445,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			isActive: () => mounted.current,
 			getDocuments: () => toolState.current.documents,
 			getDiagnostics: () => toolState.current.diagnostics,
-			compileProject: async () => {
-				const initial = toolState.current;
-				if (initial.busy) throw new Error('A TeXlyre compilation is already running');
-				const metadata = initial.metadata;
-				const managedBuild = metadata?.managedBuild;
-				if (managedBuild?.status === 'invalid') {
-					throw new Error(managedBuild.message);
-				}
-				const format =
-					managedBuild?.status === 'valid'
-						? managedBuild.format
-						: (metadata?.type ?? 'latex');
-				const configuredMain =
-					managedBuild?.status === 'valid'
-						? managedBuild.entry
-						: metadata?.mainFile;
-				if (!configuredMain) throw new Error('The project has no configured main file');
-				const mainFile = configuredMain.startsWith('/')
-					? configuredMain
-					: `/${configuredMain}`;
-				if (format === 'markdown') return initial.compileMarkdown(mainFile);
-				if (format === 'pdf') {
-					throw new Error('A PDF source project has no text compilation step');
-				}
-
-				const provider = managedBuild
-					? typesetterRegistryService.resolve(format)
-					: typesetterRegistryService.resolve(format, metadata?.compilerId);
-				if (!provider) {
-					throw new Error(`Configured compiler is unavailable for ${format}`);
-				}
-				const source: 'latex' | 'typst' | 'external' =
-					provider.id === 'internal:latex'
-						? 'latex'
-						: provider.id === 'internal:typst'
-							? 'typst'
-							: 'external';
-				const startRevision = initial.revision;
-				if (source === 'latex') await initial.compileLatex(mainFile);
-				else if (source === 'typst') await initial.compileTypst(mainFile);
-				else await initial.compileExternal(provider.id, mainFile);
-
-				let diagnostic = toolState.current.diagnostics.find(
-					(item) => item.id === source,
-				);
-				for (let attempt = 0; attempt < 40; attempt += 1) {
-					const current = toolState.current;
-					diagnostic = current.diagnostics.find((item) => item.id === source);
-					if (
-						current.revision > startRevision &&
-						diagnostic &&
-						diagnostic.status !== 'running'
-					) {
-						break;
-					}
-					await new Promise((resolve) => window.setTimeout(resolve, 25));
-				}
-				if (!diagnostic || diagnostic.status === 'idle' || diagnostic.status === 'running') {
-					throw new Error('The configured compiler did not publish a final result');
-				}
-				return {
-					compilerId: provider.id,
-					mainFile,
-					status: diagnostic.status,
-					error: diagnostic.error,
-					log: diagnostic.log,
-					outputBytes: toolState.current.outputBytes(source),
-				};
-			},
+			compileProject: () =>
+				compileConfiguredProject({
+					getState: () => toolState.current,
+					resolveCompiler: (format, compilerId) =>
+						typesetterRegistryService.resolve(format, compilerId),
+				}),
 			renameLinkedDocument: (documentId, expectedPath, path, origin) => {
 				let renamed = false;
 				changeProject((current) => {

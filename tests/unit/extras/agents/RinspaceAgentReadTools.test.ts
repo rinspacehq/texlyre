@@ -264,6 +264,64 @@ test('runs the configured compiler automatically and rate limits repeated calls'
 	expect(limited).toMatchObject({ ok: false, error: { code: 'busy' } });
 });
 
+test('rejects an overlapping compilation while preserving the first result', async () => {
+	let release: (() => void) | undefined;
+	mockCompileProject.mockImplementationOnce(
+		() => new Promise((resolve) => {
+			release = () => resolve({
+				compilerId: 'internal:latex',
+				mainFile: '/main.tex',
+				status: 'success',
+				error: null,
+				log: 'First compilation succeeded',
+				outputBytes: 1024,
+			});
+		}),
+	);
+	const toolSet = createRinspaceAgentTools(host);
+	const compile = toolSet.tools.find((item) => item.name === 'compile_project');
+	if (!compile) throw new Error('Missing compile_project');
+
+	const first = compile.execute({}, context);
+	await Promise.resolve();
+	await expect(compile.execute({}, context)).resolves.toMatchObject({
+		ok: false,
+		error: { code: 'busy' },
+	});
+	release?.();
+	await expect(first).resolves.toMatchObject({
+		ok: true,
+		log: 'First compilation succeeded',
+	});
+	expect(mockCompileProject).toHaveBeenCalledTimes(1);
+});
+
+test('truncates oversized compiler logs at a valid UTF-8 boundary', async () => {
+	const oversizedLog = '琳'.repeat(50_000);
+	mockCompileProject.mockResolvedValueOnce({
+		compilerId: 'internal:latex',
+		mainFile: '/main.tex',
+		status: 'success',
+		error: null,
+		log: oversizedLog,
+		outputBytes: 2048,
+	});
+
+	const result = await tool('compile_project').execute({}, context) as {
+		ok: true;
+		log: string;
+		logBytes: number;
+		logTruncated: boolean;
+	};
+	expect(result).toMatchObject({
+		ok: true,
+		logBytes: new TextEncoder().encode(oversizedLog).byteLength,
+		logTruncated: true,
+	});
+	expect(new TextEncoder().encode(result.log).byteLength).toBeLessThanOrEqual(128 * 1024);
+	expect(result.log).not.toContain('\uFFFD');
+});
+
 test('creates local commits automatically and rewrites every Push into a fresh approval preview', async () => {
 	const committed = await tool('create_git_commit').execute(
 		{ message: 'Agent edit' },
