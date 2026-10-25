@@ -73,6 +73,21 @@ export interface GitPushSummary {
 	pushedCommits: number;
 }
 
+export interface GitPushPreview {
+	providerId: string;
+	providerName: string;
+	repositoryId: string;
+	repositoryLabel: string;
+	localBranch: string;
+	remoteBranch: string;
+	localHead: string;
+	remoteHead: string | null;
+	commits: Array<{
+		oid: string;
+		subject: string;
+	}>;
+}
+
 interface ResolvedTransport {
 	config: GitRemoteConfig;
 	provider: GitRemoteProvider;
@@ -99,6 +114,16 @@ interface LocalCommitObject {
 interface LocalPushCommit {
 	oid: string;
 	flattenBaseOid?: string;
+}
+
+interface InspectedPush {
+	transport: ResolvedTransport;
+	localBranch: string;
+	headOid: string;
+	remoteHead: string | null;
+	localBaseOid: string | null;
+	missing: LocalPushCommit[];
+	preview: GitPushPreview;
 }
 
 interface TreeNode {
@@ -1460,6 +1485,108 @@ export class GitSyncService {
 		});
 	}
 
+	private async inspectPush(
+		projectId: string,
+		secrets: GitSecretReader,
+	): Promise<InspectedPush> {
+		if (!(await gitService.isInitialized(projectId))) {
+			throw new Error('Initialize Git History before pushing to a remote');
+		}
+		const localBranch = await gitService.getCurrentBranch(projectId);
+		const headOid = await gitService.getHeadOid(projectId);
+		if (!localBranch || !headOid) {
+			throw new Error('Create a local commit before pushing');
+		}
+
+		const transport = await this.resolveTransport(projectId, secrets);
+		if (transport.config.readOnly) {
+			throw new Error('The current repository permission does not allow Push');
+		}
+		const remoteHead = await transport.provider.historyTransport.getHead(
+			transport.token,
+			transport.config.repositoryId,
+			transport.config.branch,
+		);
+		const syncBase = transport.config.syncBase;
+		let localBaseOid: string | null = null;
+		if (syncBase) {
+			if (remoteHead !== syncBase.remoteOid) {
+				throw new Error(
+					'Remote branch changed since the last synchronization. Pull first.',
+				);
+			}
+			localBaseOid = syncBase.localOid;
+		} else if (remoteHead) {
+			if (await this.hasCommit(projectId, remoteHead)) {
+				localBaseOid = remoteHead;
+			} else {
+				throw new Error(
+					'Pull this remote once before pushing so TeXlyre can establish a synchronization base.',
+				);
+			}
+		}
+
+		const missing = await this.missingCommits(
+			projectId,
+			headOid,
+			localBaseOid,
+			transport.provider.smartHttp
+				? true
+				: transport.provider.historyTransport.supportsMergeCommits,
+			transport.provider.smartHttp
+				? true
+				: transport.provider.historyTransport.preservesCommitOids,
+		);
+		if (missing.length > 200) {
+			throw new Error(
+				'Push contains more than 200 pending commits. Split or synchronize the branch before pushing.',
+			);
+		}
+		const commits: GitPushPreview['commits'] = [];
+		for (const item of missing) {
+			const commit = await this.readLocalCommitMeta(projectId, item.oid);
+			const subject = commit.message.split(/\r?\n/, 1)[0]?.trim() || '(no subject)';
+			commits.push({
+				oid: item.oid,
+				subject: subject.length > 240 ? `${subject.slice(0, 239)}…` : subject,
+			});
+		}
+		return {
+			transport,
+			localBranch,
+			headOid,
+			remoteHead,
+			localBaseOid,
+			missing,
+			preview: {
+				providerId: transport.config.providerId,
+				providerName:
+					transport.config.providerName ?? transport.config.providerId,
+				repositoryId: transport.config.repositoryId,
+				repositoryLabel: transport.config.repositoryLabel,
+				localBranch,
+				remoteBranch: transport.config.branch,
+				localHead: headOid,
+				remoteHead,
+				commits,
+			},
+		};
+	}
+
+	async preparePush(
+		projectId: string,
+		secrets: GitSecretReader,
+	): Promise<GitPushPreview> {
+		return (await this.inspectPush(projectId, secrets)).preview;
+	}
+
+	private samePushPreview(
+		approved: GitPushPreview,
+		current: GitPushPreview,
+	): boolean {
+		return JSON.stringify(approved) === JSON.stringify(current);
+	}
+
 	private async pushSmartHttp(
 		projectId: string,
 		transport: ResolvedTransport,
@@ -1513,15 +1640,23 @@ export class GitSyncService {
 		const git = await getGit();
 		const http = await getSmartHttp();
 		const { fileSystem, options } = this.repo(projectId);
+		const approvedRef = `refs/texlyre/approved-push/${headOid}`;
 		let pushFailure: unknown;
 		try {
+			await git.writeRef({
+				...options,
+				ref: approvedRef,
+				value: headOid,
+				force: true,
+			});
+			await fileSystem.flush();
 			const result = await git.push({
 				...options,
 				http,
 				url: transport.provider.smartHttp!.repositoryUrl(
 					transport.config.repositoryId,
 				),
-				ref: localBranch,
+				ref: approvedRef,
 				remoteRef: transport.config.branch,
 				force: false,
 			});
@@ -1530,6 +1665,12 @@ export class GitSyncService {
 			}
 		} catch (error) {
 			pushFailure = error;
+		} finally {
+			try {
+				await git.deleteRef({ ...options, ref: approvedRef });
+			} catch (error) {
+				moduleLog.warn('Failed to remove a temporary approved Push ref', error);
+			}
 		}
 		await fileSystem.flush();
 
@@ -1571,21 +1712,22 @@ export class GitSyncService {
 	async push(
 		projectId: string,
 		secrets: GitSecretReader,
+		approved?: GitPushPreview,
 	): Promise<GitPushSummary> {
-		if (!(await gitService.isInitialized(projectId))) {
-			throw new Error('Initialize Git History before pushing to a remote');
+		const inspected = await this.inspectPush(projectId, secrets);
+		if (approved && !this.samePushPreview(approved, inspected.preview)) {
+			throw new Error(
+				'Push approval expired because the repository, branch, local HEAD, remote HEAD, or pending commits changed. Review a fresh Push approval.',
+			);
 		}
-		const localBranch = await gitService.getCurrentBranch(projectId);
-		const headOid = await gitService.getHeadOid(projectId);
-		if (!localBranch || !headOid)
-			throw new Error('Create a local commit before pushing');
-
-		const transport = await this.resolveTransport(projectId, secrets);
-		const remoteHead = await transport.provider.historyTransport.getHead(
-			transport.token,
-			transport.config.repositoryId,
-			transport.config.branch,
-		);
+		const {
+			transport,
+			localBranch,
+			headOid,
+			remoteHead,
+			localBaseOid,
+			missing,
+		} = inspected;
 		if (transport.provider.smartHttp) {
 			return this.pushSmartHttp(
 				projectId,
@@ -1596,34 +1738,8 @@ export class GitSyncService {
 			);
 		}
 
-		const syncBase = transport.config.syncBase;
-		let localBaseOid: string | null = null;
-		if (syncBase) {
-			if (remoteHead !== syncBase.remoteOid) {
-				throw new Error(
-					'Remote branch changed since the last synchronization. Pull first.',
-				);
-			}
-			localBaseOid = syncBase.localOid;
-		} else if (remoteHead) {
-			if (await this.hasCommit(projectId, remoteHead))
-				localBaseOid = remoteHead;
-			else {
-				throw new Error(
-					'Pull this remote once before pushing so TeXlyre can establish a synchronization base.',
-				);
-			}
-		}
-
-		const missing = await this.missingCommits(
-			projectId,
-			headOid,
-			localBaseOid,
-			transport.provider.historyTransport.supportsMergeCommits,
-			transport.provider.historyTransport.preservesCommitOids,
-		);
 		if (missing.length === 0) {
-			if (!syncBase && remoteHead && localBaseOid) {
+			if (!transport.config.syncBase && remoteHead && localBaseOid) {
 				await this.setSyncBase(projectId, {
 					localOid: localBaseOid,
 					remoteOid: remoteHead,

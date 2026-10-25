@@ -2,6 +2,7 @@
 import { nanoid } from 'nanoid';
 import {
 	createTool,
+	type AgentBeforeToolContext,
 	type AgentBeforeToolResult,
 	type AgentTool,
 	type AgentToolContext,
@@ -18,6 +19,10 @@ import {
 } from '@/services/DocumentTextEdits';
 import { fileStoreService } from '@/services/FileStoreService';
 import { gitService } from '@/services/GitService';
+import type {
+	GitPushPreview,
+	GitPushSummary,
+} from '@/services/GitSyncService';
 import { SearchService } from '@/services/SearchService';
 import type { Document } from '@/types/documents';
 import {
@@ -69,12 +74,17 @@ export interface RinspaceAgentToolHost {
 	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
 	renameLinkedDocument: (documentId: string, path: string, origin: unknown) => boolean;
 	deleteLinkedDocument: (documentId: string, origin: unknown) => boolean;
+	createGitCommit: (message: string) => Promise<string>;
+	prepareGitPush: () => Promise<GitPushPreview>;
+	pushGitCommits: (preview: GitPushPreview) => Promise<GitPushSummary>;
 }
 
 export interface RinspaceAgentToolSet {
 	tools: readonly AgentTool[];
 	policies: Readonly<Record<string, Readonly<ToolPolicy>>>;
-	beforeTool: () => AgentBeforeToolResult | undefined;
+	beforeTool: (
+		context: AgentBeforeToolContext,
+	) => Promise<AgentBeforeToolResult | undefined>;
 }
 
 interface ToolError {
@@ -1034,6 +1044,86 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 	});
 }
 
+function createGitCommitTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'create_git_commit',
+		description: 'Create a local Git commit from the current project persisted worktree using the confirmed managed identity.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['message'],
+			properties: {
+				message: { type: 'string', minLength: 1, maxLength: 500 },
+			},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || typeof input.message !== 'string') {
+				return failure('invalid_input', 'A commit message is required');
+			}
+			const message = input.message.trim();
+			if (!message || byteLength(message) > 2000) {
+				return failure('invalid_input', 'Commit message must contain 1 to 2000 UTF-8 bytes');
+			}
+			const oid = await host.createGitCommit(message);
+			const changed = activeError(host);
+			if (changed) return changed;
+			return {
+				ok: true,
+				projectId: host.projectId,
+				commitOid: oid,
+				message,
+			};
+		},
+	});
+}
+
+function isGitPushPreview(value: unknown): value is GitPushPreview {
+	if (!isRecord(value) || !Array.isArray(value.commits)) return false;
+	if (
+		!['providerId', 'providerName', 'repositoryId', 'repositoryLabel', 'localBranch', 'remoteBranch', 'localHead']
+			.every((field) => typeof value[field] === 'string') ||
+		!(value.remoteHead === null || typeof value.remoteHead === 'string') ||
+		value.commits.length > 200
+	) {
+		return false;
+	}
+	return value.commits.every(
+		(commit) =>
+			isRecord(commit) &&
+			typeof commit.oid === 'string' &&
+			typeof commit.subject === 'string',
+	);
+}
+
+function pushGitCommitsTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'push_git_commits',
+		description: 'Push approved local commits to the configured project repository. The host replaces all input with a fresh immutable preview before requesting approval.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isGitPushPreview(input)) {
+				return failure('invalid_input', 'Push requires a fresh host-generated approval preview');
+			}
+			const summary = await host.pushGitCommits(input);
+			const changed = activeError(host);
+			if (changed) return changed;
+			return { ok: true, projectId: host.projectId, ...summary };
+		},
+	});
+}
+
 export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceAgentToolSet {
 	const tools = [
 		listTool(host),
@@ -1045,13 +1135,38 @@ export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceA
 		createFileTool(host),
 		renameFileTool(host),
 		deleteFileTool(host),
+		createGitCommitTool(host),
+		pushGitCommitsTool(host),
 	];
 	return {
 		tools,
-		policies: Object.fromEntries(tools.map((tool) => [tool.name, { enabled: true, autoApprove: true }])),
-		beforeTool: () => {
+		policies: Object.fromEntries(
+			tools.map((tool) => [
+				tool.name,
+				{ enabled: true, autoApprove: tool.name !== 'push_git_commits' },
+			]),
+		),
+		beforeTool: async (context) => {
 			const inactive = activeError(host);
-			return inactive ? { skip: true, reason: inactive.error.message } : undefined;
+			if (inactive) return { skip: true, reason: inactive.error.message };
+			if (context.tool.name !== 'push_git_commits') return undefined;
+			try {
+				const preview = await host.prepareGitPush();
+				const changed = activeError(host);
+				if (changed) return { skip: true, reason: changed.error.message };
+				if (preview.commits.length === 0) {
+					return { skip: true, reason: 'There are no local commits to Push' };
+				}
+				return {
+					input: preview,
+					policy: { enabled: true, autoApprove: false },
+				};
+			} catch (error) {
+				return {
+					skip: true,
+					reason: error instanceof Error ? error.message : 'Push preview failed',
+				};
+			}
 		},
 	};
 }

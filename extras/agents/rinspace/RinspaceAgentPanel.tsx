@@ -13,7 +13,10 @@ import { ChevronDownIcon, ChevronUpIcon } from '@/components/common/Icons';
 import { useCollab } from '@/hooks/useCollab';
 import { useExternalTypesetter } from '@/hooks/useExternalTypesetter';
 import { useLaTeX } from '@/hooks/useLaTeX';
+import { useSecrets } from '@/hooks/useSecrets';
 import { useTypst } from '@/hooks/useTypst';
+import { gitService } from '@/services/GitService';
+import { gitSyncService } from '@/services/GitSyncService';
 import type { DocumentList } from '@/types/documents';
 import {
 	RinspaceAgentController,
@@ -47,6 +50,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const latex = useLaTeX();
 	const typst = useTypst();
 	const external = useExternalTypesetter();
+	const secrets = useSecrets();
 	const [collapsed, setCollapsed] = useState(false);
 	const [prompt, setPrompt] = useState('');
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
@@ -147,8 +151,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				}, origin);
 				return deleted;
 			},
+			createGitCommit: (message) => gitService.commit(projectId, message, null),
+			prepareGitPush: () => gitSyncService.preparePush(projectId, secrets),
+			pushGitCommits: (preview) =>
+				gitSyncService.push(projectId, secrets, preview),
 		}),
-		[changeProject, projectId],
+		[changeProject, projectId, secrets],
 	);
 	useEffect(() => {
 		mounted.current = true;

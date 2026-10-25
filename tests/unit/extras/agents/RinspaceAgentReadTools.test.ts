@@ -77,6 +77,28 @@ const mockGit = {
 	getWorktreeChanges: jest.fn(async () => []),
 	compareFile: jest.fn(async () => null),
 };
+const mockCreateGitCommit = jest.fn(async () => 'commit-agent');
+const pushPreview = {
+	providerId: 'rinspace-gitea',
+	providerName: 'Rinspace Gitea',
+	repositoryId: 'owner/repo',
+	repositoryLabel: 'owner/repo',
+	localBranch: 'main',
+	remoteBranch: 'main',
+	localHead: 'commit-agent',
+	remoteHead: 'remote-base',
+	commits: [{ oid: 'commit-agent', subject: 'Agent edit' }],
+};
+const mockPrepareGitPush = jest.fn(async () => pushPreview);
+const mockPushGitCommits = jest.fn(async () => ({
+	providerName: 'Rinspace Gitea',
+	repositoryLabel: 'owner/repo',
+	localBranch: 'main',
+	remoteBranch: 'main',
+	previousLocalOid: 'commit-agent',
+	canonicalOid: 'commit-agent',
+	pushedCommits: 1,
+}));
 
 jest.mock('@/services/FileStoreService', () => ({ fileStoreService: mockFiles }));
 jest.mock('@/services/CollabService', () => ({
@@ -128,6 +150,9 @@ const host: RinspaceAgentToolHost = {
 	],
 	renameLinkedDocument: () => true,
 	deleteLinkedDocument: () => true,
+	createGitCommit: mockCreateGitCommit,
+	prepareGitPush: mockPrepareGitPush,
+	pushGitCommits: mockPushGitCommits,
 };
 
 const context = {
@@ -175,12 +200,39 @@ test('normalizes only project-relative paths and closes the automatic tool set',
 		'create_project_file',
 		'rename_project_file',
 		'delete_project_file',
+		'create_git_commit',
+		'push_git_commits',
 	]);
-	expect(Object.values(toolSet.policies)).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({ enabled: true, autoApprove: true }),
-		]),
+	expect(toolSet.policies.create_git_commit).toEqual({ enabled: true, autoApprove: true });
+	expect(toolSet.policies.push_git_commits).toEqual({ enabled: true, autoApprove: false });
+});
+
+test('creates local commits automatically and rewrites every Push into a fresh approval preview', async () => {
+	const committed = await tool('create_git_commit').execute(
+		{ message: 'Agent edit' },
+		context,
 	);
+	expect(committed).toMatchObject({ ok: true, commitOid: 'commit-agent' });
+	expect(mockCreateGitCommit).toHaveBeenCalledWith('Agent edit');
+
+	const toolSet = createRinspaceAgentTools(host);
+	const push = toolSet.tools.find((item) => item.name === 'push_git_commits');
+	if (!push) throw new Error('Missing push_git_commits');
+	const prepared = await toolSet.beforeTool({
+		snapshot: {},
+		tool: push,
+		toolCall: { toolCallId: 'push-1', toolName: push.name, input: {} },
+		input: {},
+	} as never);
+	expect(prepared).toEqual({
+		input: pushPreview,
+		policy: { enabled: true, autoApprove: false },
+	});
+	expect(mockPrepareGitPush).toHaveBeenCalledTimes(1);
+
+	const pushed = await push.execute(prepared?.input, context);
+	expect(pushed).toMatchObject({ ok: true, pushedCommits: 1 });
+	expect(mockPushGitCommits).toHaveBeenCalledWith(pushPreview);
 });
 
 test('reads the live Y.Text projection with a content identity and rejects binary/private paths', async () => {
