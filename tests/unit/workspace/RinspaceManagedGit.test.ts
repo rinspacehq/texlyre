@@ -20,9 +20,30 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-test('reopen preserves the successfully pushed base instead of seeding the initial import again', async () => {
+test.each(['a/42', 'b/42', 'tags/42'])(
+	'reopen preserves the successfully pushed base for the fixed %s repository',
+	async (repositoryId) => {
+		jest.mocked(gitSyncService.loadConfig).mockResolvedValue({
+			...config,
+			repositoryId,
+			repositoryLabel: repositoryId,
+		});
+		await prepareManagedGit(
+			{ ...workspace, repository: { ...workspace.repository, fullName: repositoryId } },
+			project,
+			true,
+			new AbortController().signal,
+		);
+		expect(gitSyncService.bindBrowserSessionRemote).toHaveBeenCalledWith(
+			project.id,
+			expect.objectContaining({ repositoryId, branch: 'main', readOnly: false }),
+			undefined,
+		);
+	},
+);
+
+test('reopen does not fetch when the matching base already exists', async () => {
 	await prepareManagedGit(workspace, project, true, new AbortController().signal);
-	expect(gitSyncService.bindBrowserSessionRemote).toHaveBeenCalledWith(project.id, expect.objectContaining({ repositoryId: 'a/42', branch: 'main', readOnly: false }), undefined);
 	expect(gitSyncService.fetchForMerge).not.toHaveBeenCalled();
 });
 
