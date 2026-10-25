@@ -8,19 +8,20 @@ import type {
 } from '@rinspacehq/cline-embed';
 
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
+import {
+	isRinspaceAgentCallId,
+	isRinspaceAgentJSONObject,
+	isRinspaceAgentToolName,
+	RINSPACE_AGENT_MAX_TOOL_CALLS,
+} from './RinspaceAgentProtocol';
 
 const TURN_LIMIT = 1024 * 1024;
 const RESPONSE_LIMIT = 1024 * 1024;
-const MAX_TOOL_CALLS = 64;
-const MAX_TOOL_CALL_ID = 128;
-const MAX_TOOL_NAME = 128;
+const RESPONSE_TEXT_LIMIT = 64 * 1024;
 const finishReasons = new Set<AgentModelFinishReason>([
 	'stop',
 	'tool-calls',
 	'max-tokens',
-	'content-filter',
-	'aborted',
-	'error',
 ]);
 
 interface RinspaceTurnUsage {
@@ -88,10 +89,16 @@ function requireResponse(value: unknown): ValidatedRinspaceTurnResponse {
 	if (response.text !== undefined && typeof response.text !== 'string') {
 		throw new Error('Agent response text is invalid');
 	}
+	if (
+		response.text !== undefined &&
+		new TextEncoder().encode(response.text).byteLength > RESPONSE_TEXT_LIMIT
+	) {
+		throw new Error('Agent response text is invalid');
+	}
 	if (response.toolCalls !== undefined && !Array.isArray(response.toolCalls)) {
 		throw new Error('Agent response tools are invalid');
 	}
-	if ((response.toolCalls?.length ?? 0) > MAX_TOOL_CALLS) {
+	if ((response.toolCalls?.length ?? 0) > RINSPACE_AGENT_MAX_TOOL_CALLS) {
 		throw new Error('Agent response has too many tool calls');
 	}
 	const toolCallIds = new Set<string>();
@@ -99,12 +106,9 @@ function requireResponse(value: unknown): ValidatedRinspaceTurnResponse {
 		if (
 			!call ||
 			typeof call !== 'object' ||
-			typeof call.id !== 'string' ||
-			!call.id.trim() ||
-			call.id.length > MAX_TOOL_CALL_ID ||
-			typeof call.name !== 'string' ||
-			!call.name.trim() ||
-			call.name.length > MAX_TOOL_NAME ||
+			!isRinspaceAgentCallId(call.id) ||
+			!isRinspaceAgentToolName(call.name) ||
+			!isRinspaceAgentJSONObject(call.input) ||
 			toolCallIds.has(call.id)
 		) {
 			throw new Error('Agent tool call is invalid');
@@ -117,6 +121,15 @@ function requireResponse(value: unknown): ValidatedRinspaceTurnResponse {
 	) {
 		throw new Error('Agent finish reason is invalid');
 	}
+	const hasText = Boolean(response.text?.trim());
+	const callCount = response.toolCalls?.length ?? 0;
+	if (
+		(response.finishReason === 'stop' && (!hasText || callCount !== 0)) ||
+		(response.finishReason === 'tool-calls' && callCount === 0) ||
+		(response.finishReason === 'max-tokens' && !hasText && callCount === 0)
+	) {
+		throw new Error('Agent finish reason is inconsistent');
+	}
 	if (
 		typeof response.requestId !== 'string' ||
 		!response.requestId.trim() ||
@@ -124,7 +137,11 @@ function requireResponse(value: unknown): ValidatedRinspaceTurnResponse {
 	) {
 		throw new Error('Agent request ID is invalid');
 	}
-	if (!response.usage || typeof response.usage !== 'object' || Array.isArray(response.usage)) {
+	if (
+		!response.usage ||
+		typeof response.usage !== 'object' ||
+		Array.isArray(response.usage)
+	) {
 		throw new Error('Agent usage is invalid');
 	}
 	for (const field of [

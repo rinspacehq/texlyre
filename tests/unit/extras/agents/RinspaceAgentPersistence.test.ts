@@ -174,6 +174,46 @@ test('rejects unknown versions, malformed parts and cross-role tool content', ()
 			}])],
 		}),
 		state({
+			messages: [message('unknown-tool', 'assistant', [{
+				type: 'tool-call',
+				toolCallId: 'call-1',
+				toolName: 'shell',
+				input: {},
+			}])],
+		}),
+		state({
+			messages: [message('invalid-input', 'assistant', [{
+				type: 'tool-call',
+				toolCallId: 'call-1',
+				toolName: 'read_project_files',
+				input: [],
+			}])],
+		}),
+		state({
+			messages: [message('orphan-result', 'tool', [{
+				type: 'tool-result',
+				toolCallId: 'call-1',
+				toolName: 'read_project_files',
+				output: {},
+			}])],
+		}),
+		state({
+			messages: [
+				message('call', 'assistant', [{
+					type: 'tool-call',
+					toolCallId: 'call-1',
+					toolName: 'read_project_files',
+					input: {},
+				}]),
+				message('mismatched-result', 'tool', [{
+					type: 'tool-result',
+					toolCallId: 'call-1',
+					toolName: 'git_status',
+					output: {},
+				}]),
+			],
+		}),
+		state({
 			messages: [{
 				id: 'unknown-part',
 				role: 'assistant',

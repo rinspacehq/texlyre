@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { AgentMessage, AgentUsage } from '@rinspacehq/cline-embed';
+import {
+	isRinspaceAgentCallId,
+	isRinspaceAgentJSONObject,
+	isRinspaceAgentToolName,
+} from './RinspaceAgentProtocol';
 
 const MAX_BYTES = 256 * 1024;
 const VERSION = 1;
@@ -56,7 +61,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isIdentifier(value: unknown, maximum: number): value is string {
-	return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum;
+	return (
+		typeof value === 'string' &&
+		value.trim().length > 0 &&
+		value.length <= maximum
+	);
 }
 
 function isMessagePart(
@@ -70,8 +79,9 @@ function isMessagePart(
 		case 'tool-call':
 			return (
 				role === 'assistant' &&
-				isIdentifier(value.toolCallId, 128) &&
-				isIdentifier(value.toolName, 128) &&
+				isRinspaceAgentCallId(value.toolCallId) &&
+				isRinspaceAgentToolName(value.toolName) &&
+				isRinspaceAgentJSONObject(value.input) &&
 				(value.execution === undefined ||
 					value.execution === 'client' ||
 					value.execution === 'provider')
@@ -79,8 +89,9 @@ function isMessagePart(
 		case 'tool-result':
 			return (
 				role === 'tool' &&
-				isIdentifier(value.toolCallId, 128) &&
-				isIdentifier(value.toolName, 128) &&
+				isRinspaceAgentCallId(value.toolCallId) &&
+				isRinspaceAgentToolName(value.toolName) &&
+				Object.hasOwn(value, 'output') &&
 				(value.isError === undefined || typeof value.isError === 'boolean') &&
 				(value.execution === undefined ||
 					value.execution === 'client' ||
@@ -89,6 +100,25 @@ function isMessagePart(
 		default:
 			return false;
 	}
+}
+
+function isMessageHistory(messages: readonly AgentMessage[]): boolean {
+	const seen = new Set<string>();
+	const pending = new Map<string, string>();
+	for (const message of messages) {
+		if (message.role !== 'tool' && pending.size > 0) return false;
+		for (const part of message.content) {
+			if (part.type === 'tool-call') {
+				if (seen.has(part.toolCallId)) return false;
+				seen.add(part.toolCallId);
+				pending.set(part.toolCallId, part.toolName);
+			} else if (part.type === 'tool-result') {
+				if (pending.get(part.toolCallId) !== part.toolName) return false;
+				pending.delete(part.toolCallId);
+			}
+		}
+	}
+	return true;
 }
 
 function isMessage(value: unknown): value is AgentMessage {
@@ -136,7 +166,8 @@ export function loadAgentState(
 ): PersistedRinspaceAgentState | null {
 	try {
 		const raw = sessionStorage.getItem(key(actorId, projectId));
-		if (!raw || new TextEncoder().encode(raw).byteLength > MAX_BYTES) return null;
+		if (!raw || new TextEncoder().encode(raw).byteLength > MAX_BYTES)
+			return null;
 		const value = JSON.parse(raw) as Partial<PersistedRinspaceAgentState>;
 		if (
 			(value.version !== undefined && value.version !== VERSION) ||
@@ -144,7 +175,9 @@ export function loadAgentState(
 			value.runId.length > 256 ||
 			!Array.isArray(value.messages) ||
 			!value.messages.every(isMessage) ||
-			(typeof value.savedAt !== 'number' || !Number.isFinite(value.savedAt))
+			!isMessageHistory(value.messages) ||
+			typeof value.savedAt !== 'number' ||
+			!Number.isFinite(value.savedAt)
 		) {
 			return null;
 		}

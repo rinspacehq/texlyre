@@ -92,6 +92,51 @@ test('projects one bounded validated turn and forwards the cancellation signal',
 
 const invalidResponses: Array<[string, unknown, string]> = [
 	[
+		'undeclared tool',
+		{
+			toolCalls: [{ id: 'call-1', name: 'shell', input: {} }],
+			finishReason: 'tool-calls',
+			requestId: 'receipt-shell',
+			usage: {
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		},
+		'Agent tool call is invalid',
+	],
+	[
+		'non-object tool input',
+		{
+			toolCalls: [{ id: 'call-1', name: 'read_project_files', input: [] }],
+			finishReason: 'tool-calls',
+			requestId: 'receipt-array',
+			usage: {
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		},
+		'Agent tool call is invalid',
+	],
+	[
+		'inconsistent stop reason',
+		{
+			toolCalls: [{ id: 'call-1', name: 'read_project_files', input: {} }],
+			finishReason: 'stop',
+			requestId: 'receipt-stop',
+			usage: {
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		},
+		'Agent finish reason is inconsistent',
+	],
+	[
 		'oversized tool ID',
 		{
 			toolCalls: [
@@ -129,6 +174,7 @@ const invalidResponses: Array<[string, unknown, string]> = [
 	[
 		'negative usage',
 		{
+			text: 'done',
 			finishReason: 'stop',
 			requestId: 'receipt-negative',
 			usage: {
