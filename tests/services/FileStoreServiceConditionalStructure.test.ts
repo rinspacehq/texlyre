@@ -8,6 +8,7 @@ import type { FileNode } from '@src/types/files';
 
 jest.mock('@src/services/FileHandlerService', () => ({
 	fileHandlerService: {
+		hasWorkspacePermissionPending: jest.fn(() => false),
 		mirrorFiles: jest.fn(async () => ({ entries: [{ reason: 'not-linked' }] })),
 		removeFromDisk: jest.fn(async () => undefined),
 	},
