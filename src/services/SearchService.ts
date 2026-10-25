@@ -447,24 +447,20 @@ export class SearchService {
 
 		for (const result of results) {
 			if (result.matchType === 'content') {
-				let replaced = false;
-
-				if (result.isLinkedDocument && result.documentId) {
-					replaced = await this.replaceInDocument(
+				const replaced = result.isLinkedDocument && result.documentId
+					? await this.replaceInDocument(
 						result.documentId,
 						projectId,
 						searchQuery,
 						replaceText,
 						options,
-					);
-				} else {
-					replaced = await this.replaceInFile(
+					)
+					: await this.replaceInFile(
 						result.fileId,
 						searchQuery,
 						replaceText,
 						options,
 					);
-				}
 
 				if (replaced) replacedCount++;
 			}

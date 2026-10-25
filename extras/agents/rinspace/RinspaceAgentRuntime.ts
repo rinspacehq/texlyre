@@ -112,7 +112,7 @@ export class RinspaceAgentController {
 	): Promise<RinspaceAgentController> {
 		const runId = await createRun(context, projectId, config, signal);
 		const toolSet = createRinspaceAgentTools({ ...toolHost, runId });
-		let controller: RinspaceAgentController | undefined;
+		const controllerRef: { current?: RinspaceAgentController } = {};
 		const runtime = new AgentRuntime({
 			model: new RinspaceAgentModel(runId),
 			initialMessages,
@@ -124,13 +124,13 @@ export class RinspaceAgentController {
 			hooks: { beforeTool: toolSet.beforeTool },
 			messageModelInfo: { id: config.model, provider: 'rinspace' },
 			requestToolApproval: (request) =>
-				controller?.requestApproval(request) ?? {
+				controllerRef.current?.requestApproval(request) ?? {
 					approved: false,
 					reason: 'Agent approval host is not ready',
 				},
 		});
-		controller = new RinspaceAgentController(runId, config, runtime);
-		return controller;
+		controllerRef.current = new RinspaceAgentController(runId, config, runtime);
+		return controllerRef.current;
 	}
 
 	subscribe(listener: Listener): () => void {

@@ -13,7 +13,6 @@ import { fileStoreService } from '@/services/FileStoreService';
 import { gitService } from '@/services/GitService';
 import { SearchService } from '@/services/SearchService';
 import type { Document } from '@/types/documents';
-import type { FileNode } from '@/types/files';
 import { isBinaryFile, isTemporaryFile } from '@/utils/fileUtils';
 
 const LIMITS = {
@@ -130,11 +129,16 @@ async function sha256(value: string | ArrayBuffer): Promise<string> {
 	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const isControlCharacter = (character: string): boolean => {
+	const code = character.charCodeAt(0);
+	return code <= 31 || code === 127;
+};
+
 export function normalizeAgentProjectPath(value: unknown): string | ToolError {
 	if (typeof value !== 'string' || !value || byteLength(value) > 1024) {
 		return failure('invalid_input', 'A project-relative path of at most 1024 bytes is required');
 	}
-	if (value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/.test(value) || /[\u0000-\u001f\u007f]/.test(value)) {
+	if (value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/.test(value) || Array.from(value).some(isControlCharacter)) {
 		return failure('path_forbidden', 'Absolute, platform and control-character paths are forbidden');
 	}
 	const parts = value.split('/');
@@ -456,7 +460,12 @@ function searchTool(host: RinspaceAgentToolHost): AgentTool {
 }
 
 const cleanMessage = (value: string | null | undefined) =>
-	value ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, 2000) : null;
+	value
+		? Array.from(value)
+			.filter((character) => !isControlCharacter(character) || character === '\t' || character === '\n' || character === '\r')
+			.join('')
+			.slice(0, 2000)
+		: null;
 
 function diagnosticsTool(host: RinspaceAgentToolHost): AgentTool {
 	return createTool({
