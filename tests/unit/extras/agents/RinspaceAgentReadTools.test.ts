@@ -59,6 +59,9 @@ jest.mock('@/services/SearchService', () => ({
 	SearchService: jest.fn().mockImplementation(() => ({ search: mockSearch })),
 }));
 jest.mock('@/services/GitService', () => ({ gitService: mockGit }));
+jest.mock('@rinspacehq/cline-embed', () => ({
+	createTool: (definition: unknown) => definition,
+}));
 
 import {
 	createRinspaceAgentTools,
