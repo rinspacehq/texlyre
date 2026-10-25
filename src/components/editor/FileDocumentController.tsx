@@ -103,14 +103,14 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 	const handleSwitchToHistory = useCallback(() => {
 		setGitDiffView(null);
 		navigation.setActiveView('history');
-	}, [navigation.setActiveView]);
+	}, [navigation]);
 
 	const handleLatexOutputCollapse = useCallback(
 		(collapsed: boolean) => {
 			layout.handleLatexOutputCollapse(collapsed);
 			if (collapsed) output.clearTemporaryLatexExpand();
 		},
-		[layout.handleLatexOutputCollapse, output.clearTemporaryLatexExpand],
+		[layout, output],
 	);
 
 	const handleTypstOutputCollapse = useCallback(
@@ -118,7 +118,7 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 			layout.handleTypstOutputCollapse(collapsed);
 			if (collapsed) output.clearTemporaryTypstExpand();
 		},
-		[layout.handleTypstOutputCollapse, output.clearTemporaryTypstExpand],
+		[layout, output],
 	);
 
 	const handleExternalOutputCollapse = useCallback(
@@ -126,7 +126,7 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 			layout.handleExternalOutputCollapse(collapsed);
 			if (collapsed) output.clearTemporaryExternalExpand();
 		},
-		[layout.handleExternalOutputCollapse, output.clearTemporaryExternalExpand],
+		[layout, output],
 	);
 
 	useEffect(() => {

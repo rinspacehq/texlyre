@@ -58,9 +58,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		documents: DocumentList['documents'];
 		diagnostics: RinspaceAgentDiagnosticSource[];
 	}>({ documents: [], diagnostics: [] });
-	toolState.current = {
-		documents: project?.documents ?? [],
-		diagnostics: [
+	const diagnostics = useMemo<RinspaceAgentDiagnosticSource[]>(
+		() => [
 			{
 				id: 'latex',
 				status: latex.isCompiling
@@ -98,7 +97,27 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				log: external.compileLog,
 			},
 		],
-	};
+		[
+			external.compileError,
+			external.compileLog,
+			external.isCompiling,
+			external.logIndicator,
+			latex.compileError,
+			latex.compileLog,
+			latex.isCompiling,
+			latex.logIndicator,
+			typst.compileError,
+			typst.compileLog,
+			typst.isCompiling,
+			typst.logIndicator,
+		],
+	);
+	useEffect(() => {
+		toolState.current = {
+			documents: project?.documents ?? [],
+			diagnostics,
+		};
+	}, [diagnostics, project?.documents]);
 	const toolHost = useMemo<Omit<RinspaceAgentToolHost, 'runId'>>(
 		() => ({
 			projectId,

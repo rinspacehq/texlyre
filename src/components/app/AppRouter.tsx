@@ -38,6 +38,7 @@ import ShareTargetModal from '../project/ShareTargetModal';
 
 const moduleLog = createNamedLogger('AppRouter');
 const localHostContext: HostContext = Object.freeze({ mode: 'local-unbound' });
+const PdfViewerWindow = lazy(() => import('../output/PopoutViewerWindow'));
 
 interface UrlProjectParams {
 	newProjectName?: string;
@@ -145,8 +146,17 @@ const AppRouter: React.FC = () => {
 	useEffect(() => {
 		if (isInitializing) return;
 		const host = pluginRegistry.getWorkspaceExtensions().host;
-		setHostContext(host?.getCurrentContext?.() ?? localHostContext);
-		return host?.onContextInvalidated(() => setHostContext(localHostContext));
+		const timeout = window.setTimeout(
+			() => setHostContext(host?.getCurrentContext?.() ?? localHostContext),
+			0,
+		);
+		const unsubscribe = host?.onContextInvalidated(() =>
+			setHostContext(localHostContext),
+		);
+		return () => {
+			window.clearTimeout(timeout);
+			unsubscribe?.();
+		};
 	}, [isInitializing]);
 
 	const createProjectForDocument = useCallback(
@@ -304,7 +314,8 @@ const AppRouter: React.FC = () => {
 			return;
 		}
 
-		resolveViewFromHash(hashUrl);
+		const timeout = window.setTimeout(() => resolveViewFromHash(hashUrl), 0);
+		return () => window.clearTimeout(timeout);
 	}, [
 		isAuthenticated,
 		isInitializing,
@@ -408,7 +419,6 @@ const AppRouter: React.FC = () => {
 		setTargetDocId(null);
 		setTargetFilePath(null);
 
-		let finalUrl = projectDocUrl;
 		if (projectDocUrl.includes('&')) {
 			const fragments = parseUrlFragments(projectDocUrl);
 			const baseDocUrl = fragments.yjsUrl;
@@ -427,7 +437,6 @@ const AppRouter: React.FC = () => {
 			if (fragments.filePath) setTargetFilePath(fragments.filePath);
 
 			setDocUrl(baseDocUrl);
-			finalUrl = projectDocUrl;
 		} else {
 			if (!isValidYjsUrl(projectDocUrl)) {
 				moduleLog.error('Invalid document URL format:', projectDocUrl);
@@ -440,10 +449,9 @@ const AppRouter: React.FC = () => {
 			}
 
 			setDocUrl(projectDocUrl);
-			finalUrl = projectDocUrl;
 		}
 
-		pushHash(finalUrl);
+		pushHash(projectDocUrl);
 		setCurrentView('editor');
 	};
 
@@ -528,7 +536,6 @@ const AppRouter: React.FC = () => {
 	}
 
 	if (isPdfViewerWindow && pdfViewerProjectId) {
-		const PdfViewerWindow = lazy(() => import('../output/PopoutViewerWindow'));
 		return (
 			<Suspense fallback={<LoadingScreen />}>
 				<PdfViewerWindow projectId={pdfViewerProjectId} />
