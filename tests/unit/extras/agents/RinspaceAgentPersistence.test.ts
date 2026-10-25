@@ -151,6 +151,60 @@ test('rejects malformed or oversized state without evicting unrelated browser da
 	expect(sessionStorage.getItem('unrelated-draft')).toBe('keep');
 });
 
+test('rejects unknown versions, malformed parts and cross-role tool content', () => {
+	const storageKey = 'rinspace-agent:actor-a:project-a';
+	const state = (overrides: Record<string, unknown>) => ({
+		version: 1,
+		runId: 'run-a',
+		messages: [message('user', 'user', [{ type: 'text', text: '继续' }])],
+		usage,
+		savedAt: 1,
+		...overrides,
+	});
+
+	for (const candidate of [
+		state({ version: 2 }),
+		state({ usage: { ...usage, reasoningTokenCount: -1 } }),
+		state({
+			messages: [{
+				id: 'unknown-part',
+				role: 'assistant',
+				createdAt: 1,
+				content: [{ type: 'media', media: { url: 'https://example.invalid' } }],
+			}],
+		}),
+		state({
+			messages: [{
+				id: 'wrong-role',
+				role: 'user',
+				createdAt: 1,
+				content: [{
+					type: 'tool-call',
+					toolCallId: 'call-1',
+					toolName: 'read_project_files',
+					input: {},
+				}],
+			}],
+		}),
+		state({
+			messages: [{
+				id: 'invalid-result',
+				role: 'tool',
+				createdAt: 1,
+				content: [{
+					type: 'tool-result',
+					toolCallId: '',
+					toolName: 'read_project_files',
+					output: {},
+				}],
+			}],
+		}),
+	]) {
+		sessionStorage.setItem(storageKey, JSON.stringify(candidate));
+		expect(loadAgentState('actor-a', 'project-a')).toBeNull();
+	}
+});
+
 test('does not throw when a tool result is cyclic or browser storage fails', () => {
 	const cyclic: Record<string, unknown> = {};
 	cyclic.self = cyclic;

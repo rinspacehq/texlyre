@@ -36,6 +36,13 @@ function isUsage(value: unknown): value is AgentUsage {
 			return false;
 		}
 	}
+	if (
+		usage.reasoningTokenCount !== undefined &&
+		(!Number.isSafeInteger(usage.reasoningTokenCount) ||
+			Number(usage.reasoningTokenCount) < 0)
+	) {
+		return false;
+	}
 	return (
 		usage.totalCost === undefined ||
 		(typeof usage.totalCost === 'number' &&
@@ -44,15 +51,59 @@ function isUsage(value: unknown): value is AgentUsage {
 	);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isIdentifier(value: unknown, maximum: number): value is string {
+	return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum;
+}
+
+function isMessagePart(
+	value: unknown,
+	role: AgentMessage['role'],
+): value is AgentMessage['content'][number] {
+	if (!isRecord(value) || typeof value.type !== 'string') return false;
+	switch (value.type) {
+		case 'text':
+			return role !== 'tool' && typeof value.text === 'string';
+		case 'tool-call':
+			return (
+				role === 'assistant' &&
+				isIdentifier(value.toolCallId, 256) &&
+				isIdentifier(value.toolName, 128) &&
+				(value.execution === undefined ||
+					value.execution === 'client' ||
+					value.execution === 'provider')
+			);
+		case 'tool-result':
+			return (
+				role === 'tool' &&
+				isIdentifier(value.toolCallId, 256) &&
+				isIdentifier(value.toolName, 128) &&
+				(value.isError === undefined || typeof value.isError === 'boolean') &&
+				(value.execution === undefined ||
+					value.execution === 'client' ||
+					value.execution === 'provider')
+			);
+		default:
+			return false;
+	}
+}
+
 function isMessage(value: unknown): value is AgentMessage {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-	const message = value as Record<string, unknown>;
+	if (!isRecord(value)) return false;
+	const role = value.role;
+	if (!['user', 'assistant', 'tool'].includes(String(role))) return false;
 	return (
-		typeof message.id === 'string' &&
-		['user', 'assistant', 'tool'].includes(String(message.role)) &&
-		Array.isArray(message.content) &&
-		typeof message.createdAt === 'number' &&
-		Number.isFinite(message.createdAt)
+		isIdentifier(value.id, 256) &&
+		Array.isArray(value.content) &&
+		value.content.length > 0 &&
+		value.content.every((part) =>
+			isMessagePart(part, role as AgentMessage['role']),
+		) &&
+		typeof value.createdAt === 'number' &&
+		Number.isFinite(value.createdAt)
 	);
 }
 
@@ -88,7 +139,9 @@ export function loadAgentState(
 		if (!raw || new TextEncoder().encode(raw).byteLength > MAX_BYTES) return null;
 		const value = JSON.parse(raw) as Partial<PersistedRinspaceAgentState>;
 		if (
+			(value.version !== undefined && value.version !== VERSION) ||
 			!value.runId?.trim() ||
+			value.runId.length > 256 ||
 			!Array.isArray(value.messages) ||
 			!value.messages.every(isMessage) ||
 			(typeof value.savedAt !== 'number' || !Number.isFinite(value.savedAt))
