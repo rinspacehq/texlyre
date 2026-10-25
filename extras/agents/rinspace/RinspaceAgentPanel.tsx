@@ -58,6 +58,10 @@ function messageText(message: RinspaceAgentViewState['snapshot']['messages'][num
 const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
 	const managed = context.mode === 'managed' ? context : null;
 	const actorId = managed?.identity.actorId;
+	const savedState = useMemo(
+		() => (actorId ? loadAgentState(actorId, projectId) : null),
+		[actorId, projectId],
+	);
 	const { data: project, changeData: changeProject } = useCollab<DocumentList>();
 	const latex = useLaTeX();
 	const typst = useTypst();
@@ -69,7 +73,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
-	const [restoring, setRestoring] = useState(false);
+	const [restoring, setRestoring] = useState(savedState !== null);
 	const [error, setError] = useState('');
 	const [markdownDiagnostic, setMarkdownDiagnostic] =
 		useState<RinspaceAgentDiagnosticSource>({
@@ -79,6 +83,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			log: '',
 		});
 	const mounted = useRef(true);
+	const restoreStarted = useRef(false);
 	const toolState = useRef<{
 		documents: DocumentList['documents'];
 		diagnostics: RinspaceAgentDiagnosticSource[];
@@ -402,31 +407,26 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	}, [managed, projectId]);
 
 	useEffect(() => {
-		setController((current) => {
-			current?.abort();
-			return null;
-		});
-		setView(null);
-		setRestoring(false);
-	}, [actorId, projectId]);
-
-	useEffect(() => {
-		if (!managed || !actorId || !config || controller) return;
-		const saved = loadAgentState(actorId, projectId);
-		if (!saved) {
-			setRestoring(false);
+		if (
+			!managed ||
+			!actorId ||
+			!config ||
+			!savedState ||
+			restoreStarted.current
+		) {
 			return;
 		}
+		restoreStarted.current = true;
 		const abort = new AbortController();
-		setRestoring(true);
-		void loadRinspaceAgentRun(saved.runId, projectId, abort.signal)
+		let completed = false;
+		void loadRinspaceAgentRun(savedState.runId, projectId, abort.signal)
 			.then((run) => {
 				if (abort.signal.aborted || !mounted.current) return;
 				const restored = RinspaceAgentController.restore(
 					run.id,
 					config,
 					toolHost,
-					saved.messages,
+					savedState.messages,
 					run.usage,
 				);
 				setController((current) => {
@@ -436,6 +436,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 					}
 					return restored;
 				});
+				completed = true;
 				setRestoring(false);
 			})
 			.catch((reason: unknown) => {
@@ -448,8 +449,11 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			.finally(() => {
 				if (!abort.signal.aborted) setRestoring(false);
 			});
-		return () => abort.abort();
-	}, [actorId, config, controller, managed, projectId, toolHost]);
+		return () => {
+			abort.abort();
+			if (!completed) restoreStarted.current = false;
+		};
+	}, [actorId, config, managed, projectId, savedState, toolHost]);
 
 	useEffect(() => controller?.subscribe(setView), [controller]);
 	useEffect(

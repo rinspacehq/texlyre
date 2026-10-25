@@ -15,6 +15,16 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) =
 	const plugin = pluginRegistry.getAvailableAgents(context)[0];
 	if (!plugin) return null;
 	const Panel = plugin.renderPanel;
+	const panelKey =
+		context.mode === 'managed'
+			? [
+					projectId,
+					context.identity.actorId,
+					context.identity.permissionEpoch,
+					context.binding.workspaceId,
+					context.binding.generation,
+				].join(':')
+			: `${projectId}:local`;
 	return (
 		<ResizablePanel
 			direction='horizontal'
@@ -32,7 +42,7 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) =
 					</div>
 				}
 			>
-				<Panel context={context} projectId={projectId} />
+				<Panel key={panelKey} context={context} projectId={projectId} />
 			</Suspense>
 		</ResizablePanel>
 	);
