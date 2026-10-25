@@ -101,7 +101,7 @@ interface TextRecord {
 const agentSearchService = new SearchService();
 
 interface ToolDependencies {
-	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContent' | 'storeFile' | 'createDirectoryPath' | 'batchMoveFiles' | 'deleteFile'>;
+	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContentIfUnchanged' | 'storeFile' | 'createDirectoryPath' | 'batchMoveFiles' | 'deleteFile'>;
 	collab: Pick<typeof collabService, 'updateDocumentContent'>;
 	search: Pick<SearchService, 'search'>;
 	git: Pick<typeof gitService, 'isInitialized' | 'getCurrentBranch' | 'getHeadOid' | 'getWorktreeBaseOid' | 'getChanges' | 'getWorktreeChanges' | 'compareFile'>;
@@ -510,14 +510,16 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 					});
 				}
 			} else {
-				const latest = await dependencies.files.getFile(record.fileId);
-				const latestText = latest?.content === undefined ? null : decodeText(latest.content);
-				if (typeof latestText !== 'string' || latestText !== record.content) {
+				const update = await dependencies.files.updateFileContentIfUnchanged(
+					record.fileId,
+					record.content,
+					nextContent,
+				);
+				if (update.status !== 'updated') {
 					return failure('conflict', 'Stored file content changed before the patch write; read it again', {
 						retry: { action: 'read_project_files', path },
 					});
 				}
-				await dependencies.files.updateFileContent(record.fileId, nextContent);
 			}
 			return bound({
 				ok: true,

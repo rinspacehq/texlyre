@@ -33,6 +33,11 @@ export interface LocalWriteBaselineRecord {
 	content: string | ArrayBuffer | null;
 }
 
+export type ConditionalFileContentUpdate =
+	| { status: 'updated'; file: FileNode }
+	| { status: 'conflict' }
+	| { status: 'not-found' };
+
 type FileStorageListener = (change: FileStorageChange) => void;
 const listeners: FileStorageListener[] = [];
 
@@ -1309,6 +1314,87 @@ export class FileStoreService {
 					},
 		);
 		return file;
+	}
+
+	async updateFileContentIfUnchanged(
+		id: string,
+		expectedContent: string,
+		content: string,
+	): Promise<ConditionalFileContentUpdate> {
+		if (!this.db) await this.initialize();
+		const projectId = this.projectId;
+		const db = this.requireDb();
+		const assertSaveScope = () => {
+			if (this.db !== db || this.projectId !== projectId) {
+				throw new Error(t('The file was not saved in browser storage'));
+			}
+		};
+		const tx = db.transaction(this.FILES_STORE, 'readwrite');
+		const stored = await tx.store.get(id) as FileNode | undefined;
+		assertSaveScope();
+		if (!stored) {
+			await tx.done;
+			return { status: 'not-found' };
+		}
+		if (
+			stored.isDeleted ||
+			typeof stored.content !== 'string' ||
+			stored.content !== expectedContent
+		) {
+			await tx.done;
+			return { status: 'conflict' };
+		}
+
+		const cachedDiskContent = this.contentCache.get(id);
+		const expectedDiskContent = cachedDiskContent === undefined
+			? stored.content
+			: cachedDiskContent;
+		const file: FileNode = {
+			...stored,
+			content,
+			size: new Blob([content]).size,
+			lastModified: Date.now(),
+		};
+		await this.guardWrite(async () => {
+			assertSaveScope();
+			await tx.store.put(file);
+			await tx.done;
+		});
+		assertSaveScope();
+
+		if (fileHandlerService.hasWorkspacePermissionPending(projectId)) {
+			await this.rememberLocalWriteBaseline(file, expectedDiskContent);
+			assertSaveScope();
+		}
+		fileHandlerService.rememberPermissionPendingOriginal(file, expectedDiskContent);
+		const report = await fileHandlerService.mirrorFiles(
+			[file],
+			new Map([[file.id, expectedDiskContent]]),
+		);
+		assertSaveScope();
+		const diskWrite = report.entries[0];
+		if (
+			diskWrite?.outcome === 'written' ||
+			(diskWrite?.reason === 'not-linked' &&
+				!fileHandlerService.hasWorkspacePermissionPending(projectId))
+		) {
+			this.setFileContentCache(id, content);
+		}
+		if (diskWrite?.outcome === 'written') {
+			try {
+				await this.clearLocalWriteBaseline(id);
+			} catch (error) {
+				moduleLog.warn('Failed to clear a completed local-write baseline', error);
+			}
+		}
+		fileStorageEventEmitter.emitChange({
+			kind: 'content',
+			fileId: file.id,
+			filePath: file.path,
+			size: file.size,
+			lastModified: file.lastModified,
+		});
+		return { status: 'updated', file };
 	}
 
 	private async createUniqueFile(file: FileNode): Promise<FileNode> {

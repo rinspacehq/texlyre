@@ -32,17 +32,26 @@ const privateFile = {
 	lastModified: 1,
 	size: 15,
 };
+const plainFile = {
+	id: 'file-plain',
+	name: 'notes.md',
+	path: '/notes.md',
+	type: 'file' as const,
+	content: 'plain text',
+	lastModified: 1,
+	size: 10,
+};
 
 const mockFiles = {
 	getCurrentProjectId: jest.fn(() => 'project-1'),
-	getAllFiles: jest.fn(async () => [mainFile, binaryFile, privateFile]),
+	getAllFiles: jest.fn(async () => [mainFile, binaryFile, privateFile, plainFile]),
 	getFile: jest.fn(async (id: string) =>
-		[mainFile, binaryFile, privateFile].find((file) => file.id === id),
+		[mainFile, binaryFile, privateFile, plainFile].find((file) => file.id === id),
 	),
 	getFileByPath: jest.fn(async (path: string) =>
-		[mainFile, binaryFile, privateFile].find((file) => file.path === path),
+		[mainFile, binaryFile, privateFile, plainFile].find((file) => file.path === path),
 	),
-	updateFileContent: jest.fn(async () => mainFile),
+	updateFileContentIfUnchanged: jest.fn(async () => ({ status: 'updated', file: mainFile })),
 	storeFile: jest.fn(async (file: { id: string }) => file.id),
 	createDirectoryPath: jest.fn(async () => undefined),
 	batchMoveFiles: jest.fn(async () => ['file-renamed']),
@@ -237,6 +246,30 @@ test('applies a baseline-bound patch through one host Yjs transaction', async ()
 			edits: [{ from: 8, to: 13, insert: 'gamma' }],
 			origin: expect.objectContaining({ source: 'rinspace-agent' }),
 		}),
+	);
+});
+
+test('applies an unlinked-file patch through atomic FileStore baseline validation', async () => {
+	const baseline = createHash('sha256').update(plainFile.content).digest('hex');
+	const result = (await tool('apply_project_patch').execute(
+		{
+			path: 'notes.md',
+			expectedSha256: baseline,
+			edits: [{
+				startLine: 1,
+				startColumn: 1,
+				endLine: 1,
+				endColumn: 6,
+				replacement: 'fresh',
+			}],
+		},
+		{ ...context, toolCallId: 'tool-call-plain' },
+	)) as Record<string, unknown>;
+	expect(result).toMatchObject({ ok: true, path: 'notes.md' });
+	expect(mockFiles.updateFileContentIfUnchanged).toHaveBeenCalledWith(
+		'file-plain',
+		'plain text',
+		'fresh text',
 	);
 });
 

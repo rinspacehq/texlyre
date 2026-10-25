@@ -93,3 +93,37 @@ test('a closed project connection cannot report a skipped write as saved', async
 	await expect(saving).rejects.toThrow();
 	expect(fileHandlerService.mirrorFiles).not.toHaveBeenCalled();
 });
+
+test('a conditional content update never overwrites a newer browser value', async () => {
+	const projectId = `conditional-update-${Date.now()}`;
+	const userStore = new FileStoreService();
+	const agentStore = new FileStoreService();
+	userStore.setProjectId(projectId);
+	agentStore.setProjectId(projectId);
+	await userStore.initialize();
+	await agentStore.initialize();
+	await userStore.db?.put('files', originalFile());
+
+	await userStore.updateFileContent('main', '用户并发输入 $z^2$');
+	await expect(
+		agentStore.updateFileContentIfUnchanged(
+			'main',
+			'English $x^2$',
+			'Agent stale value',
+		),
+	).resolves.toEqual({ status: 'conflict' });
+	expect((await agentStore.getFile('main'))?.content).toBe('用户并发输入 $z^2$');
+
+	await expect(
+		agentStore.updateFileContentIfUnchanged(
+			'main',
+			'用户并发输入 $z^2$',
+			'Agent fresh value $\\alpha$',
+		),
+	).resolves.toMatchObject({
+		status: 'updated',
+		file: { content: 'Agent fresh value $\\alpha$' },
+	});
+	userStore.cleanup();
+	agentStore.cleanup();
+});
