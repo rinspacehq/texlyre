@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { loadRinspaceAgentRun } from '@extras/agents/rinspace/RinspaceAgentRuntime';
 
+jest.mock('@rinspacehq/cline-embed', () => ({
+	AgentRuntime: jest.fn(),
+	createTool: jest.fn(),
+}));
+
 const response = (body: unknown, status = 200) =>
 	({
 		ok: status >= 200 && status < 300,

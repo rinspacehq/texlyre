@@ -20,7 +20,7 @@ export interface PersistedRinspaceAgentState {
 }
 
 function key(actorId: string, projectId: string): string {
-	return `rinspace-agent:${actorId}:${projectId}`;
+	return `rinspace-agent:${encodeURIComponent(actorId)}:${encodeURIComponent(projectId)}`;
 }
 
 function isUsage(value: unknown): value is AgentUsage {
@@ -114,15 +114,20 @@ export function saveAgentState(
 	projectId: string,
 	state: PersistedRinspaceAgentState,
 ): void {
-	const raw = JSON.stringify({ ...state, version: VERSION });
-	if (new TextEncoder().encode(raw).byteLength > MAX_BYTES) return;
 	try {
+		const raw = JSON.stringify({ ...state, version: VERSION });
+		if (new TextEncoder().encode(raw).byteLength > MAX_BYTES) return;
 		sessionStorage.setItem(key(actorId, projectId), raw);
 	} catch {
-		// Persistence is optional; never evict project data for Agent history.
+		// Persistence is optional. Cyclic tool output and storage quota failures must
+		// never interrupt the editor or evict unrelated project data.
 	}
 }
 
 export function clearAgentState(actorId: string, projectId: string): void {
-	sessionStorage.removeItem(key(actorId, projectId));
+	try {
+		sessionStorage.removeItem(key(actorId, projectId));
+	} catch {
+		// Clearing optional recovery data must not interrupt the new task action.
+	}
 }

@@ -23,6 +23,7 @@ const message = (
 ): AgentMessage => ({ id, role, content, createdAt: 1 });
 
 beforeEach(() => sessionStorage.clear());
+afterEach(() => jest.restoreAllMocks());
 
 test('persists recoverable messages and usage only within one actor and project', () => {
 	const messages = [
@@ -48,6 +49,28 @@ test('persists recoverable messages and usage only within one actor and project'
 
 	clearAgentState('actor-a', 'project-a');
 	expect(loadAgentState('actor-a', 'project-a')).toBeNull();
+});
+
+test('uses collision-safe actor and project partitions', () => {
+	const first = [message('first', 'user', [{ type: 'text', text: 'first' }])];
+	const second = [message('second', 'user', [{ type: 'text', text: 'second' }])];
+	saveAgentState('actor:a', 'project', {
+		version: 1,
+		runId: 'run-first',
+		messages: first,
+		usage,
+		savedAt: 1,
+	});
+	saveAgentState('actor', 'a:project', {
+		version: 1,
+		runId: 'run-second',
+		messages: second,
+		usage,
+		savedAt: 2,
+	});
+
+	expect(loadAgentState('actor:a', 'project')?.runId).toBe('run-first');
+	expect(loadAgentState('actor', 'a:project')?.runId).toBe('run-second');
 });
 
 test('never restores an unresolved tool call or stale Push approval', () => {
@@ -126,4 +149,42 @@ test('rejects malformed or oversized state without evicting unrelated browser da
 	});
 	expect(loadAgentState('actor-a', 'project-b')).toBeNull();
 	expect(sessionStorage.getItem('unrelated-draft')).toBe('keep');
+});
+
+test('does not throw when a tool result is cyclic or browser storage fails', () => {
+	const cyclic: Record<string, unknown> = {};
+	cyclic.self = cyclic;
+	const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+		throw new DOMException('full', 'QuotaExceededError');
+	});
+
+	expect(() =>
+		saveAgentState('actor-a', 'project-a', {
+			version: 1,
+			runId: 'run-cyclic',
+			messages: [
+				message('tool', 'tool', [
+					{
+						type: 'tool-result',
+						toolCallId: 'call-1',
+						toolName: 'read_project_files',
+						output: cyclic,
+					},
+				]),
+			],
+			usage,
+			savedAt: 4,
+		}),
+	).not.toThrow();
+	expect(setItem).not.toHaveBeenCalled();
+
+	const safeState = {
+		version: 1 as const,
+		runId: 'run-safe',
+		messages: [message('safe', 'user', [{ type: 'text' as const, text: 'safe' }])],
+		usage,
+		savedAt: 5,
+	};
+	expect(() => saveAgentState('actor-a', 'project-a', safeState)).not.toThrow();
+	expect(setItem).toHaveBeenCalledTimes(1);
 });
