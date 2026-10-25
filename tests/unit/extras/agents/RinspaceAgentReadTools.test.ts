@@ -90,8 +90,14 @@ const mockGit = {
 	getCurrentBranch: jest.fn(async () => 'main'),
 	getHeadOid: jest.fn(async () => null),
 	getWorktreeBaseOid: jest.fn(async () => null),
-	getChanges: jest.fn(async () => []),
-	getWorktreeChanges: jest.fn(async () => []),
+	getChanges: jest.fn(async (): Promise<Array<{
+		path: string;
+		type: 'added' | 'modified' | 'deleted';
+	}>> => []),
+	getWorktreeChanges: jest.fn(async (): Promise<Array<{
+		path: string;
+		type: 'added' | 'modified' | 'deleted';
+	}>> => []),
 	compareFile: jest.fn(async () => null),
 };
 const mockCreateGitCommit = jest.fn(async () => 'commit-agent');
@@ -205,6 +211,9 @@ beforeEach(() => {
 	jest.clearAllMocks();
 	liveMainContent = 'Hello 琳\nalpha beta';
 	mockFiles.getCurrentProjectId.mockReturnValue('project-1');
+	mockGit.isInitialized.mockResolvedValue(false);
+	mockGit.getChanges.mockResolvedValue([]);
+	mockGit.getWorktreeChanges.mockResolvedValue([]);
 });
 
 test('normalizes only project-relative paths and closes the automatic tool set', () => {
@@ -571,6 +580,43 @@ test('diagnostics resolve only current project files and Git status stays projec
 
 	const git = (await tool('git_status').execute({}, context)) as Record<string, unknown>;
 	expect(git).toMatchObject({ ok: true, initialized: false, projectId: 'project-1' });
+});
+
+test('Git status bounds the union of visible changes and supports path narrowing', async () => {
+	mockGit.isInitialized.mockResolvedValue(true);
+	mockGit.getChanges.mockResolvedValue([
+		{ path: 'main.tex', type: 'modified' },
+		{ path: 'chapters/一.tex', type: 'added' },
+		{ path: '.git/config', type: 'modified' },
+	]);
+	mockGit.getWorktreeChanges.mockResolvedValue([
+		{ path: 'main.tex', type: 'modified' },
+		{ path: 'assets/references.bib', type: 'added' },
+	]);
+
+	const git = tool('git_status');
+	await expect(git.execute(
+		{ includeComparisons: false, maxChanges: 1 },
+		context,
+	)).resolves.toMatchObject({
+		ok: false,
+		error: {
+			code: 'limit_exceeded',
+			limit: 1,
+			actual: 3,
+			retry: { path: 'narrower/directory', includeComparisons: false },
+		},
+	});
+
+	await expect(git.execute(
+		{ path: 'chapters', includeComparisons: false, maxChanges: 1 },
+		context,
+	)).resolves.toMatchObject({
+		ok: true,
+		changes: [{ path: 'chapters/一.tex', type: 'added' }],
+		worktreeChanges: [],
+		comparisons: [],
+	});
 });
 
 test('every tool fails closed after a project switch', async () => {

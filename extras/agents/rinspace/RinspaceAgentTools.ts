@@ -1095,6 +1095,7 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 		inputSchema: {
 			type: 'object', additionalProperties: false,
 			properties: {
+				path: { type: 'string', maxLength: 1024 },
 				includeComparisons: { type: 'boolean' },
 				maxChanges: { type: 'integer', minimum: 1, maximum: LIMITS.gitChanges },
 			},
@@ -1109,6 +1110,15 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 			}
 			const maxChanges = boundedInteger(input.maxChanges, 30, 1, LIMITS.gitChanges);
 			if (maxChanges === null) return failure('invalid_input', 'Invalid maxChanges');
+			let prefix = '';
+			if (input.path !== undefined && input.path !== '') {
+				const normalized = normalizeAgentProjectPath(input.path);
+				if (typeof normalized !== 'string') return normalized;
+				if (pathIsPrivate(normalized)) {
+					return failure('path_forbidden', `Private path is forbidden: ${normalized}`);
+				}
+				prefix = normalized;
+			}
 			if (!(await dependencies.git.isInitialized(host.projectId))) {
 				return { ok: true, projectId: host.projectId, initialized: false, branch: null, headOid: null, changes: [] };
 			}
@@ -1123,12 +1133,29 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 			if (changed) return changed;
 			const visible = changes
 				.map((change) => ({ ...change, path: relativePath(change.path) }))
-				.filter((change) => !pathIsPrivate(change.path));
-			if (visible.length > maxChanges) {
+				.filter((change) =>
+					!pathIsPrivate(change.path) &&
+					(!prefix || change.path === prefix || change.path.startsWith(`${prefix}/`)),
+				);
+			const visibleWorktree = worktreeChanges
+				.map((change) => ({ ...change, path: relativePath(change.path) }))
+				.filter((change) =>
+					!pathIsPrivate(change.path) &&
+					(!prefix || change.path === prefix || change.path.startsWith(`${prefix}/`)),
+				);
+			const visiblePaths = new Set([
+				...visible.map((change) => change.path),
+				...visibleWorktree.map((change) => change.path),
+			]);
+			if (visiblePaths.size > maxChanges) {
 				return failure('limit_exceeded', 'Git changes exceed the response limit', {
 					limit: maxChanges,
-					actual: visible.length,
-					retry: { includeComparisons: false, maxChanges: Math.min(LIMITS.gitChanges, visible.length) },
+					actual: visiblePaths.size,
+					retry: {
+						path: prefix || 'narrower/directory',
+						includeComparisons: false,
+						maxChanges: Math.min(LIMITS.gitChanges, visiblePaths.size),
+					},
 				});
 			}
 			const comparisons = [];
@@ -1152,11 +1179,9 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 				headOid,
 				worktreeBaseOid,
 				changes: visible,
-				worktreeChanges: worktreeChanges
-					.map((change) => ({ ...change, path: relativePath(change.path) }))
-					.filter((change) => !pathIsPrivate(change.path)),
+				worktreeChanges: visibleWorktree,
 				comparisons,
-			}, { includeComparisons: false, maxChanges });
+			}, { path: prefix || undefined, includeComparisons: false, maxChanges });
 		},
 	});
 }
