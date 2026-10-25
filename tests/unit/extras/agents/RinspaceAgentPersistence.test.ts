@@ -166,6 +166,14 @@ test('rejects unknown versions, malformed parts and cross-role tool content', ()
 		state({ version: 2 }),
 		state({ usage: { ...usage, reasoningTokenCount: -1 } }),
 		state({
+			messages: [message('oversized-call', 'assistant', [{
+				type: 'tool-call',
+				toolCallId: `call-${'x'.repeat(124)}`,
+				toolName: 'read_project_files',
+				input: {},
+			}])],
+		}),
+		state({
 			messages: [{
 				id: 'unknown-part',
 				role: 'assistant',

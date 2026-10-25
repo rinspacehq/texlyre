@@ -92,6 +92,23 @@ test('projects one bounded validated turn and forwards the cancellation signal',
 
 const invalidResponses: Array<[string, unknown, string]> = [
 	[
+		'oversized tool ID',
+		{
+			toolCalls: [
+				{ id: `call-${'x'.repeat(124)}`, name: 'read_project_files', input: {} },
+			],
+			finishReason: 'tool-calls',
+			requestId: 'receipt-oversized-call',
+			usage: {
+				inputTokens: 1,
+				outputTokens: 1,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		},
+		'Agent tool call is invalid',
+	],
+	[
 		'duplicate tool IDs',
 		{
 			toolCalls: [

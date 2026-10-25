@@ -12,7 +12,7 @@ import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 const TURN_LIMIT = 1024 * 1024;
 const RESPONSE_LIMIT = 1024 * 1024;
 const MAX_TOOL_CALLS = 64;
-const MAX_TOOL_CALL_ID = 256;
+const MAX_TOOL_CALL_ID = 128;
 const MAX_TOOL_NAME = 128;
 const finishReasons = new Set<AgentModelFinishReason>([
 	'stop',

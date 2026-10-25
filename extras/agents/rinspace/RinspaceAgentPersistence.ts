@@ -70,7 +70,7 @@ function isMessagePart(
 		case 'tool-call':
 			return (
 				role === 'assistant' &&
-				isIdentifier(value.toolCallId, 256) &&
+				isIdentifier(value.toolCallId, 128) &&
 				isIdentifier(value.toolName, 128) &&
 				(value.execution === undefined ||
 					value.execution === 'client' ||
@@ -79,7 +79,7 @@ function isMessagePart(
 		case 'tool-result':
 			return (
 				role === 'tool' &&
-				isIdentifier(value.toolCallId, 256) &&
+				isIdentifier(value.toolCallId, 128) &&
 				isIdentifier(value.toolName, 128) &&
 				(value.isError === undefined || typeof value.isError === 'boolean') &&
 				(value.execution === undefined ||
