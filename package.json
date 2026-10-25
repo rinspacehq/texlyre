@@ -102,6 +102,7 @@
 		"@picocss/pico": "^2.1.1",
 		"@replit/codemirror-emacs": "^6.1.0",
 		"@replit/codemirror-vim": "^6.4.0",
+		"@rinspacehq/cline-embed": "https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz",
 		"@swc/helpers": "^0.5.19",
 		"@typstyle/typstyle-wasm-bundler": "^0.15.1",
 		"@uiw/codemirror-themes-all": "^4.25.11",

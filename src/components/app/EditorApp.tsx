@@ -30,6 +30,7 @@ import type { YjsDocUrl } from '../../types/yjs';
 import type { TypstOutputFormat } from '../../types/typst';
 import type { LaTeXEngine } from '../../types/latex';
 import type { Project, ProjectType, ProjectGroup } from '../../types/projects';
+import type { HostContext } from '../../workspace/contracts';
 import BackupModal from '../backup/BackupModal';
 import BackupStatusIndicator from '../backup/BackupStatusIndicator';
 import ChatPanel from '../chat/ChatPanel';
@@ -76,6 +77,7 @@ interface EditorAppProps {
 	onLogout: () => void;
 	targetDocId?: string | null;
 	targetFilePath?: string | null;
+	hostContext: HostContext;
 }
 
 const EditorAppView: React.FC<EditorAppProps> = ({
@@ -84,6 +86,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 	onLogout,
 	targetDocId,
 	targetFilePath,
+	hostContext,
 }) => {
 	const {
 		collabService,
@@ -828,6 +831,7 @@ const EditorAppView: React.FC<EditorAppProps> = ({
 					docUrl={docUrl}
 					targetDocId={targetDocId}
 					targetFilePath={targetFilePath}
+					hostContext={hostContext}
 				/>
 			)}
 

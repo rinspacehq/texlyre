@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "repository": "rinspacehq/cline",
+  "version": "0.1.0-rinspace.1",
+  "tag": "v0.1.0-rinspace.1",
+  "commit": "3801432a8003fa9ab630ee99e310e8361a342d96",
+  "url": "https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz",
+  "sha256": "a27665a7775bc1c1ec6ab8c20c49f4c4556e87e14d6fab434e7c3ac26af7d2cc",
+  "license": "Apache-2.0",
+  "notice": "https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/NOTICE"
+}

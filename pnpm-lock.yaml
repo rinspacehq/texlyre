@@ -150,6 +150,9 @@ importers:
       '@replit/codemirror-vim':
         specifier: ^6.4.0
         version: 6.4.0(@codemirror/commands@6.11.0)(@codemirror/language@6.12.4)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/view@6.43.9)
+      '@rinspacehq/cline-embed':
+        specifier: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz
+        version: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz(react@19.2.8)
       '@swc/helpers':
         specifier: ^0.5.19
         version: 0.5.23
@@ -2057,6 +2060,13 @@ packages:
       '@codemirror/search': 6.x.x
       '@codemirror/state': 6.x.x
       '@codemirror/view': 6.x.x
+
+  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz':
+    resolution: {tarball: https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz}
+    version: 0.1.0-rinspace.1
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: '>=18.3.0 <20'
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     resolution: {integrity: sha512-DLe/i+l8ynIBY7XEQ191TeZvCoowIGa18R+dIV30GW7DiOtp74i/xX8hs8GUjW5ARV7VZuie3d6AumSmCwbeRA==}
@@ -8024,6 +8034,10 @@ snapshots:
       '@codemirror/state': 6.7.1
       '@codemirror/view': 6.43.9
       '@replit/codemirror-vim-core': 0.1.0
+
+  '@rinspacehq/cline-embed@https://github.com/rinspacehq/cline/releases/download/v0.1.0-rinspace.1/cline-embed-v0.1.0-rinspace.1.tgz(react@19.2.8)':
+    dependencies:
+      react: 19.2.8
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     optional: true

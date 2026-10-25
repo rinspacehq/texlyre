@@ -20,7 +20,7 @@ import {
 	type PendingShare,
 } from '../../services/ShareTargetService';
 import type { YjsDocUrl } from '../../types/yjs';
-import type { WorkspaceCatalogProject } from '../../workspace/contracts';
+import type { HostContext, WorkspaceCatalogProject } from '../../workspace/contracts';
 import {
 	isValidYjsUrl,
 	parseUrlFragments,
@@ -37,6 +37,7 @@ import PrivacyModal from '../common/PrivacyModal';
 import ShareTargetModal from '../project/ShareTargetModal';
 
 const moduleLog = createNamedLogger('AppRouter');
+const localHostContext: HostContext = Object.freeze({ mode: 'local-unbound' });
 
 interface UrlProjectParams {
 	newProjectName?: string;
@@ -131,6 +132,7 @@ const AppRouter: React.FC = () => {
 	const [isCreatingProject, setIsCreatingProject] = useState(false);
 	const [showPrivacy, setShowPrivacy] = useState(false);
 	const [pendingShare, setPendingShare] = useState<PendingShare | null>(null);
+	const [hostContext, setHostContext] = useState<HostContext>(localHostContext);
 	const { launchedFiles, clearLaunchedFiles } = useDiskFiles(docUrl);
 
 	const [isPdfViewerWindow, setIsPdfViewerWindow] = useState(false);
@@ -139,6 +141,13 @@ const AppRouter: React.FC = () => {
 	);
 
 	const processedProjectHashRef = useRef<string | null>(null);
+
+	useEffect(() => {
+		if (isInitializing) return;
+		const host = pluginRegistry.getWorkspaceExtensions().host;
+		setHostContext(host?.getCurrentContext?.() ?? localHostContext);
+		return host?.onContextInvalidated(() => setHostContext(localHostContext));
+	}, [isInitializing]);
 
 	const createProjectForDocument = useCallback(
 		async (
@@ -395,6 +404,7 @@ const AppRouter: React.FC = () => {
 		_projectDescription?: string,
 		projectId?: string,
 	) => {
+		setHostContext(localHostContext);
 		setTargetDocId(null);
 		setTargetFilePath(null);
 
@@ -447,6 +457,7 @@ const AppRouter: React.FC = () => {
 		if (context.mode !== 'managed') {
 			throw new Error('Rinspace workspace identity was not verified');
 		}
+		setHostContext(context);
 		const fragments = parseUrlFragments(window.location.hash.substring(1));
 		const managedDocUrl = `yjs:${context.binding.workspaceId}` as YjsDocUrl;
 		setDocUrl(managedDocUrl);
@@ -463,6 +474,7 @@ const AppRouter: React.FC = () => {
 		setCurrentProjectId(null);
 		setTargetDocId(null);
 		setTargetFilePath(null);
+		setHostContext(localHostContext);
 		sessionStorage.removeItem('currentProjectId');
 		sessionStorage.removeItem('lastCheckedDocUrl');
 		replaceHash('');
@@ -476,6 +488,7 @@ const AppRouter: React.FC = () => {
 		setCurrentProjectId(null);
 		setTargetDocId(null);
 		setTargetFilePath(null);
+		setHostContext(localHostContext);
 		sessionStorage.removeItem('currentProjectId');
 		sessionStorage.removeItem('lastCheckedDocUrl');
 		replaceHash('');
@@ -487,6 +500,7 @@ const AppRouter: React.FC = () => {
 	};
 
 	const handleShareTargetOpen = (openDocUrl: string, projectId: string) => {
+		setHostContext(localHostContext);
 		if (pendingShare) {
 			shareTargetService.clearPendingShare(pendingShare.id);
 			setPendingShare(null);
@@ -539,6 +553,7 @@ const AppRouter: React.FC = () => {
 					onLogout={handleLogout}
 					targetDocId={targetDocId}
 					targetFilePath={targetFilePath}
+					hostContext={hostContext}
 				/>
 			) : (
 				<ProjectApp

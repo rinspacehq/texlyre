@@ -67,7 +67,7 @@ const config: TexlyreConfig = {
         lsp: [],
         backup: ['github', 'gitlab', 'forgejo', 'gitea'],
         themes: ['texlyre_slim', 'texlyre_wide', 'texlyre_compact', 'texlyre_mobile'],
-        agents: [],
+        agents: ['rinspace'],
         workspace: ['rinspace'],
     },
 

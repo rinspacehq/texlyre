@@ -14,6 +14,8 @@ import { usePeerDocumentTracking } from '../../hooks/usePeerDocumentTracking';
 import type { Document } from '../../types/documents';
 import type { Project } from '../../types/projects';
 import type { YjsDocUrl } from '../../types/yjs';
+import type { HostContext } from '../../workspace/contracts';
+import AgentPanelHost from '../agent/AgentPanelHost';
 import GitDiffViewer, { type GitDiffView } from '../history/GitDiffViewer';
 import ProjectExportModal from '../project/ProjectExportModal';
 import Editor from './Editor';
@@ -35,6 +37,7 @@ interface FileDocumentControllerProps {
 	docUrl: YjsDocUrl;
 	targetDocId?: string | null;
 	targetFilePath?: string | null;
+	hostContext: HostContext;
 }
 
 const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
@@ -48,6 +51,7 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 	docUrl,
 	targetDocId,
 	targetFilePath,
+	hostContext,
 }) => {
 	const { getProjectById } = useAuth();
 	const {
@@ -325,6 +329,11 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 					onExpandExternalOutput={output.handleExternalOutputExpand}
 				/>
 			</div>
+
+			<AgentPanelHost
+				context={hostContext}
+				projectId={docUrl.replace(/^yjs:/, '')}
+			/>
 
 			{showCurrentProjectExportModal && currentProjectForExport && (
 				<ProjectExportModal

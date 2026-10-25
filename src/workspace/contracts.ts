@@ -30,6 +30,7 @@ export type HostContext =
 
 export interface HostAdapter {
 	open(intent: Readonly<Record<string, string>>, signal: AbortSignal): Promise<HostContext>;
+	getCurrentContext?(): HostContext | null;
 	onContextInvalidated(listener: () => void): () => void;
 }
 

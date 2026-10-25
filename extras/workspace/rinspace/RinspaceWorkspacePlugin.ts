@@ -58,6 +58,8 @@ const rinspaceWorkspacePlugin: WorkspacePlugin = {
 		host: {
 			open: (intent, signal) =>
 				rinspaceManagedWorkspaceRuntime.open(intent, signal),
+			getCurrentContext: () =>
+				rinspaceManagedWorkspaceRuntime.getCurrentContext(),
 			onContextInvalidated: (listener) =>
 				rinspaceManagedWorkspaceRuntime.onContextInvalidated(listener),
 		},
