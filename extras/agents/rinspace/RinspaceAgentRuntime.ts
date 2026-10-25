@@ -3,6 +3,7 @@ import {
 	AgentRuntime,
 	type AgentMessage,
 	type AgentRuntimeStateSnapshot,
+	type AgentUsage,
 	type ToolApprovalRequest,
 	type ToolApprovalResult,
 } from '@rinspacehq/cline-embed';
@@ -28,6 +29,13 @@ export interface RinspaceAgentViewState {
 	pendingApproval: ToolApprovalRequest | null;
 }
 
+export interface RinspaceAgentRunProjection {
+	id: string;
+	projectId: string;
+	status: string;
+	usage: AgentUsage;
+}
+
 type Listener = (state: RinspaceAgentViewState) => void;
 
 function validateConfig(value: unknown): RinspaceAgentConfig {
@@ -45,6 +53,52 @@ function validateConfig(value: unknown): RinspaceAgentConfig {
 	return config;
 }
 
+function validateUsage(value: unknown): AgentUsage {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('Agent run usage is invalid');
+	}
+	const usage = value as Record<string, unknown>;
+	for (const field of [
+		'inputTokens',
+		'outputTokens',
+		'cacheReadTokens',
+		'cacheWriteTokens',
+	]) {
+		if (!Number.isSafeInteger(usage[field]) || Number(usage[field]) < 0) {
+			throw new Error('Agent run usage is invalid');
+		}
+	}
+	if (
+		usage.totalCost !== undefined &&
+		(typeof usage.totalCost !== 'number' ||
+			!Number.isFinite(usage.totalCost) ||
+			usage.totalCost < 0)
+	) {
+		throw new Error('Agent run usage is invalid');
+	}
+	return usage as unknown as AgentUsage;
+}
+
+function addUsage(base: AgentUsage, current: AgentUsage): AgentUsage {
+	return {
+		inputTokens: base.inputTokens + current.inputTokens,
+		outputTokens: base.outputTokens + current.outputTokens,
+		cacheReadTokens: base.cacheReadTokens + current.cacheReadTokens,
+		cacheWriteTokens: base.cacheWriteTokens + current.cacheWriteTokens,
+		...(base.reasoningTokenCount !== undefined ||
+		current.reasoningTokenCount !== undefined
+			? {
+				reasoningTokenCount:
+					(base.reasoningTokenCount ?? 0) +
+					(current.reasoningTokenCount ?? 0),
+			}
+			: {}),
+		...(base.totalCost !== undefined || current.totalCost !== undefined
+			? { totalCost: (base.totalCost ?? 0) + (current.totalCost ?? 0) }
+			: {}),
+	};
+}
+
 export async function loadRinspaceAgentConfig(signal?: AbortSignal): Promise<RinspaceAgentConfig> {
 	const response = await fetch('/rinspace/api/editor/v1/agent/config', {
 		credentials: 'include',
@@ -54,6 +108,37 @@ export async function loadRinspaceAgentConfig(signal?: AbortSignal): Promise<Rin
 	});
 	if (!response.ok) throw new Error(`Agent config failed (${response.status})`);
 	return validateConfig(await response.json());
+}
+
+export async function loadRinspaceAgentRun(
+	runId: string,
+	projectId: string,
+	signal?: AbortSignal,
+): Promise<RinspaceAgentRunProjection> {
+	const response = await fetch(
+		`/rinspace/api/editor/v1/agent/runs/${encodeURIComponent(runId)}`,
+		{
+			credentials: 'include',
+			cache: 'no-store',
+			headers: { Accept: 'application/json' },
+			signal,
+		},
+	);
+	if (!response.ok) throw new Error(`Agent run recovery failed (${response.status})`);
+	const value = (await response.json()) as Record<string, unknown>;
+	if (
+		value.id !== runId ||
+		value.projectId !== projectId ||
+		typeof value.status !== 'string'
+	) {
+		throw new Error('Agent run recovery response is invalid');
+	}
+	return {
+		id: runId,
+		projectId,
+		status: value.status,
+		usage: validateUsage(value.usage),
+	};
 }
 
 async function createRun(
@@ -98,6 +183,7 @@ export class RinspaceAgentController {
 		readonly runId: string,
 		readonly config: RinspaceAgentConfig,
 		private readonly runtime: AgentRuntime,
+		private readonly restoredUsage: AgentUsage,
 	) {
 		this.runtime.subscribe(() => this.emit());
 	}
@@ -111,6 +197,43 @@ export class RinspaceAgentController {
 		signal?: AbortSignal,
 	): Promise<RinspaceAgentController> {
 		const runId = await createRun(context, projectId, config, signal);
+		return this.fromRun(
+			runId,
+			config,
+			toolHost,
+			initialMessages,
+			{
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
+		);
+	}
+
+	static restore(
+		runId: string,
+		config: RinspaceAgentConfig,
+		toolHost: Omit<RinspaceAgentToolHost, 'runId'>,
+		initialMessages: readonly AgentMessage[],
+		restoredUsage: AgentUsage,
+	): RinspaceAgentController {
+		return this.fromRun(
+			runId,
+			config,
+			toolHost,
+			initialMessages,
+			restoredUsage,
+		);
+	}
+
+	private static fromRun(
+		runId: string,
+		config: RinspaceAgentConfig,
+		toolHost: Omit<RinspaceAgentToolHost, 'runId'>,
+		initialMessages: readonly AgentMessage[],
+		restoredUsage: AgentUsage,
+	): RinspaceAgentController {
 		const toolSet = createRinspaceAgentTools({ ...toolHost, runId });
 		const controllerRef: { current?: RinspaceAgentController } = {};
 		const runtime = new AgentRuntime({
@@ -129,7 +252,12 @@ export class RinspaceAgentController {
 					reason: 'Agent approval host is not ready',
 				},
 		});
-		controllerRef.current = new RinspaceAgentController(runId, config, runtime);
+		controllerRef.current = new RinspaceAgentController(
+			runId,
+			config,
+			runtime,
+			restoredUsage,
+		);
 		return controllerRef.current;
 	}
 
@@ -176,7 +304,14 @@ export class RinspaceAgentController {
 	}
 
 	private viewState(): RinspaceAgentViewState {
-		return { snapshot: this.runtime.snapshot(), pendingApproval: this.pendingApproval };
+		const snapshot = this.runtime.snapshot();
+		return {
+			snapshot: {
+				...snapshot,
+				usage: addUsage(this.restoredUsage, snapshot.usage),
+			},
+			pendingApproval: this.pendingApproval,
+		};
 	}
 
 	private emit(): void {

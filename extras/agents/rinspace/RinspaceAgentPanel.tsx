@@ -25,10 +25,16 @@ import type { DocumentList } from '@/types/documents';
 import {
 	RinspaceAgentController,
 	loadRinspaceAgentConfig,
+	loadRinspaceAgentRun,
 	type RinspaceAgentConfig,
 	type RinspaceAgentViewState,
 } from './RinspaceAgentRuntime';
-import { clearAgentState, saveAgentState } from './RinspaceAgentPersistence';
+import {
+	clearAgentState,
+	loadAgentState,
+	saveAgentState,
+	settledAgentMessages,
+} from './RinspaceAgentPersistence';
 import { rinspaceAgentTheme } from './RinspaceAgentTheme';
 import type {
 	RinspaceAgentDiagnosticSource,
@@ -51,6 +57,7 @@ function messageText(message: RinspaceAgentViewState['snapshot']['messages'][num
 
 const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
 	const managed = context.mode === 'managed' ? context : null;
+	const actorId = managed?.identity.actorId;
 	const { data: project, changeData: changeProject } = useCollab<DocumentList>();
 	const latex = useLaTeX();
 	const typst = useTypst();
@@ -62,6 +69,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
+	const [restoring, setRestoring] = useState(false);
 	const [error, setError] = useState('');
 	const [markdownDiagnostic, setMarkdownDiagnostic] =
 		useState<RinspaceAgentDiagnosticSource>({
@@ -393,17 +401,75 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		};
 	}, [managed, projectId]);
 
-	useEffect(() => controller?.subscribe(setView), [controller]);
-	useEffect(() => () => controller?.abort(), [controller]);
+	useEffect(() => {
+		setController((current) => {
+			current?.abort();
+			return null;
+		});
+		setView(null);
+		setRestoring(false);
+	}, [actorId, projectId]);
 
 	useEffect(() => {
-		if (!managed || !controller || !view) return;
-		saveAgentState(managed.identity.actorId, projectId, {
+		if (!managed || !actorId || !config || controller) return;
+		const saved = loadAgentState(actorId, projectId);
+		if (!saved) {
+			setRestoring(false);
+			return;
+		}
+		const abort = new AbortController();
+		setRestoring(true);
+		void loadRinspaceAgentRun(saved.runId, projectId, abort.signal)
+			.then((run) => {
+				if (abort.signal.aborted || !mounted.current) return;
+				const restored = RinspaceAgentController.restore(
+					run.id,
+					config,
+					toolHost,
+					saved.messages,
+					run.usage,
+				);
+				setController((current) => {
+					if (current) {
+						restored.abort();
+						return current;
+					}
+					return restored;
+				});
+				setRestoring(false);
+			})
+			.catch((reason: unknown) => {
+				if (!abort.signal.aborted) {
+					setError(
+						reason instanceof Error ? reason.message : '琳任务恢复失败',
+					);
+				}
+			})
+			.finally(() => {
+				if (!abort.signal.aborted) setRestoring(false);
+			});
+		return () => abort.abort();
+	}, [actorId, config, controller, managed, projectId, toolHost]);
+
+	useEffect(() => controller?.subscribe(setView), [controller]);
+	useEffect(
+		() => () => controller?.abort(),
+		[actorId, controller, projectId],
+	);
+
+	useEffect(() => {
+		if (!actorId || !controller || !view) return;
+		saveAgentState(actorId, projectId, {
+			version: 1,
 			runId: controller.runId,
-			messages: view.snapshot.messages,
+			messages: settledAgentMessages(
+				view.snapshot.messages,
+				view.snapshot.pendingToolCalls,
+			),
+			usage: view.snapshot.usage,
 			savedAt: Date.now(),
 		});
-	}, [controller, managed, projectId, view]);
+	}, [actorId, controller, projectId, view]);
 
 	const messages = useMemo<AgentMessageView[]>(
 		() =>
@@ -416,7 +482,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	);
 
 	const start = async () => {
-		if (!managed || !config || !prompt.trim()) return;
+		if (!managed || !config || restoring || !prompt.trim()) return;
 		setError('');
 		try {
 			const active =
@@ -456,7 +522,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				<div className='ui-panel-heading'>
 					<span className='ui-panel-title'>琳</span>
 					<span className='ui-badge' data-variant='label'>
-						{running ? '运行中' : config ? '就绪' : '连接中'}
+						{running ? '运行中' : restoring ? '恢复中' : config ? '就绪' : '连接中'}
 					</span>
 				</div>
 				<div className='ui-toolbar-actions' data-gap='xs'>
@@ -503,10 +569,10 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 								}
 							}}
 							placeholder='让琳阅读、修改、编译或提交当前项目…'
-							disabled={!config || running}
+							disabled={!config || restoring || running}
 							rows={3}
 						/>
-						<button type='button' className='button primary' onClick={() => void start()} disabled={!config || running || !prompt.trim()}>
+						<button type='button' className='button primary' onClick={() => void start()} disabled={!config || restoring || running || !prompt.trim()}>
 							发送
 						</button>
 					</div>

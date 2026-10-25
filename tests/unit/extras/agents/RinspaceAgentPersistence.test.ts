@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type { AgentMessage } from '@rinspacehq/cline-embed';
+
+import {
+	clearAgentState,
+	loadAgentState,
+	saveAgentState,
+	settledAgentMessages,
+} from '@extras/agents/rinspace/RinspaceAgentPersistence';
+
+const usage = {
+	inputTokens: 10,
+	outputTokens: 4,
+	cacheReadTokens: 2,
+	cacheWriteTokens: 1,
+	totalCost: 0.03,
+};
+
+const message = (
+	id: string,
+	role: AgentMessage['role'],
+	content: AgentMessage['content'],
+): AgentMessage => ({ id, role, content, createdAt: 1 });
+
+beforeEach(() => sessionStorage.clear());
+
+test('persists recoverable messages and usage only within one actor and project', () => {
+	const messages = [
+		message('user-1', 'user', [{ type: 'text', text: '修改正文' }]),
+	];
+	saveAgentState('actor-a', 'project-a', {
+		version: 1,
+		runId: 'run-a',
+		messages,
+		usage,
+		savedAt: 12,
+	});
+
+	expect(loadAgentState('actor-a', 'project-a')).toEqual({
+		version: 1,
+		runId: 'run-a',
+		messages,
+		usage,
+		savedAt: 12,
+	});
+	expect(loadAgentState('actor-b', 'project-a')).toBeNull();
+	expect(loadAgentState('actor-a', 'project-b')).toBeNull();
+
+	clearAgentState('actor-a', 'project-a');
+	expect(loadAgentState('actor-a', 'project-a')).toBeNull();
+});
+
+test('never restores an unresolved tool call or stale Push approval', () => {
+	const messages = [
+		message('assistant-pending', 'assistant', [
+			{ type: 'text', text: '准备推送' },
+			{
+				type: 'tool-call',
+				toolCallId: 'push-pending',
+				toolName: 'push_git_commits',
+				input: { remoteHead: 'old' },
+			},
+		]),
+		message('assistant-settled', 'assistant', [
+			{
+				type: 'tool-call',
+				toolCallId: 'read-settled',
+				toolName: 'read_project_files',
+				input: { files: [{ path: 'main.tex' }] },
+			},
+		]),
+		message('tool-settled', 'tool', [
+			{
+				type: 'tool-result',
+				toolCallId: 'read-settled',
+				toolName: 'read_project_files',
+				output: { ok: true },
+			},
+		]),
+	];
+
+	const settled = settledAgentMessages(messages, ['push-pending']);
+	expect(settled[0]?.content).toEqual([{ type: 'text', text: '准备推送' }]);
+	expect(JSON.stringify(settled)).not.toContain('push-pending');
+	expect(JSON.stringify(settled)).toContain('read-settled');
+});
+
+test('migrates the previous message-only state with zero usage', () => {
+	sessionStorage.setItem(
+		'rinspace-agent:actor-a:project-a',
+		JSON.stringify({
+			runId: 'legacy-run',
+			messages: [message('legacy', 'user', [{ type: 'text', text: '继续' }])],
+			savedAt: 2,
+		}),
+	);
+
+	expect(loadAgentState('actor-a', 'project-a')).toMatchObject({
+		version: 1,
+		runId: 'legacy-run',
+		usage: {
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
+	});
+});
+
+test('rejects malformed or oversized state without evicting unrelated browser data', () => {
+	sessionStorage.setItem('unrelated-draft', 'keep');
+	sessionStorage.setItem(
+		'rinspace-agent:actor-a:project-a',
+		JSON.stringify({ runId: 'run-a', messages: [], usage: { inputTokens: -1 } }),
+	);
+	expect(loadAgentState('actor-a', 'project-a')).toBeNull();
+
+	saveAgentState('actor-a', 'project-b', {
+		version: 1,
+		runId: 'run-big',
+		messages: [
+			message('large', 'user', [{ type: 'text', text: 'x'.repeat(300 * 1024) }]),
+		],
+		usage,
+		savedAt: 3,
+	});
+	expect(loadAgentState('actor-a', 'project-b')).toBeNull();
+	expect(sessionStorage.getItem('unrelated-draft')).toBe('keep');
+});
