@@ -8,7 +8,6 @@ import type { FileNode } from '@src/types/files';
 
 jest.mock('@src/services/FileHandlerService', () => ({
 	fileHandlerService: {
-		hasWorkspacePermissionPending: jest.fn(() => false),
 		mirrorFiles: jest.fn(async () => ({ entries: [{ reason: 'not-linked' }] })),
 		removeFromDisk: jest.fn(async () => undefined),
 	},
@@ -100,7 +99,10 @@ test('moves one unchanged linked text file with a stable ID and nested parent tr
 test('rejects move and delete after a concurrent content or target-path change', async () => {
 	const source = textFile('main', '/main.tex', 'baseline');
 	await first.db?.put('files', source);
-	await first.updateFileContent('main', 'new user content');
+	await first.db?.put(
+		'files',
+		textFile('main', '/main.tex', 'new user content', { lastModified: 2 }),
+	);
 
 	await expect(
 		second.moveTextFileIfUnchanged('main', '/main.tex', 'baseline', '/renamed.tex'),
