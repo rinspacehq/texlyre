@@ -457,6 +457,43 @@ describe('GitSyncService API transport', () => {
 		expect(transport.createCommit).not.toHaveBeenCalled();
 	});
 
+	it('invalidates an approval when the target branch changes before Push', async () => {
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+		const remoteStore = new GitRemoteConfigStore(storeName);
+		await remoteStore.save('project-1', { ...config, branch: 'release' });
+		gitSyncService = new GitSyncService(remoteStore);
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).rejects.toThrow('Push approval expired');
+		expect(transport.getHead).toHaveBeenLastCalledWith(
+			'secret-token',
+			'owner/repo',
+			'release',
+		);
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
+	it('invalidates an approval when the remote HEAD changes before Push', async () => {
+		localStorage.setItem(
+			'texlyre-git-remote:project-1',
+			JSON.stringify({
+				...config,
+				syncBase: { localOid: 'remote-base', remoteOid: 'remote-base' },
+			}),
+		);
+		gitSyncService = new GitSyncService(new GitRemoteConfigStore(storeName));
+		transport.getHead
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('remote-moved');
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).rejects.toThrow('Remote branch changed since the last synchronization');
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
 	it('rejects read-only remotes before reading a remote HEAD', async () => {
 		localStorage.setItem(
 			'texlyre-git-remote:project-1',
