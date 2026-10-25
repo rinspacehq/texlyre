@@ -27,7 +27,7 @@ export type PwaColor =
 			fallback?: string;
 	  };
 
-type BuiltinPluginGroup = 'collaborative_viewers' | 'viewers' | 'renderers' | 'loggers' | 'bibliography' | 'lsp' | 'backup' | 'themes';
+type BuiltinPluginGroup = 'collaborative_viewers' | 'viewers' | 'renderers' | 'loggers' | 'bibliography' | 'lsp' | 'backup' | 'themes' | 'agents';
 
 export interface TexlyreConfig {
 	title: string;
