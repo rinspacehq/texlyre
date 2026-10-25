@@ -222,7 +222,11 @@ function pathIsPrivate(path: string): boolean {
 		isTemporaryFile(storePath) ||
 		base === '.ds_store' ||
 		generatedSuffixes.some((suffix) => base.endsWith(suffix)) ||
-		lower.split('/').some((part) => ['.cache', '.texlyre', 'node_modules'].includes(part))
+		lower
+			.split('/')
+			.some((part) =>
+				['.cache', '.git', '.svn', '.texlyre', 'node_modules'].includes(part),
+			)
 	);
 }
 

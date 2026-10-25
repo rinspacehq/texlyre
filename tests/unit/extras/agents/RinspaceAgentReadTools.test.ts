@@ -296,7 +296,12 @@ test('reads the live Y.Text projection with a content identity and rejects binar
 	});
 	expect(result.files?.[0]?.contentSha256).toMatch(/^[0-9a-f]{64}$/);
 
-	for (const path of ['figure.png', '.git/config']) {
+	for (const path of [
+		'figure.png',
+		'.git/config',
+		'vendor/dependency/.git/config',
+		'vendor/dependency/.svn/entries',
+	]) {
 		const rejected = (await read.execute(
 			{ files: [{ path }] },
 			context,
