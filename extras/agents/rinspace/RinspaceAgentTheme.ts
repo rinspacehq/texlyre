@@ -10,7 +10,7 @@ export const rinspaceAgentTheme = {
 	'--rinspace-agent-primary': 'var(--pico-primary)',
 	'--rinspace-agent-primary-foreground': 'var(--pico-primary-inverse)',
 	'--rinspace-agent-secondary': 'var(--pico-primary-focus)',
-	'--rinspace-agent-muted-foreground': 'var(--pico-muted-color)',
+	'--rinspace-agent-muted-foreground': 'var(--pico-color)',
 	'--rinspace-agent-accent': 'var(--pico-primary-focus)',
 	'--rinspace-agent-accent-foreground': 'var(--pico-color)',
 	'--rinspace-agent-destructive': 'var(--pico-del-color, var(--color-error))',

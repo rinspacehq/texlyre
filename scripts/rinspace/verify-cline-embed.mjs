@@ -7,7 +7,10 @@ import { gunzipSync } from 'node:zlib';
 
 const root = new URL('../../', import.meta.url);
 const review = JSON.parse(
-	await readFile(new URL('config/rinspace/cline-embed.review.json', root), 'utf8'),
+	await readFile(
+		new URL('config/rinspace/cline-embed.review.json', root),
+		'utf8',
+	),
 );
 
 function readTarFile(archive, wantedPath) {
@@ -15,7 +18,10 @@ function readTarFile(archive, wantedPath) {
 		const header = archive.subarray(offset, offset + 512);
 		if (header.every((byte) => byte === 0)) break;
 		const string = (start, length) =>
-			header.subarray(start, start + length).toString('utf8').replace(/\0.*$/, '');
+			header
+				.subarray(start, start + length)
+				.toString('utf8')
+				.replace(/\0.*$/, '');
 		const path = string(0, 100);
 		const size = Number.parseInt(string(124, 12).trim() || '0', 8);
 		const body = archive.subarray(offset + 512, offset + 512 + size);
@@ -25,7 +31,11 @@ function readTarFile(archive, wantedPath) {
 	throw new Error(`Missing ${wantedPath} in Cline embed archive`);
 }
 
-assert.equal(process.argv[2], '--download', 'usage: verify-cline-embed.mjs --download');
+assert.equal(
+	process.argv[2],
+	'--download',
+	'usage: verify-cline-embed.mjs --download',
+);
 const bytes = execFileSync(
 	'curl',
 	[
@@ -46,8 +56,18 @@ const bytes = execFileSync(
 );
 const digest = createHash('sha256').update(bytes).digest('hex');
 assert.equal(digest, review.sha256, 'Cline embed Release digest mismatch');
-const manifest = JSON.parse(readTarFile(gunzipSync(bytes), 'package/package.json'));
+const archive = gunzipSync(bytes);
+const manifest = JSON.parse(readTarFile(archive, 'package/package.json'));
 assert.equal(manifest.name, '@rinspacehq/cline-embed');
 assert.equal(manifest.version, review.version);
 assert.equal(manifest.license, review.license);
-console.log(`verified @rinspacehq/cline-embed ${manifest.version} sha256:${digest}`);
+const ui = readTarFile(archive, 'package/dist/ui.js').toString('utf8');
+assert.doesNotMatch(ui, /\bjsxDEV\b/, 'Release UI must not call jsxDEV');
+assert.doesNotMatch(
+	ui,
+	/react\/jsx-dev-runtime/,
+	'Release UI must not import the development JSX runtime',
+);
+console.log(
+	`verified @rinspacehq/cline-embed ${manifest.version} sha256:${digest}`,
+);

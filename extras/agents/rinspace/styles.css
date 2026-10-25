@@ -269,7 +269,7 @@
 .rinspace-agent-diff-columns strong {
 	display: block;
 	margin-block-end: var(--space-xs);
-	color: var(--pico-muted-color);
+	color: var(--cline-ui-muted-foreground);
 	font-size: var(--font-size-meta);
 }
 
@@ -291,7 +291,7 @@
 	flex-wrap: wrap;
 	gap: var(--space-sm);
 	padding: var(--space-xs) var(--space-sm);
-	color: var(--pico-muted-color);
+	color: var(--cline-ui-muted-foreground);
 	font-size: var(--font-size-meta);
 }
 

@@ -90,8 +90,8 @@ export const themes = {
 	},
 	solarized_light: {
 		background: '#fdf6e3',
-		color: '#657b83',
-		'text-color': '#657b83',
+		color: '#586e75',
+		'text-color': '#586e75',
 		primary: '#268bd2',
 		'primary-hover': '#2aa198',
 		'primary-focus': 'rgba(38, 139, 210, 0.15)',
