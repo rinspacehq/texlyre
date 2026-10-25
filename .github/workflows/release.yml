@@ -157,6 +157,10 @@ jobs:
           source_archive="$(find . -maxdepth 1 -type f -name 'texlyre-source-*.tar.gz' -printf '%f\n')"
           test -n "$source_archive"
           sha256sum -c "$source_archive.sha256"
+          test -s sbom.spdx.json
+          test -s provenance.intoto.json
+          release_notes="$(node -p "require('$GITHUB_WORKSPACE/config/rinspace/release.json').releaseNotes.artifactFilename")"
+          test -s "$release_notes"
           tar -tzf "$artifact" > artifact-files.txt
           test "$(sed -n '1p' artifact-files.txt)" = editor/
           grep -q '^editor/notices/external/font-assets/LICENSES/' artifact-files.txt
@@ -175,6 +179,13 @@ jobs:
             test "$(node -p "require('$output/$runtime_manifest').index.filename")" = "$runtime_index"
             (cd "$output" && sha256sum "$runtime_pack" "$runtime_index" "$runtime_manifest" > texlive-2026-rinspace.1.sha256)
           fi
+          cd "$output"
+          : > SHA256SUMS
+          while IFS= read -r -d '' filename; do
+            sha256sum "$filename" >> SHA256SUMS
+          done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z)
+          test -s SHA256SUMS
+          sha256sum -c SHA256SUMS
 
       - name: Publish immutable public release
         shell: bash
@@ -183,6 +194,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           output="$RUNNER_TEMP/texlyre-release"
+          release_notes="$(node -p "require('./config/rinspace/release.json').releaseNotes.artifactFilename")"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists: $RELEASE_TAG" >&2
             exit 1
@@ -191,7 +203,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Rinspace TeXlyre $RELEASE_TAG" \
-            --notes $'Self-contained browser editor for the `/editor/` route. The fixed TeX Live 2026 runtime is attached when rebuilt, or referenced by its exact published release and asset digests when reused. Browser workers perform compilation; the server returns immutable files.\n\nThe fork and Rinspace integration remain AGPL-3.0-or-later. TeX Live files retain their package-specific licenses. The attached manifests bind the exact source commit/tree, complete application source archive, static artifact, runtime reference or rebuilt bytes, dependency notices, external asset notices and SHA-256 values. Publication alone does not change the private product lock or production.'
+            --notes-file "$output/$release_notes"
 
       - name: Verify published assets
         shell: bash
@@ -202,6 +214,11 @@ jobs:
         run: |
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,isDraft,isPrerelease,assets
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$GITHUB_SHA"
+          for required in SHA256SUMS sbom.spdx.json provenance.intoto.json; do
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq "[.assets[].name]|index(\"$required\") != null")" = true
+          done
+          release_notes="$(node -p "require('./config/rinspace/release.json').releaseNotes.artifactFilename")"
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq "[.assets[].name]|index(\"$release_notes\") != null")" = true
           if [[ "$REUSE_TEXLIVE_RUNTIME" == true ]]; then
             test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]|index("texlive-runtime-reference.json") != null')" = true
             test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]|index("texlive-2026-rinspace.1.pack") == null')" = true
