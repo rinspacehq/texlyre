@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
 	access,
 	mkdir,
@@ -98,6 +99,7 @@ class DevToolsClient {
 				const pending = this.#pending.get(message.id);
 				if (!pending) return;
 				this.#pending.delete(message.id);
+				clearTimeout(pending.timeout);
 				if (message.error) pending.reject(new Error(message.error.message));
 				else pending.resolve(message.result);
 				return;
@@ -118,7 +120,15 @@ class DevToolsClient {
 		await this.ready;
 		const id = ++this.#nextId;
 		return new Promise((resolve, reject) => {
-			this.#pending.set(id, { resolve, reject });
+			const timeout = setTimeout(() => {
+				if (!this.#pending.delete(id)) return;
+				reject(
+					new Error(
+						`${method} timed out after ${timeoutMs}ms`,
+					),
+				);
+			}, timeoutMs);
+			this.#pending.set(id, { resolve, reject, timeout });
 			this.socket.send(JSON.stringify({ id, method, params }));
 		});
 	}
@@ -156,6 +166,28 @@ async function pageTarget(port) {
 		await wait(50);
 	}
 	throw new Error('Timed out waiting for a Chromium page target');
+}
+
+async function createPageTarget(port) {
+	const response = await fetch(
+		`http://127.0.0.1:${port}/json/new?${encodeURIComponent('about:blank')}`,
+		{
+			method: 'PUT',
+			signal: AbortSignal.timeout(timeoutMs),
+		},
+	);
+	assert.equal(
+		response.ok,
+		true,
+		`Chromium refused to create a page target: ${response.status}`,
+	);
+	const page = await response.json();
+	assert.equal(
+		typeof page.webSocketDebuggerUrl,
+		'string',
+		'Chromium created a page without a DevTools WebSocket URL',
+	);
+	return page;
 }
 
 async function evaluate(client, expression) {
@@ -470,7 +502,7 @@ function requestJSON(request) {
 	return request.postData ? JSON.parse(request.postData) : {};
 }
 
-function apiResponse(repository, agentFixture, request, url) {
+async function apiResponse(repository, agentFixture, request, url) {
 	if (url.pathname === '/api/identity/v1/session') {
 		return jsonResponse({
 			status: 'authenticated',
@@ -590,6 +622,14 @@ function apiResponse(repository, agentFixture, request, url) {
 			project,
 			projectId: body.projectId,
 			turns: [],
+			write: {
+				patchMarker: `琳自动修改：${project.format} 中文与数学 $q^2$。\n`,
+				collaboratorText: `协作者并发输入：中文 English 数学 $u^2$；${'连续输入'.repeat(32)}。`,
+				staleReplacement: '过期 Agent 内容不应出现。\n',
+				temporaryPath: `agent-note-${project.repository}.txt`,
+				renamedPath: `agent-renamed-${project.repository}.txt`,
+				temporaryContent: `琳临时文件 ${project.format}\n数学 $q^2$\n`,
+			},
 		});
 		return jsonResponse({ id: runId });
 	}
@@ -648,14 +688,159 @@ function apiResponse(repository, agentFixture, request, url) {
 			});
 		}
 		if (run.turns.length === 2) {
+			const read = toolResults(body).find(
+				(result) => result.toolName === 'read_project_files',
+			);
+			const entry = read?.output?.files?.find(
+				(file) => file.path === run.project.entry,
+			);
+			if (
+				!entry ||
+				typeof entry.fileId !== 'string' ||
+				typeof entry.content !== 'string' ||
+				typeof entry.contentSha256 !== 'string'
+			) {
+				return jsonResponse(
+					{ error: 'fixture read result is incomplete' },
+					409,
+				);
+			}
+			run.write.entryFileId = entry.fileId;
+			run.write.originalContent = entry.content;
+			run.write.originalSha256 = entry.contentSha256;
+			const appendLine = entry.content.split('\n').length;
+			const prefix = `${run.project.format}-${run.project.repository}`;
 			return jsonResponse({
-				text: `完成 ${run.project.format} 只读验收`,
-				toolCalls: [],
-				finishReason: 'stop',
+				toolCalls: [
+					{
+						id: `${prefix}-patch`,
+						name: 'apply_project_patch',
+						input: {
+							path: run.project.entry,
+							expectedSha256: entry.contentSha256,
+							edits: [
+								{
+									startLine: appendLine,
+									startColumn: 1,
+									endLine: appendLine,
+									endColumn: 1,
+									replacement: run.write.patchMarker,
+								},
+							],
+						},
+					},
+					{
+						id: `${prefix}-create`,
+						name: 'create_project_file',
+						input: {
+							path: run.write.temporaryPath,
+							content: run.write.temporaryContent,
+						},
+					},
+					{
+						id: `${prefix}-rename`,
+						name: 'rename_project_file',
+						input: {
+							path: run.write.temporaryPath,
+							newPath: run.write.renamedPath,
+							expectedSha256: createHash('sha256')
+								.update(run.write.temporaryContent)
+								.digest('hex'),
+						},
+					},
+					{
+						id: `${prefix}-delete`,
+						name: 'delete_project_file',
+						input: {
+							path: run.write.renamedPath,
+							expectedSha256: createHash('sha256')
+								.update(run.write.temporaryContent)
+								.digest('hex'),
+						},
+					},
+				],
+				finishReason: 'tool-calls',
 				requestId: `${run.project.format}-${run.project.repository}-request-2`,
 				usage: {
 					inputTokens: 40,
-					outputTokens: 8,
+					outputTokens: 24,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		if (run.turns.length === 3) {
+			const patch = toolResults(body).find(
+				(result) => result.toolName === 'apply_project_patch',
+			);
+			if (typeof patch?.output?.afterSha256 !== 'string') {
+				return jsonResponse(
+					{ error: 'fixture patch result is incomplete' },
+					409,
+				);
+			}
+			run.write.afterPatchSha256 = patch.output.afterSha256;
+			run.awaitingCollaborator = true;
+			await new Promise((resolve) => {
+				run.releaseAfterCollaborator = resolve;
+			});
+			run.awaitingCollaborator = false;
+			delete run.releaseAfterCollaborator;
+			const prefix = `${run.project.format}-${run.project.repository}`;
+			return jsonResponse({
+				toolCalls: [
+					{
+						id: `${prefix}-verify-list`,
+						name: 'list_project_files',
+						input: {},
+					},
+					{
+						id: `${prefix}-verify-read`,
+						name: 'read_project_files',
+						input: { files: [{ path: run.project.entry }] },
+					},
+					{
+						id: `${prefix}-verify-git`,
+						name: 'git_status',
+						input: { includeComparisons: true, maxChanges: 10 },
+					},
+					{
+						id: `${prefix}-stale-patch`,
+						name: 'apply_project_patch',
+						input: {
+							path: run.project.entry,
+							expectedSha256: run.write.afterPatchSha256,
+							edits: [
+								{
+									startLine: 1,
+									startColumn: 1,
+									endLine: 1,
+									endColumn: 1,
+									replacement: run.write.staleReplacement,
+								},
+							],
+						},
+					},
+				],
+				finishReason: 'tool-calls',
+				requestId: `${prefix}-request-3`,
+				usage: {
+					inputTokens: 64,
+					outputTokens: 20,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			});
+		}
+		if (run.turns.length === 4) {
+			return jsonResponse({
+				text: `完成 ${run.project.format} 安全写入验收`,
+				toolCalls: [],
+				finishReason: 'stop',
+				requestId: `${run.project.format}-${run.project.repository}-request-4`,
+				usage: {
+					inputTokens: 80,
+					outputTokens: 10,
 					cacheReadTokens: 0,
 					cacheWriteTokens: 0,
 				},
@@ -679,9 +864,8 @@ async function waitForManagedProject(
 	requests,
 ) {
 	const requestOffset = requests.length;
-	await client.send('Page.navigate', {
-		url: `https://rinspace.com/editor/?mode=managed&owner=${scenario.owner}&repository=${scenario.repository}`,
-	});
+	const targetUrl = `https://rinspace.com/editor/?mode=managed&owner=${scenario.owner}&repository=${scenario.repository}`;
+	await client.send('Page.navigate', { url: targetUrl });
 	const deadline = Date.now() + timeoutMs;
 	let pageState;
 	while (Date.now() < deadline) {
@@ -744,9 +928,34 @@ function toolResults(turn) {
 		.filter((part) => part.type === 'tool-result');
 }
 
+const toolResultPhases = {
+	read: {
+		turn: 1,
+		suffixes: ['list', 'read', 'search', 'diagnostics', 'git'],
+	},
+	write: {
+		turn: 2,
+		suffixes: ['patch', 'create', 'rename', 'delete'],
+	},
+	verification: {
+		turn: 3,
+		suffixes: ['verify-list', 'verify-read', 'verify-git', 'stale-patch'],
+	},
+};
+
+function phaseToolResults(run, phase) {
+	const definition = toolResultPhases[phase];
+	const prefix = `${run.project.format}-${run.project.repository}-`;
+	const expectedIds = new Set(
+		definition.suffixes.map((suffix) => `${prefix}${suffix}`),
+	);
+	return toolResults(run.turns[definition.turn]).filter((result) =>
+		expectedIds.has(result.toolCallId),
+	);
+}
+
 function verifyReadOnlyRun(run) {
-	assert.equal(run.turns.length, 2, `${run.project.fullName} turn count`);
-	const results = toolResults(run.turns[1]);
+	const results = phaseToolResults(run, 'read');
 	assert.equal(results.length, 5, `${run.project.fullName} tool result count`);
 	const byName = new Map(results.map((result) => [result.toolName, result]));
 	for (const name of [
@@ -860,7 +1069,404 @@ function verifyReadOnlyRun(run) {
 	assert.deepEqual(git.comparisons, []);
 }
 
-async function runReadOnlyAgentProject(client, scenario, agentFixture) {
+async function persistedFileContent(client, run) {
+	return evaluate(
+		client,
+		`(() => new Promise((resolve, reject) => {
+			const request = indexedDB.open(${JSON.stringify(`texlyre-project-${run.projectId}`)});
+			request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
+			request.onsuccess = () => {
+				const db = request.result;
+				const tx = db.transaction('files', 'readonly');
+				const get = tx.objectStore('files').get(${JSON.stringify(run.write.entryFileId)});
+				get.onerror = () => reject(get.error ?? new Error('IndexedDB read failed'));
+				get.onsuccess = () => {
+					const content = get.result?.content;
+					if (typeof content === 'string') resolve(content);
+					else if (content instanceof ArrayBuffer) resolve(new TextDecoder().decode(content));
+					else resolve(null);
+				};
+			};
+		}))()`,
+	);
+}
+
+async function verifyWriteRun(client, run) {
+	assert.equal(run.turns.length, 4, `${run.project.fullName} turn count`);
+	const writeResults = phaseToolResults(run, 'write');
+	assert.equal(
+		writeResults.length,
+		4,
+		`${run.project.fullName} write result count`,
+	);
+	const writes = new Map(
+		writeResults.map((result) => [result.toolName, result]),
+	);
+	for (const name of [
+		'apply_project_patch',
+		'create_project_file',
+		'rename_project_file',
+		'delete_project_file',
+	]) {
+		const result = writes.get(name);
+		assert.ok(result, `${run.project.fullName} omitted ${name}`);
+		assert.notEqual(
+			result.isError,
+			true,
+			`${run.project.fullName} failed ${name}`,
+		);
+		assert.equal(
+			result.output?.ok,
+			true,
+			`${run.project.fullName} ${name} did not return ok`,
+		);
+		assert.equal(
+			result.output.projectId,
+			run.projectId,
+			`${run.project.fullName} ${name} crossed the active project boundary`,
+		);
+	}
+
+	const patch = writes.get('apply_project_patch').output;
+	assert.equal(patch.path, run.project.entry);
+	assert.equal(patch.beforeSha256, run.write.originalSha256);
+	assert.equal(patch.afterSha256, run.write.afterPatchSha256);
+	assert.match(patch.afterSha256, /^[0-9a-f]{64}$/);
+	assert.equal(
+		patch.transactionOrigin,
+		`fixture-${run.project.owner}-${run.project.repository}:${run.project.format}-${run.project.repository}-patch`,
+	);
+
+	const temporarySha256 = createHash('sha256')
+		.update(run.write.temporaryContent)
+		.digest('hex');
+	const created = writes.get('create_project_file').output;
+	const renamed = writes.get('rename_project_file').output;
+	const deleted = writes.get('delete_project_file').output;
+	assert.equal(created.path, run.write.temporaryPath);
+	assert.equal(created.contentSha256, temporarySha256);
+	assert.equal(renamed.fileId, created.fileId);
+	assert.equal(renamed.oldPath, run.write.temporaryPath);
+	assert.equal(renamed.path, run.write.renamedPath);
+	assert.equal(renamed.contentSha256, temporarySha256);
+	assert.equal(
+		renamed.transactionOrigin,
+		`fixture-${run.project.owner}-${run.project.repository}:${run.project.format}-${run.project.repository}-rename`,
+	);
+	assert.equal(deleted.fileId, created.fileId);
+	assert.equal(deleted.path, run.write.renamedPath);
+	assert.equal(deleted.deletedSha256, temporarySha256);
+	assert.equal(
+		deleted.transactionOrigin,
+		`fixture-${run.project.owner}-${run.project.repository}:${run.project.format}-${run.project.repository}-delete`,
+	);
+
+	const verificationResults = phaseToolResults(run, 'verification');
+	assert.equal(
+		verificationResults.length,
+		4,
+		`${run.project.fullName} verification result count`,
+	);
+	const verification = new Map(
+		verificationResults.map((result) => [result.toolName, result]),
+	);
+	for (const name of [
+		'list_project_files',
+		'read_project_files',
+		'git_status',
+	]) {
+		const result = verification.get(name);
+		assert.ok(result, `${run.project.fullName} omitted verification ${name}`);
+		assert.notEqual(
+			result.isError,
+			true,
+			`${run.project.fullName} failed verification ${name}`,
+		);
+		assert.equal(
+			result.output?.ok,
+			true,
+			`${run.project.fullName} verification ${name} did not return ok`,
+		);
+		assert.equal(result.output.projectId, run.projectId);
+	}
+
+	const listed = verification.get('list_project_files').output.entries;
+	assert.ok(listed.some((entry) => entry.path === run.project.entry));
+	assert.ok(listed.some((entry) => entry.path === run.project.secondary));
+	assert.ok(listed.some((entry) => entry.path === 'rinspace.yaml'));
+	assert.equal(
+		listed.some((entry) =>
+			[run.write.temporaryPath, run.write.renamedPath].includes(entry.path),
+		),
+		false,
+		`${run.project.fullName} retained a temporary structure edit`,
+	);
+
+	const finalFile = verification
+		.get('read_project_files')
+		.output.files.find((file) => file.path === run.project.entry);
+	assert.ok(finalFile, `${run.project.fullName} did not reread the entry file`);
+	const expectedContent =
+		run.write.expectedFinalContent ??
+		`${run.write.originalContent}${run.write.patchMarker}${run.write.collaboratorText}`;
+	assert.equal(finalFile.content, expectedContent);
+	assert.equal(
+		finalFile.contentSha256,
+		createHash('sha256').update(expectedContent).digest('hex'),
+	);
+	assert.ok(!finalFile.content.includes(run.write.staleReplacement));
+
+	const git = verification.get('git_status').output;
+	assert.equal(git.initialized, true);
+	assert.equal(git.branch, 'main');
+	assert.equal(git.headOid, run.project.head);
+	assert.equal(git.worktreeBaseOid, run.project.head);
+	const visibleChanges = [...git.changes, ...git.worktreeChanges];
+	const persistedContent = await persistedFileContent(client, run);
+	assert.ok(
+		visibleChanges.some(
+			(change) =>
+				change.path === run.project.entry && change.type === 'modified',
+		),
+		`${run.project.fullName} Git worktree omitted the entry modification: ${JSON.stringify({ visibleChanges, persistedContent })}`,
+	);
+	assert.ok(
+		visibleChanges.every((change) => change.path === run.project.entry),
+		`${run.project.fullName} Git worktree retained a temporary path`,
+	);
+	assert.ok(
+		git.comparisons.some((comparison) => comparison.path === run.project.entry),
+		`${run.project.fullName} omitted the visible entry diff`,
+	);
+
+	const conflict = verification.get('apply_project_patch');
+	assert.ok(conflict, `${run.project.fullName} omitted the stale patch result`);
+	assert.equal(conflict.output?.ok, false);
+	assert.equal(conflict.output?.error?.code, 'conflict');
+}
+
+async function editorText(client) {
+	return evaluate(
+		client,
+		`(() => {
+			const content = [...document.querySelectorAll('.cm-content')]
+				.find(candidate => candidate instanceof HTMLElement && candidate.offsetParent !== null);
+			if (content instanceof HTMLElement) {
+				const view = content.cmTile?.root?.view;
+				if (view?.state?.doc) return view.state.doc.toString();
+				return [...content.querySelectorAll('.cm-line')].map(line => line.textContent ?? '').join('\\n');
+			}
+			const proseMirror = [...document.querySelectorAll('.milkdown-editor-scroll .ProseMirror')]
+				.find(candidate => candidate instanceof HTMLElement && candidate.offsetParent !== null);
+			if (proseMirror instanceof HTMLElement) return proseMirror.textContent ?? '';
+			throw new Error('Visible text editor content is unavailable');
+		})()`,
+	);
+}
+
+const visiblePatchMarker = (run) =>
+	run.write.patchMarker.split('$', 1)[0].trim();
+
+async function waitForEditorText(client, description, predicate) {
+	const deadline = Date.now() + timeoutMs;
+	let text = '';
+	while (Date.now() < deadline) {
+		text = await editorText(client);
+		if (predicate(text)) return text;
+		await wait(25);
+	}
+	throw new Error(`${description}: ${text.slice(-1000)}`);
+}
+
+async function dispatchShortcut(client, key, code, modifiers, virtualKeyCode) {
+	await client.send('Input.dispatchKeyEvent', {
+		type: 'rawKeyDown',
+		key,
+		code,
+		modifiers,
+		windowsVirtualKeyCode: virtualKeyCode,
+		nativeVirtualKeyCode: virtualKeyCode,
+	});
+	await client.send('Input.dispatchKeyEvent', {
+		type: 'keyUp',
+		key,
+		code,
+		modifiers,
+		windowsVirtualKeyCode: virtualKeyCode,
+		nativeVirtualKeyCode: virtualKeyCode,
+	});
+}
+
+async function insertCollaboratorText(client, run) {
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not render the Agent patch`,
+		(text) => text.includes(visiblePatchMarker(run)),
+	);
+	const navigation = await evaluate(
+		client,
+		`(async () => {
+			const proseMirror = [...document.querySelectorAll('.milkdown-editor-scroll .ProseMirror')]
+				.find(candidate => candidate instanceof HTMLElement && candidate.offsetParent !== null);
+			if (proseMirror instanceof HTMLElement) {
+				proseMirror.focus();
+				const range = document.createRange();
+				range.selectNodeContents(proseMirror);
+				range.collapse(false);
+				const selection = getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				await new Promise(resolve => requestAnimationFrame(() => resolve()));
+				return {
+					mode: 'prosemirror',
+					focused: document.activeElement === proseMirror,
+					className: document.activeElement instanceof HTMLElement ? document.activeElement.className : null,
+					position: null
+				};
+			}
+			const expectedPosition = ${run.write.originalContent.length + run.write.patchMarker.length};
+			const cursorUpdate = new Promise((resolve, reject) => {
+				const timeout = setTimeout(() => {
+					document.removeEventListener('editor-cursor-update', handleUpdate);
+					reject(new Error('Timed out waiting for the exact editor cursor position'));
+				}, 2000);
+				const handleUpdate = event => {
+					if (
+						event.detail?.fileId !== ${JSON.stringify(run.write.entryFileId)} ||
+						event.detail?.position !== expectedPosition
+					) return;
+					clearTimeout(timeout);
+					document.removeEventListener('editor-cursor-update', handleUpdate);
+					resolve(event.detail);
+				};
+				document.addEventListener('editor-cursor-update', handleUpdate);
+			});
+			document.dispatchEvent(new CustomEvent('codemirror-goto-char', {
+				detail: {
+					fileId: ${JSON.stringify(run.write.entryFileId)},
+					position: expectedPosition
+				}
+			}));
+			const cursor = await cursorUpdate;
+			await new Promise(resolve => requestAnimationFrame(() => resolve()));
+			const active = document.activeElement;
+			return {
+				mode: 'codemirror',
+				focused: active instanceof HTMLElement && active.classList.contains('cm-content'),
+				className: active instanceof HTMLElement ? active.className : null,
+				position: cursor.position
+			};
+		})()`,
+	);
+	assert.equal(
+		navigation?.focused,
+		true,
+		`${run.project.fullName} exact editor navigation did not accept focus (${navigation?.className ?? 'none'})`,
+	);
+	assert.equal(
+		navigation.mode === 'prosemirror' ||
+			navigation.position ===
+				run.write.originalContent.length + run.write.patchMarker.length,
+		true,
+		`${run.project.fullName} exact editor navigation did not confirm the cursor position`,
+	);
+	const expectedBeforeCollaborator = `${run.write.originalContent}${run.write.patchMarker}`;
+	if (navigation.mode === 'prosemirror') {
+		run.write.expectedFinalContent = `${run.write.originalContent}${run.write.patchMarker.trimEnd()}${run.write.collaboratorText}\n`;
+		const split = Math.max(1, Math.floor(run.write.collaboratorText.length / 2));
+		await client.send('Input.imeSetComposition', {
+			text: run.write.collaboratorText.slice(0, split),
+			selectionStart: split,
+			selectionEnd: split,
+		});
+		await client.send('Input.imeSetComposition', {
+			text: run.write.collaboratorText,
+			selectionStart: run.write.collaboratorText.length,
+			selectionEnd: run.write.collaboratorText.length,
+		});
+		await client.send('Input.insertText', {
+			text: run.write.collaboratorText,
+		});
+	} else {
+		const collaboratorEdit = await evaluate(
+			client,
+			`(() => {
+				const content = [...document.querySelectorAll('.cm-content')]
+					.find(candidate => candidate instanceof HTMLElement && candidate.offsetParent !== null);
+				const view = content?.cmTile?.root?.view;
+				if (!view?.state?.doc || typeof view.dispatch !== 'function') {
+					return { ok: false, error: 'Visible CodeMirror EditorView is unavailable' };
+				}
+				const before = view.state.doc.toString();
+				const from = view.state.doc.length;
+				const inserted = ${JSON.stringify(run.write.collaboratorText)};
+				view.dispatch({
+					changes: { from, insert: inserted },
+					selection: { anchor: from + inserted.length },
+					userEvent: 'input.type.compose.start',
+					scrollIntoView: true
+				});
+				return {
+					ok: true,
+					before,
+					after: view.state.doc.toString(),
+					selection: view.state.selection.main.head
+				};
+			})()`,
+		);
+		assert.deepEqual(collaboratorEdit, {
+			ok: true,
+			before: expectedBeforeCollaborator,
+			after: `${expectedBeforeCollaborator}${run.write.collaboratorText}`,
+			selection:
+				expectedBeforeCollaborator.length + run.write.collaboratorText.length,
+		});
+	}
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not retain concurrent IME-style input`,
+		(text) =>
+			text.includes(visiblePatchMarker(run)) &&
+			text.includes(run.write.collaboratorText),
+	);
+}
+
+async function verifyUndoBoundaries(client, run) {
+	await dispatchShortcut(client, 'z', 'KeyZ', 2, 90);
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not undo collaborator input`,
+		(text) =>
+			text.includes(visiblePatchMarker(run)) &&
+			!text.includes(run.write.collaboratorText),
+	);
+	await dispatchShortcut(client, 'z', 'KeyZ', 2, 90);
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not undo the isolated Agent patch`,
+		(text) =>
+			!text.includes(visiblePatchMarker(run)) &&
+			!text.includes(run.write.collaboratorText),
+	);
+	await dispatchShortcut(client, 'y', 'KeyY', 2, 89);
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not redo the isolated Agent patch`,
+		(text) =>
+			text.includes(visiblePatchMarker(run)) &&
+			!text.includes(run.write.collaboratorText),
+	);
+	await dispatchShortcut(client, 'y', 'KeyY', 2, 89);
+	await waitForEditorText(
+		client,
+		`${run.project.fullName} did not redo collaborator input`,
+		(text) =>
+			text.includes(visiblePatchMarker(run)) &&
+			text.includes(run.write.collaboratorText),
+	);
+}
+
+async function runManagedAgentProject(client, scenario, agentFixture) {
 	await evaluate(
 		client,
 		`(() => {
@@ -876,7 +1482,7 @@ async function runReadOnlyAgentProject(client, scenario, agentFixture) {
 			if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Agent textarea is unavailable');
 			const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
 			if (!setter) throw new Error('Textarea value setter is unavailable');
-			setter.call(textarea, ${JSON.stringify('自动运行五个只读工具并报告结果')});
+			setter.call(textarea, ${JSON.stringify('自动读取并安全修改当前项目，验证文件结构和冲突保护')});
 			textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		})()`,
 	);
@@ -902,6 +1508,15 @@ async function runReadOnlyAgentProject(client, scenario, agentFixture) {
 	let taskState;
 	while (Date.now() < deadline) {
 		const run = agentFixture.runs.get(runId);
+		if (
+			run?.awaitingCollaborator &&
+			!run.collaboratorEntered &&
+			typeof run.releaseAfterCollaborator === 'function'
+		) {
+			await insertCollaboratorText(client, run);
+			run.collaboratorEntered = true;
+			run.releaseAfterCollaborator();
+		}
 		taskState = await evaluate(
 			client,
 			`(() => {
@@ -922,20 +1537,22 @@ async function runReadOnlyAgentProject(client, scenario, agentFixture) {
 		assert.equal(
 			taskState.approvalSeen,
 			0,
-			`${scenario.fullName} requested approval for read-only tools`,
+			`${scenario.fullName} requested approval for automatic tools`,
 		);
 		if (
-			run?.turns.length === 2 &&
+			run?.turns.length === 4 &&
 			taskState.status === '就绪' &&
-			taskState.text?.includes(`完成 ${scenario.format} 只读验收`)
+			taskState.text?.includes(`完成 ${scenario.format} 安全写入验收`)
 		) {
 			verifyReadOnlyRun(run);
+			await verifyWriteRun(client, run);
+			await verifyUndoBoundaries(client, run);
 			return;
 		}
 		await wait(50);
 	}
 	throw new Error(
-		`${scenario.fullName} read-only Agent run timed out: ${JSON.stringify(taskState)}`,
+		`${scenario.fullName} managed Agent run timed out: ${JSON.stringify(taskState)}`,
 	);
 }
 
@@ -981,77 +1598,90 @@ try {
 		stderr = `${stderr}${chunk}`.slice(-16_384);
 	});
 
-	const page = await pageTarget(port);
-	client = new DevToolsClient(page.webSocketDebuggerUrl);
-	client.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
-		browserErrors.push(
-			exceptionDetails.exception?.description ??
-				exceptionDetails.text ??
-				'Unknown browser exception',
-		);
-	});
-	client.on('Log.entryAdded', ({ entry }) => {
-		if (entry.level === 'error') browserErrors.push(entry.text);
-	});
-	client.on('Fetch.requestPaused', (event) => {
-		void (async () => {
-			const url = new URL(event.request.url);
-			requests.push(`${event.request.method} ${url.pathname}${url.search}`);
-			let response = apiResponse(repository, agentFixture, event.request, url);
-			if (
-				!response &&
-				/^\/repos\/(?:a|b|tags)\/[1-9][0-9]*\.git\//.test(url.pathname)
-			) {
-				const git = await gitResponse(repository, event.request, url);
-				await client.send('Fetch.fulfillRequest', {
-					requestId: event.requestId,
-					responseCode: git.code,
-					responseHeaders: git.headers,
-					body: git.body.toString('base64'),
-				});
-				return;
-			}
-			response ??= await staticResponse(url);
-			response ??= {
-				code: 404,
-				body: Buffer.from('fixture route not found'),
-				contentType: 'text/plain; charset=utf-8',
-			};
-			await client.send('Fetch.fulfillRequest', {
-				requestId: event.requestId,
-				responseCode: response.code,
-				responseHeaders: responseHeaders(
-					response.contentType,
-					response.body.byteLength,
-				),
-				body: response.body.toString('base64'),
-			});
-		})().catch(async (error) => {
-			interceptionErrors.push(
-				error instanceof Error ? (error.stack ?? error.message) : String(error),
+	const configurePageClient = async (page) => {
+		const pageClient = new DevToolsClient(page.webSocketDebuggerUrl);
+		pageClient.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
+			browserErrors.push(
+				exceptionDetails.exception?.description ??
+					exceptionDetails.text ??
+					'Unknown browser exception',
 			);
-			try {
-				await client.send('Fetch.failRequest', {
-					requestId: event.requestId,
-					errorReason: 'Failed',
-				});
-			} catch {
-				// Navigation failure will expose the original interception error below.
-			}
 		});
-	});
-	await Promise.all([
-		client.send('Fetch.enable', {
-			patterns: [
-				{ urlPattern: 'https://rinspace.com/*', requestStage: 'Request' },
-			],
-		}),
-		client.send('Page.enable'),
-		client.send('Runtime.enable'),
-		client.send('Log.enable'),
-		client.send('Network.enable'),
-	]);
-	await client.send('Network.setBypassServiceWorker', { bypass: true });
+		pageClient.on('Log.entryAdded', ({ entry }) => {
+			if (entry.level === 'error') browserErrors.push(entry.text);
+		});
+		pageClient.on('Fetch.requestPaused', (event) => {
+			void (async () => {
+				const url = new URL(event.request.url);
+				requests.push(`${event.request.method} ${url.pathname}${url.search}`);
+				let response = await apiResponse(
+					repository,
+					agentFixture,
+					event.request,
+					url,
+				);
+				if (
+					!response &&
+					/^\/repos\/(?:a|b|tags)\/[1-9][0-9]*\.git\//.test(url.pathname)
+				) {
+					const git = await gitResponse(repository, event.request, url);
+					await pageClient.send('Fetch.fulfillRequest', {
+						requestId: event.requestId,
+						responseCode: git.code,
+						responseHeaders: git.headers,
+						body: git.body.toString('base64'),
+					});
+					return;
+				}
+				response ??= await staticResponse(url);
+				response ??= {
+					code: 404,
+					body: Buffer.from('fixture route not found'),
+					contentType: 'text/plain; charset=utf-8',
+				};
+				await pageClient.send('Fetch.fulfillRequest', {
+					requestId: event.requestId,
+					responseCode: response.code,
+					responseHeaders: responseHeaders(
+						response.contentType,
+						response.body.byteLength,
+					),
+					body: response.body.toString('base64'),
+				});
+			})().catch(async (error) => {
+				interceptionErrors.push(
+					error instanceof Error ? (error.stack ?? error.message) : String(error),
+				);
+				try {
+					await pageClient.send('Fetch.failRequest', {
+						requestId: event.requestId,
+						errorReason: 'Failed',
+					});
+				} catch {
+					// Navigation failure will expose the original interception error below.
+				}
+			});
+		});
+		await Promise.all([
+			pageClient.send('Fetch.enable', {
+				patterns: [
+					{
+						urlPattern: 'https://rinspace.com/*',
+						requestStage: 'Request',
+					},
+				],
+			}),
+			pageClient.send('Page.enable'),
+			pageClient.send('Runtime.enable'),
+			pageClient.send('Log.enable'),
+			pageClient.send('Network.enable'),
+		]);
+		await pageClient.send('Network.setBypassServiceWorker', { bypass: true });
+		return pageClient;
+	};
+
+	const page = await pageTarget(port);
+	client = await configurePageClient(page);
 	await client.send('Emulation.setDeviceMetricsOverride', {
 		width: 1200,
 		height: 800,
@@ -1247,6 +1877,10 @@ try {
 	}
 
 	for (const [index, scenario] of projectScenarios.entries()) {
+		if (index > 0) {
+			client.close();
+			client = await configurePageClient(await createPageTarget(port));
+		}
 		await client.send('Emulation.setDeviceMetricsOverride', {
 			width: 1200,
 			height: 800,
@@ -1256,6 +1890,14 @@ try {
 		await client.send('Emulation.setEmulatedMedia', {
 			features: [{ name: 'prefers-color-scheme', value: 'light' }],
 		});
+		if (index > 0) {
+			state = await waitForManagedProject(
+				client,
+				scenario,
+				interceptionErrors,
+				requests,
+			);
+		}
 		await evaluate(
 			client,
 			`(async () => {
@@ -1275,25 +1917,21 @@ try {
 				}
 			})()`,
 		);
-		if (index > 0) {
-			state = await waitForManagedProject(
-				client,
-				scenario,
-				interceptionErrors,
-				requests,
-			);
-		}
-		await runReadOnlyAgentProject(client, scenario, agentFixture);
+		await runManagedAgentProject(client, scenario, agentFixture);
 	}
 
 	assert.equal(agentFixture.runs.size, projectScenarios.length);
 	const completedRuns = [...agentFixture.runs.values()];
 	assert.equal(
 		completedRuns.reduce(
-			(total, run) => total + toolResults(run.turns[1]).length,
+			(total, run) =>
+				total +
+				phaseToolResults(run, 'read').length +
+				phaseToolResults(run, 'write').length +
+				phaseToolResults(run, 'verification').length,
 			0,
 		),
-		15,
+		39,
 	);
 
 	process.stdout.write(
@@ -1314,8 +1952,24 @@ try {
 				smartHttpPack: true,
 				themeCombinations: checkedThemes.length,
 				managedToolProjects: completedRuns.length,
+				automaticReadToolResults: completedRuns.reduce(
+					(total, run) => total + phaseToolResults(run, 'read').length,
+					0,
+				),
+				automaticWriteToolResults: completedRuns.reduce(
+					(total, run) => total + phaseToolResults(run, 'write').length,
+					0,
+				),
+				automaticVerificationResults: completedRuns.reduce(
+					(total, run) => total + phaseToolResults(run, 'verification').length,
+					0,
+				),
 				automaticToolResults: completedRuns.reduce(
-					(total, run) => total + toolResults(run.turns[1]).length,
+					(total, run) =>
+						total +
+						phaseToolResults(run, 'read').length +
+						phaseToolResults(run, 'write').length +
+						phaseToolResults(run, 'verification').length,
 					0,
 				),
 				approvalRequests: 0,

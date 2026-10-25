@@ -76,6 +76,26 @@ const mockFiles = {
 };
 const mockSearch = jest.fn(async () => [{ fileId: mainFile.id }]);
 let liveMainContent = 'Hello 琳\nalpha beta';
+let livePlainContent: string | undefined;
+const mockApplyOpenFileEdits = jest.fn((
+	_fileId: string,
+	expectedContent: string,
+	edits: ReadonlyArray<{ from: number; to: number; insert: string }>,
+) => {
+	if (livePlainContent === undefined) return 'not-open' as const;
+	if (livePlainContent !== expectedContent) return 'conflict' as const;
+	let cursor = 0;
+	let next = '';
+	for (const edit of edits) {
+		next += livePlainContent.slice(cursor, edit.from);
+		next += edit.insert;
+		cursor = edit.to;
+	}
+	livePlainContent = next + livePlainContent.slice(cursor);
+	return 'updated' as const;
+});
+const mockMarkOpenFilePersisted = jest.fn();
+const mockPrepareOpenFileEdit = jest.fn(async () => {});
 const mockUpdateDocumentContent = jest.fn(async (
 	_projectId: string,
 	_documentId: string,
@@ -171,6 +191,10 @@ const host: RinspaceAgentToolHost = {
 	getDocuments: () => [
 		{ id: 'document-main', name: 'main.tex', content: liveMainContent },
 	],
+	readOpenFileContent: () => livePlainContent,
+	prepareOpenFileEdit: mockPrepareOpenFileEdit,
+	applyOpenFileEdits: mockApplyOpenFileEdits,
+	markOpenFilePersisted: mockMarkOpenFilePersisted,
 	getDiagnostics: () => [
 		{
 			id: 'latex',
@@ -210,6 +234,7 @@ beforeAll(() => {
 beforeEach(() => {
 	jest.clearAllMocks();
 	liveMainContent = 'Hello 琳\nalpha beta';
+	livePlainContent = undefined;
 	mockFiles.getCurrentProjectId.mockReturnValue('project-1');
 	mockGit.isInitialized.mockResolvedValue(false);
 	mockGit.getChanges.mockResolvedValue([]);
@@ -514,6 +539,54 @@ test('applies an unlinked-file patch through atomic FileStore baseline validatio
 		'file-plain',
 		'plain text',
 		'fresh text',
+	);
+});
+
+test('reads and atomically patches the live open-file draft before persistence', async () => {
+	livePlainContent = 'plain text\n用户未保存中文 $x^2$';
+	mockFiles.getFile
+		.mockResolvedValueOnce(plainFile)
+		.mockResolvedValueOnce({ ...plainFile, content: livePlainContent });
+	const baseline = createHash('sha256').update(livePlainContent).digest('hex');
+	const result = (await tool('apply_project_patch').execute(
+		{
+			path: 'notes.md',
+			expectedSha256: baseline,
+			edits: [{
+				startLine: 2,
+				startColumn: 1,
+				endLine: 2,
+				endColumn: 1,
+				replacement: '琳：',
+			}],
+		},
+		{ ...context, toolCallId: 'tool-call-open-file' },
+	)) as Record<string, unknown>;
+	expect(result).toMatchObject({
+		ok: true,
+		path: 'notes.md',
+		beforeSha256: baseline,
+		transactionOrigin: 'run-1:tool-call-open-file',
+	});
+	expect(livePlainContent).toBe('plain text\n琳：用户未保存中文 $x^2$');
+	expect(mockPrepareOpenFileEdit).toHaveBeenCalledWith('file-plain');
+	expect(mockApplyOpenFileEdits).toHaveBeenCalledWith(
+		'file-plain',
+		'plain text\n用户未保存中文 $x^2$',
+		[{ from: 11, to: 11, insert: '琳：' }],
+		expect.objectContaining({
+			source: 'rinspace-agent',
+			operationId: 'run-1:tool-call-open-file',
+		}),
+	);
+	expect(mockFiles.updateFileContentIfUnchanged).toHaveBeenCalledWith(
+		'file-plain',
+		'plain text\n用户未保存中文 $x^2$',
+		'plain text\n琳：用户未保存中文 $x^2$',
+	);
+	expect(mockMarkOpenFilePersisted).toHaveBeenCalledWith(
+		'file-plain',
+		'plain text\n琳：用户未保存中文 $x^2$',
 	);
 });
 

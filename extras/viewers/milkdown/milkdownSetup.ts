@@ -12,6 +12,7 @@ import {
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
 import { history } from '@milkdown/kit/plugin/history';
+import { closeHistory } from '@milkdown/kit/prose/history';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { tableBlock } from '@milkdown/kit/component/table-block';
 import { listItemBlockComponent } from '@milkdown/kit/component/list-item-block';
@@ -41,6 +42,11 @@ import { bibtex } from 'codemirror-lang-bib';
 import { safeTypst as typst } from '@/extensions/codemirror/languages/safeTypstPatch';
 import { resolveHighlightTheme } from '@/extensions/codemirror/HighlightThemeExtension';
 import type { HighlightTheme } from '@/types/editor';
+import {
+	applyDocumentTextEdits,
+	type DocumentTextEdit,
+	type HostDocumentEditOrigin,
+} from '@/services/DocumentTextEdits';
 import { createLinkClickHandler } from './linkClick';
 import {
 	mathBlockInputRule,
@@ -226,6 +232,35 @@ export function readMarkdown(ctx: Ctx): string {
 	const serializer = ctx.get(serializerCtx);
 
 	return serializer(view.state.doc);
+}
+
+export function applyMarkdownHostEdits(
+	ctx: Ctx,
+	edits: readonly DocumentTextEdit[],
+	origin: HostDocumentEditOrigin,
+): string {
+	const view: EditorView = ctx.get(editorViewCtx);
+	const parser = ctx.get(parserCtx);
+	const current = readMarkdown(ctx);
+	const markdown = applyDocumentTextEdits(current, edits);
+	const doc = parser(markdown);
+
+	if (!doc) throw new Error('Milkdown could not parse the host edit');
+
+	const state = view.state;
+	const tr = closeHistory(state.tr);
+	tr.replace(0, state.doc.content.size, new Slice(doc.content, 0, 0));
+	tr.setSelection(
+		TextSelection.create(tr.doc, Math.min(state.selection.anchor, tr.doc.content.size)),
+	);
+	tr.setMeta('rinspace-host-file-edit-origin', origin);
+	view.dispatch(tr);
+
+	// The first boundary keeps the Agent edit separate from earlier input. The
+	// second keeps a following IME composition from joining the Agent event.
+	view.dispatch(closeHistory(view.state.tr).setMeta('addToHistory', false));
+
+	return readMarkdown(ctx);
 }
 
 export function replaceMarkdown(ctx: Ctx, markdown: string): void {

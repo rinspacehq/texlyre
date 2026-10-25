@@ -20,9 +20,12 @@ import { useSecrets } from '@/hooks/useSecrets';
 import { useSettings } from '@/hooks/useSettings';
 import { useTypst } from '@/hooks/useTypst';
 import { collabService } from '@/services/CollabService';
+import { autoSaveService } from '@/services/AutoSaveService';
+import { editorDraftService } from '@/services/EditorDraftService';
 import { fileStoreService } from '@/services/FileStoreService';
 import { gitService } from '@/services/GitService';
 import { gitSyncService } from '@/services/GitSyncService';
+import { hostFileEditorService } from '@/services/HostFileEditorService';
 import { typesetterRegistryService } from '@/services/TypesetterRegistryService';
 import type { DocumentList } from '@/types/documents';
 import {
@@ -445,6 +448,23 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			isActive: () => mounted.current,
 			getDocuments: () => toolState.current.documents,
 			getDiagnostics: () => toolState.current.diagnostics,
+			readOpenFileContent: (fileId) =>
+				hostFileEditorService.read(projectId, fileId),
+			prepareOpenFileEdit: async (fileId) => {
+				if (hostFileEditorService.read(projectId, fileId) !== undefined) {
+					await autoSaveService.flushPendingSaves(projectId);
+				}
+			},
+			applyOpenFileEdits: (fileId, expectedContent, edits, origin) =>
+				hostFileEditorService.apply(
+					projectId,
+					fileId,
+					expectedContent,
+					edits,
+					origin,
+				).status,
+			markOpenFilePersisted: (fileId, content) =>
+				editorDraftService.markSaved({ projectId, fileId }, content),
 			compileProject: () =>
 				compileConfiguredProject({
 					getState: () => toolState.current,

@@ -84,6 +84,15 @@ export interface RinspaceAgentToolHost {
 	isActive: () => boolean;
 	getDocuments: () => readonly Document[];
 	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
+	readOpenFileContent: (fileId: string) => string | undefined;
+	prepareOpenFileEdit: (fileId: string) => Promise<void>;
+	applyOpenFileEdits: (
+		fileId: string,
+		expectedContent: string,
+		edits: readonly DocumentTextEdit[],
+		origin: HostDocumentEditOrigin,
+	) => 'not-open' | 'conflict' | 'updated';
+	markOpenFilePersisted: (fileId: string, content: string) => void;
 	renameLinkedDocument: (
 		documentId: string,
 		expectedPath: string,
@@ -281,7 +290,7 @@ async function readText(path: string, host: RinspaceAgentToolHost): Promise<Text
 	if (typeof storedContent !== 'string') return storedContent;
 	const live = metadata.documentId
 		? await dependencies.collab.readDocumentContent(host.projectId, metadata.documentId)
-		: undefined;
+		: host.readOpenFileContent(metadata.id);
 	const changedAfterLiveRead = activeError(host);
 	if (changedAfterLiveRead) return changedAfterLiveRead;
 	const decoded = live ?? storedContent;
@@ -545,8 +554,14 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 			}
 			const path = normalizeAgentProjectPath(input.path);
 			if (typeof path !== 'string') return path;
-			const record = await readText(path, host);
+			let record = await readText(path, host);
 			if (!('content' in record)) return record;
+			if (!record.documentId) {
+				await host.prepareOpenFileEdit(record.fileId);
+				const refreshed = await readText(path, host);
+				if (!('content' in refreshed)) return refreshed;
+				record = refreshed;
+			}
 			if (record.contentSha256 !== input.expectedSha256) {
 				return failure('conflict', 'File content changed after the Agent read it; read the file again before editing', {
 					retry: { action: 'read_project_files', path, actualSha256: record.contentSha256 },
@@ -629,15 +644,36 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 					}
 				}
 			} else {
-				const update = await dependencies.files.updateFileContentIfUnchanged(
+				const openFileUpdate = host.applyOpenFileEdits(
 					record.fileId,
 					record.content,
+					edits,
+					origin,
+				);
+				if (openFileUpdate === 'conflict') {
+					return failure('conflict', 'Open editor content changed before the patch transaction; read it again', {
+						retry: { action: 'read_project_files', path },
+					});
+				}
+				const update = await dependencies.files.updateFileContentIfUnchanged(
+					record.fileId,
+					record.storedContent,
 					nextContent,
 				);
 				if (update.status !== 'updated') {
+					const latest = await dependencies.files.getFile(record.fileId);
+					const latestContent = latest?.content === undefined
+						? null
+						: decodeText(latest.content);
+					if (openFileUpdate === 'updated' && latestContent === nextContent) {
+						host.markOpenFilePersisted(record.fileId, nextContent);
+					} else {
 					return failure('conflict', 'Stored file content changed before the patch write; read it again', {
 						retry: { action: 'read_project_files', path },
 					});
+					}
+				} else if (openFileUpdate === 'updated') {
+					host.markOpenFilePersisted(record.fileId, nextContent);
 				}
 			}
 			return bound({
