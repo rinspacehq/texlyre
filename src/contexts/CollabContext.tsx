@@ -197,7 +197,7 @@ export const CollabProvider: React.FC<CollabProviderProps> = ({
 	]);
 
 	const changeData = useCallback(
-		(fn: (currentData: any) => void) => {
+		(fn: (currentData: any) => void, origin?: unknown) => {
 			if (!doc) return;
 
 			const ymap = doc.getMap('data');
@@ -215,7 +215,7 @@ export const CollabProvider: React.FC<CollabProviderProps> = ({
 						ymap.set(key, value);
 					});
 				}
-			});
+			}, origin);
 
 			setData(ymap.toJSON());
 

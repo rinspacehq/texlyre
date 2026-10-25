@@ -12,6 +12,15 @@
       "integrationStatus": "Source implementation for the Rin Agent batch; public CI, immutable release and product consumption remain pending."
     },
     {
+      "id": "host-document-edit-transactions",
+      "files": ["src/services/DocumentTextEdits.ts", "src/services/CollabService.ts", "src/types/collab.ts", "src/contexts/CollabContext.tsx", "src/hooks/editor/useEditorView.ts"],
+      "purpose": "Let an optional host apply validated disjoint text edits through the existing Yjs document rather than deleting and reinserting the whole source. Carry a product-neutral transaction origin, keep each host operation in an isolated tracked undo item, preserve untouched collaborative positions and disconnect temporary document sessions even when a baseline callback rejects the write. Product names, Agent policy and tool schemas remain outside core.",
+      "tests": ["tests/services/DocumentTextEdits.test.ts", "tests/unit/extras/agents/RinspaceAgentReadTools.test.ts", "concurrent Yjs and native IME browser acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream exposes equivalent bounded host edits with explicit origins, minimal Yjs mutations and isolated undo boundaries.",
+      "integrationStatus": "Source implementation for T04 is in progress; hosted checks and real concurrent-editor acceptance remain pending."
+    },
+    {
       "id": "editor-overwrite-storage-quota",
       "files": ["src/services/FileStoreService.ts", "src/hooks/editor/editorSaveFailure.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts"],
       "purpose": "Let IndexedDB decide whether an existing file can be overwritten. Browser storage estimates cannot account for replacement space and can falsely reject an equal-size save. Bind each save to the database and project captured before reading so a concurrent project switch cannot redirect or silently skip the write. Preserve actual quota failures and identify them in the editor instead of reporting every failure as an unspecified storage error.",

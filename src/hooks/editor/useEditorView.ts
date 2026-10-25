@@ -88,6 +88,7 @@ import { EditorDraftService, editorDraftService } from '../../services/EditorDra
 import { notificationService } from '../../services/NotificationService';
 import { detectFileType, isBibFile } from '../../utils/fileUtils';
 import { collabService } from '../../services/CollabService';
+import { HostDocumentEditOrigin } from '../../services/DocumentTextEdits';
 import { fileStoreService } from '../../services/FileStoreService';
 import { filePathCacheService } from '../../services/FilePathCacheService';
 import type { CollabProvider } from '../../types/collab';
@@ -683,9 +684,22 @@ export const useEditorView = (
 
 		const ytext = doc.getText('codemirror');
 		ytextRef.current = ytext;
-		undoManagerRef.current = new UndoManager(ytext);
+		const undoManager = new UndoManager(ytext, {
+			trackedOrigins: new Set([null, HostDocumentEditOrigin]),
+		});
+		const isolateHostEdit = (transaction: Y.Transaction) => {
+			if (transaction.origin instanceof HostDocumentEditOrigin) {
+				undoManager.stopCapturing();
+			}
+		};
+		doc.on('beforeTransaction', isolateHostEdit);
+		doc.on('afterTransaction', isolateHostEdit);
+		undoManagerRef.current = undoManager;
 
 		return () => {
+			doc.off('beforeTransaction', isolateHostEdit);
+			doc.off('afterTransaction', isolateHostEdit);
+			undoManager.destroy();
 			undoManagerRef.current = null;
 			collabService.disconnect(projectId, collectionName);
 			setYDoc(null);
