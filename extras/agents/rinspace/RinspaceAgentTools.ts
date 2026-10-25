@@ -42,6 +42,8 @@ const LIMITS = {
 	gitChanges: 100,
 	comparisonBytes: 32 * 1024,
 	patchEdits: 64,
+	compileLogBytes: 128 * 1024,
+	compileIntervalMs: 1500,
 	outputBytes: 1024 * 1024,
 } as const;
 
@@ -60,10 +62,19 @@ const generatedSuffixes = [
 ];
 
 export interface RinspaceAgentDiagnosticSource {
-	id: 'latex' | 'typst' | 'external';
+	id: 'latex' | 'typst' | 'markdown' | 'external';
 	status: 'idle' | 'running' | 'success' | 'error';
 	error: string | null;
 	log: string;
+}
+
+export interface RinspaceAgentCompileResult {
+	compilerId: string;
+	mainFile: string;
+	status: 'success' | 'error';
+	error: string | null;
+	log: string;
+	outputBytes?: number;
 }
 
 export interface RinspaceAgentToolHost {
@@ -74,6 +85,7 @@ export interface RinspaceAgentToolHost {
 	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
 	renameLinkedDocument: (documentId: string, path: string, origin: unknown) => boolean;
 	deleteLinkedDocument: (documentId: string, origin: unknown) => boolean;
+	compileProject: () => Promise<RinspaceAgentCompileResult>;
 	createGitCommit: (message: string) => Promise<string>;
 	prepareGitPush: () => Promise<GitPushPreview>;
 	pushGitCommits: (preview: GitPushPreview) => Promise<GitPushSummary>;
@@ -90,7 +102,7 @@ export interface RinspaceAgentToolSet {
 interface ToolError {
 	ok: false;
 	error: {
-		code: 'invalid_input' | 'workspace_changed' | 'path_forbidden' | 'not_found' | 'not_text' | 'limit_exceeded' | 'conflict';
+		code: 'invalid_input' | 'workspace_changed' | 'path_forbidden' | 'not_found' | 'not_text' | 'limit_exceeded' | 'conflict' | 'busy';
 		message: string;
 		limit?: number;
 		actual?: number;
@@ -150,6 +162,21 @@ function boundedInteger(
 }
 
 const byteLength = (value: string) => new TextEncoder().encode(value).byteLength;
+
+function boundedText(value: string, limit: number): {
+	text: string;
+	bytes: number;
+	truncated: boolean;
+} {
+	const encoded = new TextEncoder().encode(value);
+	if (encoded.byteLength <= limit) {
+		return { text: value, bytes: encoded.byteLength, truncated: false };
+	}
+	const text = new TextDecoder('utf-8', { fatal: false })
+		.decode(encoded.subarray(0, limit))
+		.replace(/\uFFFD$/, '');
+	return { text, bytes: encoded.byteLength, truncated: true };
+}
 
 async function sha256(value: string | ArrayBuffer): Promise<string> {
 	const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(value);
@@ -1044,6 +1071,67 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 	});
 }
 
+interface CompileGate {
+	running: boolean;
+	lastStartedAt: number;
+}
+
+function compileProjectTool(
+	host: RinspaceAgentToolHost,
+	gate: CompileGate,
+): AgentTool {
+	return createTool({
+		name: 'compile_project',
+		description: 'Run the current project configured TeXlyre compiler or Markdown preview parser and return a bounded real result.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input)) return failure('invalid_input', 'Input must be an object');
+			const now = Date.now();
+			if (gate.running) {
+				return failure('busy', 'A project compilation is already running', {
+					retry: { retryAfterMs: LIMITS.compileIntervalMs },
+				});
+			}
+			const elapsed = now - gate.lastStartedAt;
+			if (elapsed < LIMITS.compileIntervalMs) {
+				return failure('busy', 'Project compilation is rate limited', {
+					retry: { retryAfterMs: LIMITS.compileIntervalMs - elapsed },
+				});
+			}
+
+			gate.running = true;
+			gate.lastStartedAt = now;
+			try {
+				const result = await host.compileProject();
+				const changed = activeError(host);
+				if (changed) return changed;
+				const log = boundedText(result.log, LIMITS.compileLogBytes);
+				return bound(
+					{
+						ok: true,
+						projectId: host.projectId,
+						...result,
+						log: log.text,
+						logBytes: log.bytes,
+						logTruncated: log.truncated,
+					},
+					{ action: 'read_compile_diagnostics' },
+				);
+			} finally {
+				gate.running = false;
+			}
+		},
+	});
+}
+
 function createGitCommitTool(host: RinspaceAgentToolHost): AgentTool {
 	return createTool({
 		name: 'create_git_commit',
@@ -1125,12 +1213,14 @@ function pushGitCommitsTool(host: RinspaceAgentToolHost): AgentTool {
 }
 
 export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceAgentToolSet {
+	const compileGate: CompileGate = { running: false, lastStartedAt: 0 };
 	const tools = [
 		listTool(host),
 		readTool(host),
 		searchTool(host),
 		diagnosticsTool(host),
 		gitTool(host),
+		compileProjectTool(host, compileGate),
 		patchTool(host),
 		createFileTool(host),
 		renameFileTool(host),

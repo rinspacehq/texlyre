@@ -14,9 +14,13 @@ import { useCollab } from '@/hooks/useCollab';
 import { useExternalTypesetter } from '@/hooks/useExternalTypesetter';
 import { useLaTeX } from '@/hooks/useLaTeX';
 import { useSecrets } from '@/hooks/useSecrets';
+import { useSettings } from '@/hooks/useSettings';
 import { useTypst } from '@/hooks/useTypst';
+import { collabService } from '@/services/CollabService';
+import { fileStoreService } from '@/services/FileStoreService';
 import { gitService } from '@/services/GitService';
 import { gitSyncService } from '@/services/GitSyncService';
+import { typesetterRegistryService } from '@/services/TypesetterRegistryService';
 import type { DocumentList } from '@/types/documents';
 import {
 	RinspaceAgentController,
@@ -28,6 +32,7 @@ import { clearAgentState, saveAgentState } from './RinspaceAgentPersistence';
 import { rinspaceAgentTheme } from './RinspaceAgentTheme';
 import type {
 	RinspaceAgentDiagnosticSource,
+	RinspaceAgentCompileResult,
 	RinspaceAgentToolHost,
 } from './RinspaceAgentTools';
 import './styles.css';
@@ -51,17 +56,46 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const typst = useTypst();
 	const external = useExternalTypesetter();
 	const secrets = useSecrets();
+	const { getSetting } = useSettings();
 	const [collapsed, setCollapsed] = useState(false);
 	const [prompt, setPrompt] = useState('');
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
 	const [error, setError] = useState('');
+	const [markdownDiagnostic, setMarkdownDiagnostic] =
+		useState<RinspaceAgentDiagnosticSource>({
+			id: 'markdown',
+			status: 'idle',
+			error: null,
+			log: '',
+		});
 	const mounted = useRef(true);
 	const toolState = useRef<{
 		documents: DocumentList['documents'];
 		diagnostics: RinspaceAgentDiagnosticSource[];
-	}>({ documents: [], diagnostics: [] });
+		metadata: DocumentList['projectMetadata'];
+		revision: number;
+		busy: boolean;
+		compileLatex: (mainFile: string) => Promise<void>;
+		compileTypst: (mainFile: string) => Promise<void>;
+		compileExternal: (compilerId: string, mainFile: string) => Promise<void>;
+		compileMarkdown: (mainFile: string) => Promise<RinspaceAgentCompileResult>;
+		outputBytes: (source: 'latex' | 'typst' | 'external') => number | undefined;
+	}>({
+		documents: [],
+		diagnostics: [],
+		metadata: undefined,
+		revision: 0,
+		busy: false,
+		compileLatex: async () => undefined,
+		compileTypst: async () => undefined,
+		compileExternal: async () => undefined,
+		compileMarkdown: async () => {
+			throw new Error('Markdown preview is not ready');
+		},
+		outputBytes: () => undefined,
+	});
 	const diagnostics = useMemo<RinspaceAgentDiagnosticSource[]>(
 		() => [
 			{
@@ -100,12 +134,14 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				error: external.compileError,
 				log: external.compileLog,
 			},
+			markdownDiagnostic,
 		],
 		[
 			external.compileError,
 			external.compileLog,
 			external.isCompiling,
 			external.logIndicator,
+			markdownDiagnostic,
 			latex.compileError,
 			latex.compileLog,
 			latex.isCompiling,
@@ -117,17 +153,192 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		],
 	);
 	useEffect(() => {
+		const compileMarkdown = async (
+			mainFile: string,
+		): Promise<RinspaceAgentCompileResult> => {
+			setMarkdownDiagnostic({
+				id: 'markdown',
+				status: 'running',
+				error: null,
+				log: '',
+			});
+			try {
+				const file = await fileStoreService.getFileByPath(mainFile, false);
+				if (!file || file.type !== 'file' || file.content === undefined) {
+					throw new Error(`Markdown main file is unavailable: ${mainFile}`);
+				}
+				const live = file.documentId
+					? await collabService.readDocumentContent(projectId, file.documentId)
+					: undefined;
+				const markdown =
+					live ??
+					(typeof file.content === 'string'
+						? file.content
+						: new TextDecoder('utf-8', { fatal: true }).decode(file.content));
+				const [{ compileMarkdownPreview }, { getEnabledMilkdownPluginIds }] =
+					await Promise.all([
+						import('../../viewers/milkdown/compileMarkdownPreview'),
+						import('../../viewers/milkdown/settings'),
+					]);
+				const result = await compileMarkdownPreview(
+					markdown,
+					mainFile,
+					getEnabledMilkdownPluginIds(getSetting),
+				);
+				const compiled: RinspaceAgentCompileResult = {
+					compilerId: 'milkdown-preview',
+					mainFile,
+					status: 'success',
+					error: null,
+					log: result.log,
+					outputBytes: result.outputBytes,
+				};
+				setMarkdownDiagnostic({
+					id: 'markdown',
+					status: 'success',
+					error: null,
+					log: result.log,
+				});
+				return compiled;
+			} catch (reason) {
+				const message = reason instanceof Error ? reason.message : String(reason);
+				setMarkdownDiagnostic({
+					id: 'markdown',
+					status: 'error',
+					error: message,
+					log: message,
+				});
+				return {
+					compilerId: 'milkdown-preview',
+					mainFile,
+					status: 'error',
+					error: message,
+					log: message,
+				};
+			}
+		};
 		toolState.current = {
 			documents: project?.documents ?? [],
 			diagnostics,
+			metadata: project?.projectMetadata,
+			revision: toolState.current.revision + 1,
+			busy: latex.isCompiling || typst.isCompiling || external.isCompiling,
+			compileLatex: (mainFile) =>
+				latex.compileDocument(
+					mainFile,
+					project?.projectMetadata?.latexOutputFormat,
+				),
+			compileTypst: (mainFile) =>
+				typst.compileDocument(
+					mainFile,
+					project?.projectMetadata?.typstOutputFormat,
+					project?.projectMetadata?.typstPdfOptions,
+				),
+			compileExternal: async (compilerId, mainFile) => {
+				const provider = typesetterRegistryService.get(compilerId);
+				if (!provider) throw new Error(`Configured compiler is unavailable: ${compilerId}`);
+				await external.compileDocument(
+					compilerId,
+					mainFile,
+					provider.outputFormats[0]?.id,
+				);
+			},
+			compileMarkdown,
+			outputBytes: (source) => {
+				if (source === 'latex') {
+					return latex.compiledPdf?.byteLength ?? latex.compiledCanvas?.byteLength;
+				}
+				if (source === 'typst') {
+					return typst.compiledPdf?.byteLength ?? typst.compiledCanvas?.byteLength;
+				}
+				return external.compiledOutput?.byteLength;
+			},
 		};
-	}, [diagnostics, project?.documents]);
+	}, [
+		diagnostics,
+		external,
+		getSetting,
+		latex,
+		project?.documents,
+		project?.projectMetadata,
+		projectId,
+		typst,
+	]);
 	const toolHost = useMemo<Omit<RinspaceAgentToolHost, 'runId'>>(
 		() => ({
 			projectId,
 			isActive: () => mounted.current,
 			getDocuments: () => toolState.current.documents,
 			getDiagnostics: () => toolState.current.diagnostics,
+			compileProject: async () => {
+				const initial = toolState.current;
+				if (initial.busy) throw new Error('A TeXlyre compilation is already running');
+				const metadata = initial.metadata;
+				const managedBuild = metadata?.managedBuild;
+				if (managedBuild?.status === 'invalid') {
+					throw new Error(managedBuild.message);
+				}
+				const format =
+					managedBuild?.status === 'valid'
+						? managedBuild.format
+						: (metadata?.type ?? 'latex');
+				const configuredMain =
+					managedBuild?.status === 'valid'
+						? managedBuild.entry
+						: metadata?.mainFile;
+				if (!configuredMain) throw new Error('The project has no configured main file');
+				const mainFile = configuredMain.startsWith('/')
+					? configuredMain
+					: `/${configuredMain}`;
+				if (format === 'markdown') return initial.compileMarkdown(mainFile);
+				if (format === 'pdf') {
+					throw new Error('A PDF source project has no text compilation step');
+				}
+
+				const provider = managedBuild
+					? typesetterRegistryService.resolve(format)
+					: typesetterRegistryService.resolve(format, metadata?.compilerId);
+				if (!provider) {
+					throw new Error(`Configured compiler is unavailable for ${format}`);
+				}
+				const source: 'latex' | 'typst' | 'external' =
+					provider.id === 'internal:latex'
+						? 'latex'
+						: provider.id === 'internal:typst'
+							? 'typst'
+							: 'external';
+				const startRevision = initial.revision;
+				if (source === 'latex') await initial.compileLatex(mainFile);
+				else if (source === 'typst') await initial.compileTypst(mainFile);
+				else await initial.compileExternal(provider.id, mainFile);
+
+				let diagnostic = toolState.current.diagnostics.find(
+					(item) => item.id === source,
+				);
+				for (let attempt = 0; attempt < 40; attempt += 1) {
+					const current = toolState.current;
+					diagnostic = current.diagnostics.find((item) => item.id === source);
+					if (
+						current.revision > startRevision &&
+						diagnostic &&
+						diagnostic.status !== 'running'
+					) {
+						break;
+					}
+					await new Promise((resolve) => window.setTimeout(resolve, 25));
+				}
+				if (!diagnostic || diagnostic.status === 'idle' || diagnostic.status === 'running') {
+					throw new Error('The configured compiler did not publish a final result');
+				}
+				return {
+					compilerId: provider.id,
+					mainFile,
+					status: diagnostic.status,
+					error: diagnostic.error,
+					log: diagnostic.log,
+					outputBytes: toolState.current.outputBytes(source),
+				};
+			},
 			renameLinkedDocument: (documentId, path, origin) => {
 				let renamed = false;
 				changeProject((current) => {

@@ -78,6 +78,14 @@ const mockGit = {
 	compareFile: jest.fn(async () => null),
 };
 const mockCreateGitCommit = jest.fn(async () => 'commit-agent');
+const mockCompileProject = jest.fn(async () => ({
+	compilerId: 'internal:latex',
+	mainFile: '/main.tex',
+	status: 'success' as const,
+	error: null,
+	log: 'Compilation succeeded',
+	outputBytes: 2048,
+}));
 const pushPreview = {
 	providerId: 'rinspace-gitea',
 	providerName: 'Rinspace Gitea',
@@ -150,6 +158,7 @@ const host: RinspaceAgentToolHost = {
 	],
 	renameLinkedDocument: () => true,
 	deleteLinkedDocument: () => true,
+	compileProject: mockCompileProject,
 	createGitCommit: mockCreateGitCommit,
 	prepareGitPush: mockPrepareGitPush,
 	pushGitCommits: mockPushGitCommits,
@@ -196,6 +205,7 @@ test('normalizes only project-relative paths and closes the automatic tool set',
 		'search_project',
 		'read_compile_diagnostics',
 		'git_status',
+		'compile_project',
 		'apply_project_patch',
 		'create_project_file',
 		'rename_project_file',
@@ -205,6 +215,27 @@ test('normalizes only project-relative paths and closes the automatic tool set',
 	]);
 	expect(toolSet.policies.create_git_commit).toEqual({ enabled: true, autoApprove: true });
 	expect(toolSet.policies.push_git_commits).toEqual({ enabled: true, autoApprove: false });
+});
+
+test('runs the configured compiler automatically and rate limits repeated calls', async () => {
+	const compile = tool('compile_project');
+	const first = await compile.execute({}, context);
+	expect(first).toMatchObject({
+		ok: true,
+		compilerId: 'internal:latex',
+		mainFile: '/main.tex',
+		status: 'success',
+		log: 'Compilation succeeded',
+		logTruncated: false,
+	});
+	expect(mockCompileProject).toHaveBeenCalledTimes(1);
+
+	const sameToolSet = createRinspaceAgentTools(host);
+	const sameCompile = sameToolSet.tools.find((item) => item.name === 'compile_project');
+	if (!sameCompile) throw new Error('Missing compile_project');
+	await sameCompile.execute({}, context);
+	const limited = await sameCompile.execute({}, context);
+	expect(limited).toMatchObject({ ok: false, error: { code: 'busy' } });
 });
 
 test('creates local commits automatically and rewrites every Push into a fresh approval preview', async () => {
