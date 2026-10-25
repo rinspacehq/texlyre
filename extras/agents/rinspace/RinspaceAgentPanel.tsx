@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	AgentApprovalCard,
 	AgentMessageList,
@@ -10,6 +10,11 @@ import '@rinspacehq/cline-embed/styles.css';
 
 import type { AgentPanelProps } from '@/plugins/PluginInterface';
 import { ChevronDownIcon, ChevronUpIcon } from '@/components/common/Icons';
+import { useCollab } from '@/hooks/useCollab';
+import { useExternalTypesetter } from '@/hooks/useExternalTypesetter';
+import { useLaTeX } from '@/hooks/useLaTeX';
+import { useTypst } from '@/hooks/useTypst';
+import type { DocumentList } from '@/types/documents';
 import {
 	RinspaceAgentController,
 	loadRinspaceAgentConfig,
@@ -18,6 +23,10 @@ import {
 } from './RinspaceAgentRuntime';
 import { clearAgentState, saveAgentState } from './RinspaceAgentPersistence';
 import { rinspaceAgentTheme } from './RinspaceAgentTheme';
+import type {
+	RinspaceAgentDiagnosticSource,
+	RinspaceAgentToolHost,
+} from './RinspaceAgentTools';
 import './styles.css';
 
 function messageText(message: RinspaceAgentViewState['snapshot']['messages'][number]): string {
@@ -34,12 +43,77 @@ function messageText(message: RinspaceAgentViewState['snapshot']['messages'][num
 
 const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
 	const managed = context.mode === 'managed' ? context : null;
+	const { data: project } = useCollab<DocumentList>();
+	const latex = useLaTeX();
+	const typst = useTypst();
+	const external = useExternalTypesetter();
 	const [collapsed, setCollapsed] = useState(false);
 	const [prompt, setPrompt] = useState('');
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
 	const [error, setError] = useState('');
+	const mounted = useRef(true);
+	const toolState = useRef<{
+		documents: DocumentList['documents'];
+		diagnostics: RinspaceAgentDiagnosticSource[];
+	}>({ documents: [], diagnostics: [] });
+	toolState.current = {
+		documents: project?.documents ?? [],
+		diagnostics: [
+			{
+				id: 'latex',
+				status: latex.isCompiling
+					? 'running'
+					: latex.compileError || latex.logIndicator === 'error'
+						? 'error'
+						: latex.logIndicator === 'success'
+							? 'success'
+							: 'idle',
+				error: latex.compileError,
+				log: latex.compileLog,
+			},
+			{
+				id: 'typst',
+				status: typst.isCompiling
+					? 'running'
+					: typst.compileError || typst.logIndicator === 'error'
+						? 'error'
+						: typst.logIndicator === 'success'
+							? 'success'
+							: 'idle',
+				error: typst.compileError,
+				log: typst.compileLog,
+			},
+			{
+				id: 'external',
+				status: external.isCompiling
+					? 'running'
+					: external.compileError || external.logIndicator === 'error'
+						? 'error'
+						: external.logIndicator === 'success'
+							? 'success'
+							: 'idle',
+				error: external.compileError,
+				log: external.compileLog,
+			},
+		],
+	};
+	const toolHost = useMemo<Omit<RinspaceAgentToolHost, 'runId'>>(
+		() => ({
+			projectId,
+			isActive: () => mounted.current,
+			getDocuments: () => toolState.current.documents,
+			getDiagnostics: () => toolState.current.diagnostics,
+		}),
+		[projectId],
+	);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, [projectId]);
 	useEffect(() => {
 		if (!managed) return;
 		const abort = new AbortController();
@@ -86,7 +160,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		try {
 			const active =
 				controller ??
-				(await RinspaceAgentController.create(managed, projectId, config));
+				(await RinspaceAgentController.create(
+					managed,
+					projectId,
+					config,
+					toolHost,
+				));
 			if (!controller) setController(active);
 			const input = prompt.trim();
 			setPrompt('');

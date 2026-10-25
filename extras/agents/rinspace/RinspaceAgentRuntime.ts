@@ -10,7 +10,10 @@ import {
 import type { HostContext } from '@/workspace/contracts';
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import { RinspaceAgentModel } from './RinspaceAgentModel';
-import { createRinspaceAgentTools } from './RinspaceAgentTools';
+import {
+	createRinspaceAgentTools,
+	type RinspaceAgentToolHost,
+} from './RinspaceAgentTools';
 
 export interface RinspaceAgentConfig {
 	enabled: boolean;
@@ -103,11 +106,12 @@ export class RinspaceAgentController {
 		context: Extract<HostContext, { mode: 'managed' }>,
 		projectId: string,
 		config: RinspaceAgentConfig,
+		toolHost: Omit<RinspaceAgentToolHost, 'runId'>,
 		initialMessages: readonly AgentMessage[] = [],
 		signal?: AbortSignal,
 	): Promise<RinspaceAgentController> {
 		const runId = await createRun(context, projectId, config, signal);
-		const toolSet = createRinspaceAgentTools();
+		const toolSet = createRinspaceAgentTools({ ...toolHost, runId });
 		let controller: RinspaceAgentController | undefined;
 		const runtime = new AgentRuntime({
 			model: new RinspaceAgentModel(runId),
@@ -117,6 +121,7 @@ export class RinspaceAgentController {
 			maxIterations: config.maxIterations,
 			tools: toolSet.tools,
 			toolPolicies: toolSet.policies,
+			hooks: { beforeTool: toolSet.beforeTool },
 			messageModelInfo: { id: config.model, provider: 'rinspace' },
 			requestToolApproval: (request) =>
 				controller?.requestApproval(request) ?? {

@@ -1,12 +1,634 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { AgentTool, ToolPolicy } from '@rinspacehq/cline-embed';
+import {
+	createTool,
+	type AgentBeforeToolResult,
+	type AgentTool,
+	type AgentToolContext,
+	type ToolPolicy,
+} from '@rinspacehq/cline-embed';
+
+import { parseLatexLog } from '../../loggers/latex_visualizer/parser';
+import { parseTypstLog } from '../../loggers/typst_visualizer/parser';
+import { fileStoreService } from '@/services/FileStoreService';
+import { gitService } from '@/services/GitService';
+import { SearchService } from '@/services/SearchService';
+import type { Document } from '@/types/documents';
+import type { FileNode } from '@/types/files';
+import { isBinaryFile, isTemporaryFile } from '@/utils/fileUtils';
+
+const LIMITS = {
+	list: 200,
+	readFiles: 16,
+	fileBytes: 512 * 1024,
+	readBytes: 768 * 1024,
+	indexFiles: 2000,
+	searchMatches: 100,
+	diagnostics: 100,
+	gitChanges: 100,
+	comparisonBytes: 32 * 1024,
+	outputBytes: 1024 * 1024,
+} as const;
+
+const generatedSuffixes = [
+	'.aux',
+	'.bbl',
+	'.bcf',
+	'.fdb_latexmk',
+	'.fls',
+	'.log',
+	'.out',
+	'.run.xml',
+	'.synctex',
+	'.synctex.gz',
+	'.toc',
+];
+
+export interface RinspaceAgentDiagnosticSource {
+	id: 'latex' | 'typst' | 'external';
+	status: 'idle' | 'running' | 'success' | 'error';
+	error: string | null;
+	log: string;
+}
+
+export interface RinspaceAgentToolHost {
+	projectId: string;
+	runId: string;
+	isActive: () => boolean;
+	getDocuments: () => readonly Document[];
+	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
+}
 
 export interface RinspaceAgentToolSet {
 	tools: readonly AgentTool[];
 	policies: Readonly<Record<string, Readonly<ToolPolicy>>>;
+	beforeTool: () => AgentBeforeToolResult | undefined;
 }
 
-/** Tool implementations are added as audited TeXlyre service bridges. */
-export function createRinspaceAgentTools(): RinspaceAgentToolSet {
-	return { tools: [], policies: {} };
+interface ToolError {
+	ok: false;
+	error: {
+		code: 'invalid_input' | 'workspace_changed' | 'path_forbidden' | 'not_found' | 'not_text' | 'limit_exceeded';
+		message: string;
+		limit?: number;
+		actual?: number;
+		retry?: Record<string, unknown>;
+	};
+}
+
+interface TextRecord {
+	fileId: string;
+	path: string;
+	content: string;
+	contentSha256: string;
+	bytes: number;
+	totalLines: number;
+}
+
+const agentSearchService = new SearchService();
+
+interface ToolDependencies {
+	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath'>;
+	search: Pick<SearchService, 'search'>;
+	git: Pick<typeof gitService, 'isInitialized' | 'getCurrentBranch' | 'getHeadOid' | 'getWorktreeBaseOid' | 'getChanges' | 'getWorktreeChanges' | 'compareFile'>;
+}
+
+const dependencies: ToolDependencies = {
+	files: fileStoreService,
+	search: agentSearchService,
+	git: gitService,
+};
+
+function failure(
+	code: ToolError['error']['code'],
+	message: string,
+	extra: Omit<ToolError['error'], 'code' | 'message'> = {},
+): ToolError {
+	return { ok: false, error: { code, message, ...extra } };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedInteger(
+	value: unknown,
+	fallback: number,
+	minimum: number,
+	maximum: number,
+): number | null {
+	if (value === undefined) return fallback;
+	return Number.isSafeInteger(value) && Number(value) >= minimum && Number(value) <= maximum
+		? Number(value)
+		: null;
+}
+
+const byteLength = (value: string) => new TextEncoder().encode(value).byteLength;
+
+async function sha256(value: string | ArrayBuffer): Promise<string> {
+	const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(value);
+	const digest = await crypto.subtle.digest('SHA-256', bytes);
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function normalizeAgentProjectPath(value: unknown): string | ToolError {
+	if (typeof value !== 'string' || !value || byteLength(value) > 1024) {
+		return failure('invalid_input', 'A project-relative path of at most 1024 bytes is required');
+	}
+	if (value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/.test(value) || /[\u0000-\u001f\u007f]/.test(value)) {
+		return failure('path_forbidden', 'Absolute, platform and control-character paths are forbidden');
+	}
+	const parts = value.split('/');
+	if (parts.some((part) => !part || part === '.' || part === '..')) {
+		return failure('path_forbidden', 'Path traversal and empty segments are forbidden');
+	}
+	return parts.join('/');
+}
+
+const relativePath = (path: string) => path.replace(/^\/+/, '');
+
+function pathIsPrivate(path: string): boolean {
+	const storePath = `/${path}`;
+	const lower = path.toLowerCase();
+	const base = lower.split('/').at(-1) ?? '';
+	return (
+		isTemporaryFile(storePath) ||
+		base === '.ds_store' ||
+		generatedSuffixes.some((suffix) => base.endsWith(suffix)) ||
+		lower.split('/').some((part) => ['.cache', '.texlyre', 'node_modules'].includes(part))
+	);
+}
+
+function activeError(host: RinspaceAgentToolHost, context?: AgentToolContext): ToolError | null {
+	if (
+		!host.isActive() ||
+		dependencies.files.getCurrentProjectId() !== host.projectId ||
+		(context?.sessionId !== undefined && context.sessionId !== host.runId) ||
+		(context?.conversationId !== undefined && context.conversationId !== host.runId)
+	) {
+		return failure('workspace_changed', 'The task no longer owns the active managed project; start a new task');
+	}
+	return null;
+}
+
+function decodeText(content: string | ArrayBuffer): string | ToolError {
+	if (typeof content === 'string') return content;
+	try {
+		return new TextDecoder('utf-8', { fatal: true }).decode(content);
+	} catch {
+		return failure('not_text', 'File bytes are not valid UTF-8 text');
+	}
+}
+
+async function readText(path: string, host: RinspaceAgentToolHost): Promise<TextRecord | ToolError> {
+	const inactive = activeError(host);
+	if (inactive) return inactive;
+	if (pathIsPrivate(path)) return failure('path_forbidden', `Private metadata or cache path is forbidden: ${path}`);
+	const metadata = await dependencies.files.getFileByPath(`/${path}`, false);
+	const changedAfterMetadata = activeError(host);
+	if (changedAfterMetadata) return changedAfterMetadata;
+	if (!metadata || metadata.type !== 'file') return failure('not_found', `Project file does not exist: ${path}`);
+	if (metadata.isBinary || isBinaryFile(metadata.path)) return failure('not_text', `Binary file is not readable: ${path}`);
+	const stored = await dependencies.files.getFile(metadata.id);
+	const changedAfterContent = activeError(host);
+	if (changedAfterContent) return changedAfterContent;
+	if (!stored || stored.content === undefined) return failure('not_found', `File content is unavailable: ${path}`);
+	const live = metadata.documentId
+		? host.getDocuments().find((document) => document.id === metadata.documentId)?.content
+		: undefined;
+	const decoded = live ?? decodeText(stored.content);
+	if (typeof decoded !== 'string') return decoded;
+	const bytes = byteLength(decoded);
+	if (bytes > LIMITS.fileBytes) {
+		return failure('limit_exceeded', `File exceeds the Agent text limit: ${path}`, {
+			limit: LIMITS.fileBytes,
+			actual: bytes,
+			retry: { action: 'exclude_file', path },
+		});
+	}
+	return {
+		fileId: metadata.id,
+		path,
+		content: decoded,
+		contentSha256: await sha256(decoded),
+		bytes,
+		totalLines: decoded.split('\n').length,
+	};
+}
+
+function bound<T extends object>(value: T, retry: Record<string, unknown>): T | ToolError {
+	const actual = byteLength(JSON.stringify(value));
+	return actual <= LIMITS.outputBytes
+		? value
+		: failure('limit_exceeded', 'Tool output exceeds the response limit', {
+			limit: LIMITS.outputBytes,
+			actual,
+			retry,
+		});
+}
+
+function listTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'list_project_files',
+		description: 'List bounded metadata from the active project FileStore.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {
+				path: { type: 'string', maxLength: 1024 },
+				offset: { type: 'integer', minimum: 0 },
+				limit: { type: 'integer', minimum: 1, maximum: LIMITS.list },
+			},
+		},
+		executionMode: 'parallel',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input)) return failure('invalid_input', 'Input must be an object');
+			const offset = boundedInteger(input.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+			const limit = boundedInteger(input.limit, 100, 1, LIMITS.list);
+			if (offset === null || limit === null) return failure('invalid_input', 'Invalid offset or limit');
+			let prefix = '';
+			if (input.path !== undefined && input.path !== '') {
+				const normalized = normalizeAgentProjectPath(input.path);
+				if (typeof normalized !== 'string') return normalized;
+				if (pathIsPrivate(normalized)) return failure('path_forbidden', `Private path is forbidden: ${normalized}`);
+				prefix = normalized;
+			}
+			const visible = (await dependencies.files.getAllFiles(false, false, false))
+				.map((node) => ({ node, path: relativePath(node.path) }))
+				.filter(({ path }) => path && !pathIsPrivate(path))
+				.filter(({ path }) => !prefix || path === prefix || path.startsWith(`${prefix}/`))
+				.sort((left, right) => left.path.localeCompare(right.path));
+			const changed = activeError(host);
+			if (changed) return changed;
+			const entries = visible.slice(offset, offset + limit).map(({ node, path }) => ({
+				fileId: node.id,
+				path,
+				type: node.type,
+				size: node.size ?? null,
+				lastModified: node.lastModified,
+			}));
+			return bound({
+				ok: true,
+				projectId: host.projectId,
+				entries,
+				total: visible.length,
+				nextOffset: offset + entries.length < visible.length ? offset + entries.length : null,
+			}, { path: prefix || undefined, offset, limit: Math.max(1, Math.floor(limit / 2)) });
+		},
+	});
+}
+
+function readTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'read_project_files',
+		description: 'Read bounded UTF-8 files from the current FileStore/Y.Text view with SHA-256 baselines.',
+		inputSchema: {
+			type: 'object', additionalProperties: false, required: ['files'],
+			properties: {
+				files: {
+					type: 'array', minItems: 1, maxItems: LIMITS.readFiles,
+					items: {
+						type: 'object', additionalProperties: false, required: ['path'],
+						properties: {
+							path: { type: 'string', maxLength: 1024 },
+							startLine: { type: 'integer', minimum: 1 },
+							endLine: { type: 'integer', minimum: 1 },
+						},
+					},
+				},
+			},
+		},
+		executionMode: 'parallel',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || !Array.isArray(input.files) || input.files.length < 1 || input.files.length > LIMITS.readFiles) {
+				return failure('invalid_input', `files must contain 1-${LIMITS.readFiles} requests`);
+			}
+			const requests = input.files;
+			const files = [];
+			let returnedBytes = 0;
+			for (const request of requests) {
+				if (!isRecord(request)) return failure('invalid_input', 'Every file request must be an object');
+				const path = normalizeAgentProjectPath(request.path);
+				if (typeof path !== 'string') return path;
+				const startLine = boundedInteger(request.startLine, 1, 1, Number.MAX_SAFE_INTEGER);
+				const requestedEnd = request.endLine === undefined
+					? undefined
+					: boundedInteger(request.endLine, 1, 1, Number.MAX_SAFE_INTEGER);
+				if (startLine === null || requestedEnd === null || (requestedEnd !== undefined && requestedEnd < startLine)) {
+					return failure('invalid_input', `Invalid line range for ${path}`);
+				}
+				const record = await readText(path, host);
+				if (!('content' in record)) return record;
+				const lines = record.content.split('\n');
+				const endLine = Math.min(requestedEnd ?? lines.length, lines.length);
+				const content = lines.slice(startLine - 1, endLine).join('\n');
+				returnedBytes += byteLength(content);
+				if (returnedBytes > LIMITS.readBytes) {
+					return failure('limit_exceeded', 'Combined read exceeds the response limit', {
+						limit: LIMITS.readBytes,
+						actual: returnedBytes,
+						retry: { files: [{ path, startLine, endLine: Math.max(startLine, Math.floor(endLine / 2)) }] },
+					});
+				}
+				files.push({
+					fileId: record.fileId,
+					path,
+					contentSha256: record.contentSha256,
+					bytes: record.bytes,
+					totalLines: record.totalLines,
+					startLine,
+					endLine,
+					content,
+				});
+			}
+			return bound({ ok: true, projectId: host.projectId, files }, { files: requests.slice(0, 1) });
+		},
+	});
+}
+
+function searchPattern(query: string, caseSensitive: boolean, wholeWord: boolean): RegExp {
+	const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return new RegExp(wholeWord ? `\\b${escaped}\\b` : escaped, caseSensitive ? 'g' : 'gi');
+}
+
+function searchTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'search_project',
+		description: 'Search the current project text index with bounded literal matching.',
+		inputSchema: {
+			type: 'object', additionalProperties: false, required: ['query'],
+			properties: {
+				query: { type: 'string', minLength: 1, maxLength: 200 },
+				path: { type: 'string', maxLength: 1024 },
+				caseSensitive: { type: 'boolean' },
+				wholeWord: { type: 'boolean' },
+				maxResults: { type: 'integer', minimum: 1, maximum: LIMITS.searchMatches },
+			},
+		},
+		executionMode: 'parallel',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || typeof input.query !== 'string' || !input.query.trim() || input.query.length > 200) {
+				return failure('invalid_input', 'query must contain 1-200 characters');
+			}
+			const query = input.query;
+			if ((input.caseSensitive !== undefined && typeof input.caseSensitive !== 'boolean') || (input.wholeWord !== undefined && typeof input.wholeWord !== 'boolean')) {
+				return failure('invalid_input', 'Search flags must be booleans');
+			}
+			const maxResults = boundedInteger(input.maxResults, 50, 1, LIMITS.searchMatches);
+			if (maxResults === null) return failure('invalid_input', 'Invalid maxResults');
+			let prefix = '';
+			if (input.path !== undefined && input.path !== '') {
+				const normalized = normalizeAgentProjectPath(input.path);
+				if (typeof normalized !== 'string') return normalized;
+				if (pathIsPrivate(normalized)) return failure('path_forbidden', `Private path is forbidden: ${normalized}`);
+				prefix = normalized;
+			}
+			const metadata = (await dependencies.files.getAllFiles(false, false, false))
+				.filter((file) => file.type === 'file')
+				.map((file) => ({ file, path: relativePath(file.path) }))
+				.filter(({ file, path }) =>
+					!file.isBinary && !isBinaryFile(path) && !pathIsPrivate(path) &&
+					(!prefix || path === prefix || path.startsWith(`${prefix}/`)),
+				);
+			const changedAfterIndex = activeError(host);
+			if (changedAfterIndex) return changedAfterIndex;
+			if (metadata.length > LIMITS.indexFiles) {
+				return failure('limit_exceeded', 'Project text index exceeds the searchable file limit', {
+					limit: LIMITS.indexFiles,
+					actual: metadata.length,
+					retry: { query, path: prefix || 'narrower/directory' },
+				});
+			}
+			const indexed = await dependencies.search.search(query, {
+				caseSensitive: input.caseSensitive === true,
+				wholeWord: input.wholeWord === true,
+				useRegex: false,
+				includeFilenames: false,
+				includeContent: true,
+			});
+			const changedAfterSearch = activeError(host);
+			if (changedAfterSearch) return changedAfterSearch;
+			const indexedIds = new Set(indexed.map((result) => result.fileId));
+			const candidates = metadata.filter(({ file }) => file.documentId || indexedIds.has(file.id));
+			const pattern = searchPattern(query, input.caseSensitive === true, input.wholeWord === true);
+			const results = [];
+			let matchCount = 0;
+			for (const candidate of candidates) {
+				const record = await readText(candidate.path, host);
+				if (!('content' in record)) continue;
+				const matches = [];
+				for (const [lineIndex, line] of record.content.split('\n').entries()) {
+					pattern.lastIndex = 0;
+					let match: RegExpExecArray | null;
+					while ((match = pattern.exec(line)) !== null) {
+						matchCount += 1;
+						if (matchCount > maxResults) {
+							return failure('limit_exceeded', 'Search exceeds the requested result limit', {
+								limit: maxResults,
+								actual: matchCount,
+								retry: { query, path: candidate.path, maxResults },
+							});
+						}
+						matches.push({
+							line: lineIndex + 1,
+							column: match.index + 1,
+							text: line.length <= 800 ? line : `${line.slice(Math.max(0, match.index - 300), match.index + 500)}…`,
+						});
+					}
+				}
+				if (matches.length) results.push({ fileId: record.fileId, path: record.path, contentSha256: record.contentSha256, matches });
+			}
+			return bound({ ok: true, projectId: host.projectId, query, results }, {
+				query,
+				path: prefix || undefined,
+				maxResults: Math.max(1, Math.floor(maxResults / 2)),
+			});
+		},
+	});
+}
+
+const cleanMessage = (value: string | null | undefined) =>
+	value ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').slice(0, 2000) : null;
+
+function diagnosticsTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'read_compile_diagnostics',
+		description: 'Read bounded diagnostics from current LaTeX, Typst and external compiler contexts.',
+		inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+		executionMode: 'parallel',
+		retryable: false,
+		execute: async (_input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			const files = (await dependencies.files.getAllFiles(false, false, false))
+				.filter((file) => file.type === 'file')
+				.map((file) => ({ file, path: relativePath(file.path) }))
+				.filter(({ path }) => !pathIsPrivate(path));
+			const changedAfterFiles = activeError(host);
+			if (changedAfterFiles) return changedAfterFiles;
+			const byPath = new Map(files.map((entry) => [entry.path, entry]));
+			const sources = [];
+			for (const source of host.getDiagnostics()) {
+				const parsed = source.id === 'latex'
+					? parseLatexLog(source.log)
+					: source.id === 'typst'
+						? parseTypstLog(source.log)
+						: [...source.log.matchAll(/^(error|warning|info)(?:\[([^\]]+)\])?\s*:\s*(.+)$/gim)].map((match) => ({
+							type: match[1].toLowerCase() as 'error' | 'warning' | 'info',
+							file: match[2],
+							message: match[3],
+						}));
+				if (parsed.length > LIMITS.diagnostics) {
+					return failure('limit_exceeded', 'Compile diagnostics exceed the response limit', {
+						limit: LIMITS.diagnostics,
+						actual: parsed.length,
+						retry: { action: 'fix_highest_priority_diagnostics_first', source: source.id },
+					});
+				}
+				const projected = [];
+				for (const item of parsed) {
+					let identity: Record<string, unknown> = {};
+					if (item.file && !item.file.startsWith('/') && !item.file.includes('\\')) {
+						const path = relativePath(item.file);
+						let entry = byPath.get(path);
+						if (!entry) {
+							const sameBase = files.filter((candidate) => candidate.path.split('/').at(-1) === path.split('/').at(-1));
+							if (sameBase.length === 1) entry = sameBase[0];
+						}
+						if (entry) {
+							const record = await readText(entry.path, host);
+							if ('content' in record) identity = { fileId: record.fileId, path: record.path, contentSha256: record.contentSha256 };
+						}
+					}
+					projected.push({
+						type: item.type,
+						message: cleanMessage(
+							('fullMessage' in item ? item.fullMessage : undefined) || item.message,
+						),
+						line: 'line' in item ? (item.line ?? null) : null,
+						...identity,
+					});
+				}
+				sources.push({ id: source.id, status: source.status, error: cleanMessage(source.error), diagnostics: projected });
+			}
+			return bound({ ok: true, projectId: host.projectId, sources }, { action: 'request_one_compiler_source' });
+		},
+	});
+}
+
+async function projectComparison(
+	comparison: Awaited<ReturnType<typeof gitService.compareFile>>,
+): Promise<Record<string, unknown> | null> {
+	if (!comparison) return null;
+	const leftBytes = typeof comparison.leftContent === 'string' ? byteLength(comparison.leftContent) : comparison.leftContent.byteLength;
+	const rightBytes = typeof comparison.rightContent === 'string' ? byteLength(comparison.rightContent) : comparison.rightContent.byteLength;
+	const result: Record<string, unknown> = {
+		path: comparison.path,
+		type: comparison.type,
+		isBinary: comparison.isBinary,
+		leftBytes,
+		rightBytes,
+		leftSha256: await sha256(comparison.leftContent),
+		rightSha256: await sha256(comparison.rightContent),
+	};
+	if (!comparison.isBinary && leftBytes + rightBytes <= LIMITS.comparisonBytes) {
+		result.before = decodeText(comparison.leftContent);
+		result.after = decodeText(comparison.rightContent);
+	} else {
+		result.contentOmitted = true;
+	}
+	return result;
+}
+
+function gitTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'git_status',
+		description: 'Read current-project Git branch, HEAD, changes and bounded text comparisons.',
+		inputSchema: {
+			type: 'object', additionalProperties: false,
+			properties: {
+				includeComparisons: { type: 'boolean' },
+				maxChanges: { type: 'integer', minimum: 1, maximum: LIMITS.gitChanges },
+			},
+		},
+		executionMode: 'parallel',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || (input.includeComparisons !== undefined && typeof input.includeComparisons !== 'boolean')) {
+				return failure('invalid_input', 'Invalid Git status input');
+			}
+			const maxChanges = boundedInteger(input.maxChanges, 30, 1, LIMITS.gitChanges);
+			if (maxChanges === null) return failure('invalid_input', 'Invalid maxChanges');
+			if (!(await dependencies.git.isInitialized(host.projectId))) {
+				return { ok: true, projectId: host.projectId, initialized: false, branch: null, headOid: null, changes: [] };
+			}
+			const [branch, headOid, worktreeBaseOid, changes, worktreeChanges] = await Promise.all([
+				dependencies.git.getCurrentBranch(host.projectId),
+				dependencies.git.getHeadOid(host.projectId),
+				dependencies.git.getWorktreeBaseOid(host.projectId),
+				dependencies.git.getChanges(host.projectId),
+				dependencies.git.getWorktreeChanges(host.projectId),
+			]);
+			const changed = activeError(host);
+			if (changed) return changed;
+			const visible = changes
+				.map((change) => ({ ...change, path: relativePath(change.path) }))
+				.filter((change) => !pathIsPrivate(change.path));
+			if (visible.length > maxChanges) {
+				return failure('limit_exceeded', 'Git changes exceed the response limit', {
+					limit: maxChanges,
+					actual: visible.length,
+					retry: { includeComparisons: false, maxChanges: Math.min(LIMITS.gitChanges, visible.length) },
+				});
+			}
+			const comparisons = [];
+			if (input.includeComparisons !== false) {
+				for (const change of visible) {
+					const comparison = await dependencies.git.compareFile(
+						host.projectId,
+						change.path,
+						headOid ? { kind: 'commit', oid: headOid } : { kind: 'empty' },
+						{ kind: 'worktree' },
+					);
+					const projected = await projectComparison(comparison);
+					if (projected) comparisons.push(projected);
+				}
+			}
+			return bound({
+				ok: true,
+				projectId: host.projectId,
+				initialized: true,
+				branch,
+				headOid,
+				worktreeBaseOid,
+				changes: visible,
+				worktreeChanges: worktreeChanges
+					.map((change) => ({ ...change, path: relativePath(change.path) }))
+					.filter((change) => !pathIsPrivate(change.path)),
+				comparisons,
+			}, { includeComparisons: false, maxChanges });
+		},
+	});
+}
+
+export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceAgentToolSet {
+	const tools = [listTool(host), readTool(host), searchTool(host), diagnosticsTool(host), gitTool(host)];
+	return {
+		tools,
+		policies: Object.fromEntries(tools.map((tool) => [tool.name, { enabled: true, autoApprove: true }])),
+		beforeTool: () => {
+			const inactive = activeError(host);
+			return inactive ? { skip: true, reason: inactive.error.message } : undefined;
+		},
+	};
 }

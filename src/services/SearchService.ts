@@ -25,7 +25,7 @@ export interface SearchMatch {
 	matchEnd: number;
 }
 
-class SearchService {
+export class SearchService {
 	private currentAbortController: AbortController | null = null;
 	private readonly CHUNK_SIZE = 50;
 

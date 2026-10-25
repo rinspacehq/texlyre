@@ -4,8 +4,8 @@
   "patches": [
     {
       "id": "generic-agent-plugin-extension",
-      "files": ["src/plugins/PluginInterface.ts", "src/plugins/AgentPluginRegistry.ts", "src/plugins/PluginRegistry.ts", "src/components/agent/AgentPanelHost.tsx", "src/components/app/AppRouter.tsx", "src/components/app/EditorApp.tsx", "src/components/editor/FileDocumentController.tsx", "src/workspace/contracts.ts", "src/types/texlyre.ts", "texlyre.config.ts"],
-      "purpose": "Add a product-neutral Agent plugin type with current-host availability, registration, removal, lazily evaluated panel ownership and a standard resizable workspace panel host. Keep model vendors, credentials, tools, billing and Rinspace policy outside core.",
+      "files": ["src/plugins/PluginInterface.ts", "src/plugins/AgentPluginRegistry.ts", "src/plugins/PluginRegistry.ts", "src/components/agent/AgentPanelHost.tsx", "src/components/app/AppRouter.tsx", "src/components/app/EditorApp.tsx", "src/components/editor/FileDocumentController.tsx", "src/services/SearchService.ts", "src/workspace/contracts.ts", "src/types/texlyre.ts", "texlyre.config.ts"],
+      "purpose": "Add a product-neutral Agent plugin type with current-host availability, registration, removal, lazily evaluated panel ownership and a standard resizable workspace panel host. Export the existing SearchService constructor so an optional Agent can use an isolated cancellation scope instead of cancelling the human search panel. Keep model vendors, credentials, tools, billing and Rinspace policy outside core.",
       "tests": ["scripts/rinspace/agent-plugin-contract.test.mjs", "generated plugin index consistency", "standalone local editor regression"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies an equivalent product-neutral assistant panel lifecycle and plugin generator support.",

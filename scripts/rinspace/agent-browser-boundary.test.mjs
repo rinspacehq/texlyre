@@ -44,3 +44,27 @@ test('local workspaces cannot mount or fetch the lazy Agent panel', async () => 
 	assert.match(registry, /plugin\.isAvailable\(context\)/);
 	assert.doesNotMatch(host, /RinspaceAgentPanel|rinspace\/api/);
 });
+
+test('read-only Agent tools are a closed automatic project-scoped set', async () => {
+	const tools = await readFile(
+		path.join(agentRoot, 'RinspaceAgentTools.ts'),
+		'utf8',
+	);
+	for (const name of [
+		'list_project_files',
+		'read_project_files',
+		'search_project',
+		'read_compile_diagnostics',
+		'git_status',
+	]) {
+		assert.match(tools, new RegExp(`name: '${name}'`));
+	}
+	assert.match(tools, /enabled: true, autoApprove: true/);
+	assert.match(tools, /getCurrentProjectId\(\) !== host\.projectId/);
+	assert.match(tools, /part === '\.\.'|part === "\.\."/);
+	assert.match(tools, /isBinaryFile/);
+	assert.match(tools, /isTemporaryFile/);
+	assert.match(tools, /contentSha256/);
+	assert.doesNotMatch(tools, /name: 'push_git_commits'/);
+	assert.doesNotMatch(tools, /\bfetch\(/);
+});
