@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 
 import type { AgentTool } from '@rinspacehq/cline-embed';
 
@@ -42,8 +42,18 @@ const mockFiles = {
 	getFileByPath: jest.fn(async (path: string) =>
 		[mainFile, binaryFile, privateFile].find((file) => file.path === path),
 	),
+	updateFileContent: jest.fn(async () => mainFile),
+	storeFile: jest.fn(async (file: { id: string }) => file.id),
+	createDirectoryPath: jest.fn(async () => undefined),
+	batchMoveFiles: jest.fn(async () => ['file-renamed']),
+	deleteFile: jest.fn(async () => undefined),
 };
 const mockSearch = jest.fn(async () => [{ fileId: mainFile.id }]);
+const mockUpdateDocumentContent = jest.fn(async (
+	_projectId: string,
+	_documentId: string,
+	updater: (content: string) => string,
+) => updater('Hello 琳\nalpha beta'));
 const mockGit = {
 	isInitialized: jest.fn(async () => false),
 	getCurrentBranch: jest.fn(async () => 'main'),
@@ -55,6 +65,9 @@ const mockGit = {
 };
 
 jest.mock('@/services/FileStoreService', () => ({ fileStoreService: mockFiles }));
+jest.mock('@/services/CollabService', () => ({
+	collabService: { updateDocumentContent: mockUpdateDocumentContent },
+}));
 jest.mock('@/services/SearchService', () => ({
 	SearchService: jest.fn().mockImplementation(() => ({ search: mockSearch })),
 }));
@@ -96,6 +109,8 @@ const host: RinspaceAgentToolHost = {
 			log: '! LaTeX Error: Broken input.\nl.2 alpha beta',
 		},
 	],
+	renameLinkedDocument: () => true,
+	deleteLinkedDocument: () => true,
 };
 
 const context = {
@@ -138,6 +153,10 @@ test('normalizes only project-relative paths and closes the automatic tool set',
 		'search_project',
 		'read_compile_diagnostics',
 		'git_status',
+		'apply_project_patch',
+		'create_project_file',
+		'rename_project_file',
+		'delete_project_file',
 	]);
 	expect(Object.values(toolSet.policies)).toEqual(
 		expect.arrayContaining([
@@ -185,6 +204,81 @@ test('search recomputes indexed matches from the current document and returns fi
 		'alpha',
 		expect.objectContaining({ useRegex: false, includeContent: true }),
 	);
+});
+
+test('applies a baseline-bound patch through one host Yjs transaction', async () => {
+	const before = 'Hello 琳\nalpha beta';
+	const baseline = createHash('sha256').update(before).digest('hex');
+	const result = (await tool('apply_project_patch').execute(
+		{
+			path: 'main.tex',
+			expectedSha256: baseline,
+			edits: [{
+				startLine: 2,
+				startColumn: 1,
+				endLine: 2,
+				endColumn: 6,
+				replacement: 'gamma',
+			}],
+		},
+		{ ...context, toolCallId: 'tool-call-1' },
+	)) as Record<string, unknown>;
+	expect(result).toMatchObject({
+		ok: true,
+		path: 'main.tex',
+		beforeSha256: baseline,
+		transactionOrigin: 'run-1:tool-call-1',
+	});
+	expect(mockUpdateDocumentContent).toHaveBeenCalledWith(
+		'project-1',
+		'document-main',
+		expect.any(Function),
+		expect.objectContaining({
+			edits: [{ from: 8, to: 13, insert: 'gamma' }],
+			origin: expect.objectContaining({ source: 'rinspace-agent' }),
+		}),
+	);
+});
+
+test('creates, renames and recoverably deletes only explicit project files', async () => {
+	const created = (await tool('create_project_file').execute(
+		{ path: 'chapters/new.tex', content: '新章节 $x^2$' },
+		{ ...context, toolCallId: 'create-1' },
+	)) as Record<string, unknown>;
+	expect(created).toMatchObject({ ok: true, path: 'chapters/new.tex' });
+	expect(mockFiles.createDirectoryPath).toHaveBeenCalledWith('/chapters/new.tex');
+	expect(mockFiles.storeFile).toHaveBeenCalledWith(
+		expect.objectContaining({ path: '/chapters/new.tex', isBinary: false }),
+		{ showConflictDialog: false },
+	);
+
+	const baseline = createHash('sha256')
+		.update('Hello 琳\nalpha beta')
+		.digest('hex');
+	const renamed = (await tool('rename_project_file').execute(
+		{ path: 'main.tex', newPath: 'renamed.tex', expectedSha256: baseline },
+		{ ...context, toolCallId: 'rename-1' },
+	)) as Record<string, unknown>;
+	expect(renamed).toMatchObject({
+		ok: true,
+		oldPath: 'main.tex',
+		path: 'renamed.tex',
+	});
+	expect(mockFiles.batchMoveFiles).toHaveBeenCalledWith(
+		[{ fileId: 'file-main', targetPath: '/renamed.tex' }],
+		{ showConflictDialog: false },
+	);
+
+	const deleted = (await tool('delete_project_file').execute(
+		{ path: 'main.tex', expectedSha256: baseline },
+		{ ...context, toolCallId: 'delete-1' },
+	)) as Record<string, unknown>;
+	expect(deleted).toMatchObject({ ok: true, path: 'main.tex' });
+	expect(mockFiles.deleteFile).toHaveBeenCalledWith('file-main', {
+		showDeleteDialog: false,
+		hardDelete: false,
+		allowLinkedFileDelete: true,
+	});
 });
 
 test('diagnostics resolve only current project files and Git status stays project-bound', async () => {

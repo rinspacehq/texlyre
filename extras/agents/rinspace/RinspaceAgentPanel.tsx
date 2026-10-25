@@ -43,7 +43,7 @@ function messageText(message: RinspaceAgentViewState['snapshot']['messages'][num
 
 const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
 	const managed = context.mode === 'managed' ? context : null;
-	const { data: project } = useCollab<DocumentList>();
+	const { data: project, changeData: changeProject } = useCollab<DocumentList>();
 	const latex = useLaTeX();
 	const typst = useTypst();
 	const external = useExternalTypesetter();
@@ -124,8 +124,31 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			isActive: () => mounted.current,
 			getDocuments: () => toolState.current.documents,
 			getDiagnostics: () => toolState.current.diagnostics,
+			renameLinkedDocument: (documentId, path, origin) => {
+				let renamed = false;
+				changeProject((current) => {
+					const document = current.documents?.find((item) => item.id === documentId);
+					if (!document) return;
+					document.name = `/${path}`;
+					renamed = true;
+				}, origin);
+				return renamed;
+			},
+			deleteLinkedDocument: (documentId, origin) => {
+				let deleted = false;
+				changeProject((current) => {
+					const index = current.documents?.findIndex((item) => item.id === documentId) ?? -1;
+					if (index < 0) return;
+					current.documents.splice(index, 1);
+					if (current.currentDocId === documentId) {
+						current.currentDocId = current.documents[0]?.id ?? '';
+					}
+					deleted = true;
+				}, origin);
+				return deleted;
+			},
 		}),
-		[projectId],
+		[changeProject, projectId],
 	);
 	useEffect(() => {
 		mounted.current = true;

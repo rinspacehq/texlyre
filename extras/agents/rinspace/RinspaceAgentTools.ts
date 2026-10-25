@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { nanoid } from 'nanoid';
 import {
 	createTool,
 	type AgentBeforeToolResult,
@@ -9,11 +10,21 @@ import {
 
 import { parseLatexLog } from '../../loggers/latex_visualizer/parser';
 import { parseTypstLog } from '../../loggers/typst_visualizer/parser';
+import { collabService } from '@/services/CollabService';
+import {
+	applyDocumentTextEdits,
+	HostDocumentEditOrigin,
+	type DocumentTextEdit,
+} from '@/services/DocumentTextEdits';
 import { fileStoreService } from '@/services/FileStoreService';
 import { gitService } from '@/services/GitService';
 import { SearchService } from '@/services/SearchService';
 import type { Document } from '@/types/documents';
-import { isBinaryFile, isTemporaryFile } from '@/utils/fileUtils';
+import {
+	getMimeType,
+	isBinaryFile,
+	isTemporaryFile,
+} from '@/utils/fileUtils';
 
 const LIMITS = {
 	list: 200,
@@ -25,6 +36,7 @@ const LIMITS = {
 	diagnostics: 100,
 	gitChanges: 100,
 	comparisonBytes: 32 * 1024,
+	patchEdits: 64,
 	outputBytes: 1024 * 1024,
 } as const;
 
@@ -55,6 +67,8 @@ export interface RinspaceAgentToolHost {
 	isActive: () => boolean;
 	getDocuments: () => readonly Document[];
 	getDiagnostics: () => readonly RinspaceAgentDiagnosticSource[];
+	renameLinkedDocument: (documentId: string, path: string, origin: unknown) => boolean;
+	deleteLinkedDocument: (documentId: string, origin: unknown) => boolean;
 }
 
 export interface RinspaceAgentToolSet {
@@ -66,7 +80,7 @@ export interface RinspaceAgentToolSet {
 interface ToolError {
 	ok: false;
 	error: {
-		code: 'invalid_input' | 'workspace_changed' | 'path_forbidden' | 'not_found' | 'not_text' | 'limit_exceeded';
+		code: 'invalid_input' | 'workspace_changed' | 'path_forbidden' | 'not_found' | 'not_text' | 'limit_exceeded' | 'conflict';
 		message: string;
 		limit?: number;
 		actual?: number;
@@ -81,18 +95,21 @@ interface TextRecord {
 	contentSha256: string;
 	bytes: number;
 	totalLines: number;
+	documentId?: string;
 }
 
 const agentSearchService = new SearchService();
 
 interface ToolDependencies {
-	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath'>;
+	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContent' | 'storeFile' | 'createDirectoryPath' | 'batchMoveFiles' | 'deleteFile'>;
+	collab: Pick<typeof collabService, 'updateDocumentContent'>;
 	search: Pick<SearchService, 'search'>;
 	git: Pick<typeof gitService, 'isInitialized' | 'getCurrentBranch' | 'getHeadOid' | 'getWorktreeBaseOid' | 'getChanges' | 'getWorktreeChanges' | 'compareFile'>;
 }
 
 const dependencies: ToolDependencies = {
 	files: fileStoreService,
+	collab: collabService,
 	search: agentSearchService,
 	git: gitService,
 };
@@ -216,6 +233,7 @@ async function readText(path: string, host: RinspaceAgentToolHost): Promise<Text
 		contentSha256: await sha256(decoded),
 		bytes,
 		totalLines: decoded.split('\n').length,
+		documentId: metadata.documentId,
 	};
 }
 
@@ -351,6 +369,362 @@ function readTool(host: RinspaceAgentToolHost): AgentTool {
 				});
 			}
 			return bound({ ok: true, projectId: host.projectId, files }, { files: requests.slice(0, 1) });
+		},
+	});
+}
+
+function textPositionOffset(
+	content: string,
+	lineValue: unknown,
+	columnValue: unknown,
+): number | null {
+	if (
+		!Number.isSafeInteger(lineValue) ||
+		!Number.isSafeInteger(columnValue) ||
+		Number(lineValue) < 1 ||
+		Number(columnValue) < 1
+	) {
+		return null;
+	}
+	const line = Number(lineValue);
+	const column = Number(columnValue);
+	let currentLine = 1;
+	let start = 0;
+	while (currentLine < line) {
+		const newline = content.indexOf('\n', start);
+		if (newline < 0) return null;
+		start = newline + 1;
+		currentLine += 1;
+	}
+	const newline = content.indexOf('\n', start);
+	const rawEnd = newline < 0 ? content.length : newline;
+	const end = rawEnd > start && content[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd;
+	return column - 1 <= end - start ? start + column - 1 : null;
+}
+
+function patchTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'apply_project_patch',
+		description: 'Apply bounded text edits to one current-project file using a required SHA-256 baseline and one host transaction.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['path', 'expectedSha256', 'edits'],
+			properties: {
+				path: { type: 'string', minLength: 1, maxLength: 1024 },
+				expectedSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+				edits: {
+					type: 'array',
+					minItems: 1,
+					maxItems: LIMITS.patchEdits,
+					items: {
+						type: 'object',
+						additionalProperties: false,
+						required: ['startLine', 'startColumn', 'endLine', 'endColumn', 'replacement'],
+						properties: {
+							startLine: { type: 'integer', minimum: 1 },
+							startColumn: { type: 'integer', minimum: 1 },
+							endLine: { type: 'integer', minimum: 1 },
+							endColumn: { type: 'integer', minimum: 1 },
+							replacement: { type: 'string', maxLength: LIMITS.fileBytes },
+						},
+					},
+				},
+			},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (
+				!isRecord(input) ||
+				typeof input.expectedSha256 !== 'string' ||
+				!/^[0-9a-f]{64}$/.test(input.expectedSha256) ||
+				!Array.isArray(input.edits) ||
+				input.edits.length < 1 ||
+				input.edits.length > LIMITS.patchEdits
+			) {
+				return failure('invalid_input', 'A path, lowercase SHA-256 baseline and bounded edits are required');
+			}
+			const path = normalizeAgentProjectPath(input.path);
+			if (typeof path !== 'string') return path;
+			const record = await readText(path, host);
+			if (!('content' in record)) return record;
+			if (record.contentSha256 !== input.expectedSha256) {
+				return failure('conflict', 'File content changed after the Agent read it; read the file again before editing', {
+					retry: { action: 'read_project_files', path, actualSha256: record.contentSha256 },
+				});
+			}
+			const edits: DocumentTextEdit[] = [];
+			for (const candidate of input.edits) {
+				if (!isRecord(candidate) || typeof candidate.replacement !== 'string') {
+					return failure('invalid_input', 'Every text edit requires positions and replacement text');
+				}
+				const from = textPositionOffset(record.content, candidate.startLine, candidate.startColumn);
+				const to = textPositionOffset(record.content, candidate.endLine, candidate.endColumn);
+				if (from === null || to === null || to < from) {
+					return failure('invalid_input', `Invalid text range for ${path}`);
+				}
+				edits.push({ from, to, insert: candidate.replacement });
+			}
+			let nextContent: string;
+			try {
+				nextContent = applyDocumentTextEdits(record.content, edits);
+			} catch (reason) {
+				return failure('invalid_input', reason instanceof Error ? reason.message : 'Invalid text edits');
+			}
+			const nextBytes = byteLength(nextContent);
+			if (nextBytes > LIMITS.fileBytes) {
+				return failure('limit_exceeded', 'Patched file exceeds the Agent text limit', {
+					limit: LIMITS.fileBytes,
+					actual: nextBytes,
+					retry: { action: 'apply_smaller_patch', path },
+				});
+			}
+			const changed = activeError(host, context);
+			if (changed) return changed;
+			const origin = new HostDocumentEditOrigin(
+				'rinspace-agent',
+				`${host.runId}:${context.toolCallId}`,
+			);
+			if (record.documentId) {
+				let baselineChanged = false;
+				try {
+					await dependencies.collab.updateDocumentContent(
+						host.projectId,
+						record.documentId,
+						(currentContent) => {
+							if (currentContent !== record.content) {
+								baselineChanged = true;
+								throw new Error('Agent edit baseline changed');
+							}
+							return nextContent;
+						},
+						{ edits, origin },
+					);
+				} catch (reason) {
+					if (!baselineChanged) throw reason;
+					return failure('conflict', 'Collaborative content changed before the patch transaction; read it again', {
+						retry: { action: 'read_project_files', path },
+					});
+				}
+			} else {
+				const latest = await dependencies.files.getFile(record.fileId);
+				const latestText = latest?.content === undefined ? null : decodeText(latest.content);
+				if (typeof latestText !== 'string' || latestText !== record.content) {
+					return failure('conflict', 'Stored file content changed before the patch write; read it again', {
+						retry: { action: 'read_project_files', path },
+					});
+				}
+				await dependencies.files.updateFileContent(record.fileId, nextContent);
+			}
+			return bound({
+				ok: true,
+				projectId: host.projectId,
+				fileId: record.fileId,
+				path,
+				beforeSha256: record.contentSha256,
+				afterSha256: await sha256(nextContent),
+				bytes: nextBytes,
+				transactionOrigin: origin.operationId,
+			}, { action: 'read_project_files', path });
+		},
+	});
+}
+
+function createFileTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'create_project_file',
+		description: 'Create one bounded UTF-8 text file in the active project without overwriting an existing path.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['path', 'content'],
+			properties: {
+				path: { type: 'string', minLength: 1, maxLength: 1024 },
+				content: { type: 'string', maxLength: LIMITS.fileBytes },
+			},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || typeof input.content !== 'string') {
+				return failure('invalid_input', 'A project-relative path and UTF-8 content are required');
+			}
+			const path = normalizeAgentProjectPath(input.path);
+			if (typeof path !== 'string') return path;
+			if (pathIsPrivate(path) || isBinaryFile(path)) {
+				return failure('path_forbidden', `Private, generated or binary file path is forbidden: ${path}`);
+			}
+			const bytes = byteLength(input.content);
+			if (bytes > LIMITS.fileBytes) {
+				return failure('limit_exceeded', 'New file exceeds the Agent text limit', {
+					limit: LIMITS.fileBytes,
+					actual: bytes,
+					retry: { action: 'create_smaller_file', path },
+				});
+			}
+			const existing = await dependencies.files.getFileByPath(`/${path}`, true);
+			const changed = activeError(host, context);
+			if (changed) return changed;
+			if (existing && !existing.isDeleted) {
+				return failure('conflict', `A project entry already exists at ${path}`, {
+					retry: { action: 'choose_another_path', path },
+				});
+			}
+			await dependencies.files.createDirectoryPath(`/${path}`);
+			const changedAfterDirectories = activeError(host, context);
+			if (changedAfterDirectories) return changedAfterDirectories;
+			const fileId = await dependencies.files.storeFile({
+				id: existing?.id ?? nanoid(),
+				name: path.split('/').at(-1) ?? path,
+				path: `/${path}`,
+				type: 'file',
+				content: input.content,
+				isBinary: false,
+				mimeType: getMimeType(path),
+				lastModified: Date.now(),
+			}, { showConflictDialog: false });
+			return {
+				ok: true,
+				projectId: host.projectId,
+				fileId,
+				path,
+				contentSha256: await sha256(input.content),
+				bytes,
+			};
+		},
+	});
+}
+
+function renameFileTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'rename_project_file',
+		description: 'Rename one baseline-bound current-project text file without replacing an existing path.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['path', 'newPath', 'expectedSha256'],
+			properties: {
+				path: { type: 'string', minLength: 1, maxLength: 1024 },
+				newPath: { type: 'string', minLength: 1, maxLength: 1024 },
+				expectedSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+			},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || typeof input.expectedSha256 !== 'string') {
+				return failure('invalid_input', 'Old path, new path and SHA-256 baseline are required');
+			}
+			const path = normalizeAgentProjectPath(input.path);
+			if (typeof path !== 'string') return path;
+			const newPath = normalizeAgentProjectPath(input.newPath);
+			if (typeof newPath !== 'string') return newPath;
+			if (path === newPath || pathIsPrivate(newPath) || isBinaryFile(newPath)) {
+				return failure('path_forbidden', 'Rename target must be a distinct visible text-file path');
+			}
+			const record = await readText(path, host);
+			if (!('content' in record)) return record;
+			if (record.contentSha256 !== input.expectedSha256) {
+				return failure('conflict', 'File content changed before rename; read it again', {
+					retry: { action: 'read_project_files', path, actualSha256: record.contentSha256 },
+				});
+			}
+			const existing = await dependencies.files.getFileByPath(`/${newPath}`, false);
+			const changed = activeError(host, context);
+			if (changed) return changed;
+			if (existing) {
+				return failure('conflict', `Rename target already exists: ${newPath}`, {
+					retry: { action: 'choose_another_path', path: newPath },
+				});
+			}
+			const [newFileId] = await dependencies.files.batchMoveFiles([
+				{ fileId: record.fileId, targetPath: `/${newPath}` },
+			], { showConflictDialog: false });
+			if (!newFileId) return failure('conflict', 'File rename did not commit; inspect the current file tree');
+			const origin = new HostDocumentEditOrigin(
+				'rinspace-agent',
+				`${host.runId}:${context.toolCallId}`,
+			);
+			if (record.documentId && !host.renameLinkedDocument(record.documentId, newPath, origin)) {
+				return failure('workspace_changed', 'Linked document changed during rename; refresh the project before continuing');
+			}
+			return {
+				ok: true,
+				projectId: host.projectId,
+				fileId: newFileId,
+				oldPath: path,
+				path: newPath,
+				contentSha256: record.contentSha256,
+				transactionOrigin: origin.operationId,
+			};
+		},
+	});
+}
+
+function deleteFileTool(host: RinspaceAgentToolHost): AgentTool {
+	return createTool({
+		name: 'delete_project_file',
+		description: 'Delete one baseline-bound current-project text file while retaining recoverable browser deletion evidence.',
+		inputSchema: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['path', 'expectedSha256'],
+			properties: {
+				path: { type: 'string', minLength: 1, maxLength: 1024 },
+				expectedSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+			},
+		},
+		executionMode: 'sequential',
+		retryable: false,
+		execute: async (input: unknown, context) => {
+			const inactive = activeError(host, context);
+			if (inactive) return inactive;
+			if (!isRecord(input) || typeof input.expectedSha256 !== 'string') {
+				return failure('invalid_input', 'A path and SHA-256 baseline are required');
+			}
+			const path = normalizeAgentProjectPath(input.path);
+			if (typeof path !== 'string') return path;
+			const record = await readText(path, host);
+			if (!('content' in record)) return record;
+			if (record.contentSha256 !== input.expectedSha256) {
+				return failure('conflict', 'File content changed before deletion; read it again', {
+					retry: { action: 'read_project_files', path, actualSha256: record.contentSha256 },
+				});
+			}
+			const confirmation = await readText(path, host);
+			if (!('content' in confirmation)) return confirmation;
+			if (confirmation.contentSha256 !== record.contentSha256) {
+				return failure('conflict', 'File content changed while preparing deletion; read it again', {
+					retry: { action: 'read_project_files', path, actualSha256: confirmation.contentSha256 },
+				});
+			}
+			await dependencies.files.deleteFile(record.fileId, {
+				showDeleteDialog: false,
+				hardDelete: false,
+				allowLinkedFileDelete: true,
+			});
+			const origin = new HostDocumentEditOrigin(
+				'rinspace-agent',
+				`${host.runId}:${context.toolCallId}`,
+			);
+			if (record.documentId && !host.deleteLinkedDocument(record.documentId, origin)) {
+				return failure('workspace_changed', 'Linked document changed during deletion; refresh the project before continuing');
+			}
+			return {
+				ok: true,
+				projectId: host.projectId,
+				fileId: record.fileId,
+				path,
+				deletedSha256: record.contentSha256,
+				transactionOrigin: origin.operationId,
+			};
 		},
 	});
 }
@@ -631,7 +1005,17 @@ function gitTool(host: RinspaceAgentToolHost): AgentTool {
 }
 
 export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceAgentToolSet {
-	const tools = [listTool(host), readTool(host), searchTool(host), diagnosticsTool(host), gitTool(host)];
+	const tools = [
+		listTool(host),
+		readTool(host),
+		searchTool(host),
+		diagnosticsTool(host),
+		gitTool(host),
+		patchTool(host),
+		createFileTool(host),
+		renameFileTool(host),
+		deleteFileTool(host),
+	];
 	return {
 		tools,
 		policies: Object.fromEntries(tools.map((tool) => [tool.name, { enabled: true, autoApprove: true }])),
