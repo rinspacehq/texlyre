@@ -1336,11 +1336,17 @@ export class FileStoreService {
 			await tx.done;
 			return { status: 'not-found' };
 		}
-		if (
-			stored.isDeleted ||
-			typeof stored.content !== 'string' ||
-			stored.content !== expectedContent
-		) {
+		let storedText: string | null = null;
+		if (typeof stored.content === 'string') {
+			storedText = stored.content;
+		} else if (stored.content instanceof ArrayBuffer) {
+			try {
+				storedText = new TextDecoder('utf-8', { fatal: true }).decode(stored.content);
+			} catch {
+				storedText = null;
+			}
+		}
+		if (stored.isDeleted || storedText !== expectedContent) {
 			await tx.done;
 			return { status: 'conflict' };
 		}

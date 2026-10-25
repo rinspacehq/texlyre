@@ -58,11 +58,16 @@ const mockFiles = {
 	deleteFile: jest.fn(async () => undefined),
 };
 const mockSearch = jest.fn(async () => [{ fileId: mainFile.id }]);
+let liveMainContent = 'Hello 琳\nalpha beta';
 const mockUpdateDocumentContent = jest.fn(async (
 	_projectId: string,
 	_documentId: string,
 	updater: (content: string) => string,
-) => updater('Hello 琳\nalpha beta'));
+) => {
+	const next = updater(liveMainContent);
+	liveMainContent = next;
+	return next;
+});
 const mockGit = {
 	isInitialized: jest.fn(async () => false),
 	getCurrentBranch: jest.fn(async () => 'main'),
@@ -75,7 +80,10 @@ const mockGit = {
 
 jest.mock('@/services/FileStoreService', () => ({ fileStoreService: mockFiles }));
 jest.mock('@/services/CollabService', () => ({
-	collabService: { updateDocumentContent: mockUpdateDocumentContent },
+	collabService: {
+		readDocumentContent: jest.fn(async () => liveMainContent),
+		updateDocumentContent: mockUpdateDocumentContent,
+	},
 }));
 jest.mock('@/services/SearchService', () => ({
 	SearchService: jest.fn().mockImplementation(() => ({ search: mockSearch })),
@@ -108,7 +116,7 @@ const host: RinspaceAgentToolHost = {
 	runId: 'run-1',
 	isActive: () => true,
 	getDocuments: () => [
-		{ id: 'document-main', name: 'main.tex', content: 'Hello 琳\nalpha beta' },
+		{ id: 'document-main', name: 'main.tex', content: liveMainContent },
 	],
 	getDiagnostics: () => [
 		{
@@ -144,6 +152,7 @@ beforeAll(() => {
 
 beforeEach(() => {
 	jest.clearAllMocks();
+	liveMainContent = 'Hello 琳\nalpha beta';
 	mockFiles.getCurrentProjectId.mockReturnValue('project-1');
 });
 
@@ -246,6 +255,11 @@ test('applies a baseline-bound patch through one host Yjs transaction', async ()
 			edits: [{ from: 8, to: 13, insert: 'gamma' }],
 			origin: expect.objectContaining({ source: 'rinspace-agent' }),
 		}),
+	);
+	expect(mockFiles.updateFileContentIfUnchanged).toHaveBeenCalledWith(
+		'file-main',
+		'stale content',
+		'Hello 琳\ngamma beta',
 	);
 });
 

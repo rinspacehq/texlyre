@@ -127,3 +127,22 @@ test('a conditional content update never overwrites a newer browser value', asyn
 	userStore.cleanup();
 	agentStore.cleanup();
 });
+
+test('a conditional content update accepts the same UTF-8 baseline stored as bytes', async () => {
+	const projectId = `conditional-bytes-${Date.now()}`;
+	const store = new FileStoreService();
+	store.setProjectId(projectId);
+	await store.initialize();
+	await store.db?.put('files', {
+		...originalFile(),
+		content: new TextEncoder().encode('中文 $x^2$').buffer,
+	});
+
+	await expect(
+		store.updateFileContentIfUnchanged('main', '中文 $x^2$', '中文 $y^2$'),
+	).resolves.toMatchObject({
+		status: 'updated',
+		file: { content: '中文 $y^2$' },
+	});
+	store.cleanup();
+});

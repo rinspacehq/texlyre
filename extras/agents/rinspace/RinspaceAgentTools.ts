@@ -92,6 +92,7 @@ interface TextRecord {
 	fileId: string;
 	path: string;
 	content: string;
+	storedContent: string;
 	contentSha256: string;
 	bytes: number;
 	totalLines: number;
@@ -102,7 +103,7 @@ const agentSearchService = new SearchService();
 
 interface ToolDependencies {
 	files: Pick<typeof fileStoreService, 'getCurrentProjectId' | 'getAllFiles' | 'getFile' | 'getFileByPath' | 'updateFileContentIfUnchanged' | 'storeFile' | 'createDirectoryPath' | 'batchMoveFiles' | 'deleteFile'>;
-	collab: Pick<typeof collabService, 'updateDocumentContent'>;
+	collab: Pick<typeof collabService, 'readDocumentContent' | 'updateDocumentContent'>;
 	search: Pick<SearchService, 'search'>;
 	git: Pick<typeof gitService, 'isInitialized' | 'getCurrentBranch' | 'getHeadOid' | 'getWorktreeBaseOid' | 'getChanges' | 'getWorktreeChanges' | 'compareFile'>;
 }
@@ -213,11 +214,14 @@ async function readText(path: string, host: RinspaceAgentToolHost): Promise<Text
 	const changedAfterContent = activeError(host);
 	if (changedAfterContent) return changedAfterContent;
 	if (!stored || stored.content === undefined) return failure('not_found', `File content is unavailable: ${path}`);
+	const storedContent = decodeText(stored.content);
+	if (typeof storedContent !== 'string') return storedContent;
 	const live = metadata.documentId
-		? host.getDocuments().find((document) => document.id === metadata.documentId)?.content
+		? await dependencies.collab.readDocumentContent(host.projectId, metadata.documentId)
 		: undefined;
-	const decoded = live ?? decodeText(stored.content);
-	if (typeof decoded !== 'string') return decoded;
+	const changedAfterLiveRead = activeError(host);
+	if (changedAfterLiveRead) return changedAfterLiveRead;
+	const decoded = live ?? storedContent;
 	const bytes = byteLength(decoded);
 	if (bytes > LIMITS.fileBytes) {
 		return failure('limit_exceeded', `File exceeds the Agent text limit: ${path}`, {
@@ -230,6 +234,7 @@ async function readText(path: string, host: RinspaceAgentToolHost): Promise<Text
 		fileId: metadata.id,
 		path,
 		content: decoded,
+		storedContent,
 		contentSha256: await sha256(decoded),
 		bytes,
 		totalLines: decoded.split('\n').length,
@@ -508,6 +513,29 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 					return failure('conflict', 'Collaborative content changed before the patch transaction; read it again', {
 						retry: { action: 'read_project_files', path },
 					});
+				}
+				const current = await readText(path, host);
+				if (!('content' in current)) return current;
+				if (current.content !== nextContent) {
+					return failure('conflict', 'Collaborative content changed after the Agent transaction; read it again', {
+						retry: { action: 'read_project_files', path, actualSha256: current.contentSha256 },
+					});
+				}
+				const persisted = await dependencies.files.updateFileContentIfUnchanged(
+					record.fileId,
+					record.storedContent,
+					nextContent,
+				);
+				if (persisted.status !== 'updated') {
+					const latest = await dependencies.files.getFile(record.fileId);
+					const latestContent = latest?.content === undefined
+						? null
+						: decodeText(latest.content);
+					if (latestContent !== nextContent) {
+						return failure('conflict', 'Browser persistence changed after the Agent transaction; read it again', {
+							retry: { action: 'read_project_files', path },
+						});
+					}
 				}
 			} else {
 				const update = await dependencies.files.updateFileContentIfUnchanged(

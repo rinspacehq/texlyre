@@ -588,6 +588,16 @@ class CollabService {
 		}
 	}
 
+	public async readDocumentContent(
+		projectId: string,
+		documentId: string,
+	): Promise<string> {
+		const collectionName = `yjs_${documentId}`;
+		const container = this.getDocContainer(projectId, collectionName);
+		if (container) return container.doc.getText('codemirror').toString();
+		return this.getDocumentContent(`yjs:${projectId}`, documentId);
+	}
+
 	public async updateDocumentContent(
 		projectId: string,
 		documentId: string,
