@@ -25,10 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # The reviewed upstream baseline is 40 commits behind this branch.
-          # Keep enough fixed history for ancestry/source gates without pulling
-          # the entire upstream repository on every self-hosted run.
-          fetch-depth: 64
+          # Keep enough fixed history for the reviewed upstream baseline and
+          # ancestry/source gates without pulling the entire upstream repository.
+          fetch-depth: 256
           filter: blob:none
           persist-credentials: false
 

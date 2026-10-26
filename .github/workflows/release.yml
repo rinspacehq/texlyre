@@ -32,7 +32,8 @@ jobs:
       - name: Checkout exact public main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 64
+          # The fixed source gate needs the reviewed upstream baseline history.
+          fetch-depth: 256
           filter: blob:none
           persist-credentials: false
 
