@@ -53,6 +53,8 @@ import type {
 	RinspaceAgentCompileResult,
 	RinspaceAgentToolHost,
 } from './RinspaceAgentTools';
+import { RinspaceAgentBill } from './RinspaceAgentBill';
+import type { RinspaceAgentBilling } from './RinspaceAgentBilling';
 import './styles.css';
 
 type AgentMessage = RinspaceAgentViewState['snapshot']['messages'][number];
@@ -240,6 +242,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
+	const [billing, setBilling] = useState<RinspaceAgentBilling | null>(null);
+	const [billingStale, setBillingStale] = useState(false);
 	const [restoring, setRestoring] = useState(savedState !== null);
 	const [starting, setStarting] = useState(false);
 	const [error, setError] = useState('');
@@ -258,6 +262,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const taskGeneration = useRef(0);
 	const composing = useRef(false);
 	const restoreStarted = useRef(false);
+	const restoredBillRun = useRef<string | null>(null);
 	const pageUnloading = useRef(false);
 	const toolState = useRef<RinspaceAgentCompileState & {
 		documents: DocumentList['documents'];
@@ -565,8 +570,9 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		void loadRinspaceAgentRun(savedState.runId, projectId)
 			.then((run) => {
 				if (!mounted.current) return;
+				setBilling(run.billing ?? null);
+				restoredBillRun.current = run.id;
 				if (!isRinspaceAgentRunResumable(run.status)) {
-					clearAgentState(actorId, projectId);
 					setError('上一项琳任务已结束，请开始新任务');
 					return;
 				}
@@ -601,6 +607,26 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	}, [actorId, config, managed, projectId, savedState, toolHost]);
 
 	useEffect(() => controller?.subscribe(setView), [controller]);
+
+	useEffect(() => {
+		if (!controller || view?.snapshot.status === undefined) return;
+		if (restoredBillRun.current === controller.runId) {
+			restoredBillRun.current = null;
+			return;
+		}
+		const abort = new AbortController();
+		void loadRinspaceAgentRun(controller.runId, projectId, abort.signal)
+			.then((run) => {
+				if (abort.signal.aborted) return;
+				setBilling(run.billing ?? null);
+				setBillingStale(false);
+			})
+			.catch(() => {
+				if (!abort.signal.aborted) setBillingStale(true);
+			});
+		return () => abort.abort();
+	}, [controller, projectId, view?.snapshot.usage.inputTokens, view?.snapshot.usage.outputTokens, view?.snapshot.status]);
+
 
 	useEffect(() => {
 		if (!actorId || !controller || !view) return;
@@ -688,6 +714,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 				} else {
 					controllerRef.current = created;
 					active = created;
+					setBilling(null);
+					setBillingStale(false);
 					setController(created);
 				}
 			}
@@ -730,6 +758,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 		controllerRef.current = null;
 		setController(null);
 		setView(null);
+		setBilling(null);
+		setBillingStale(false);
 		setError('');
 		if (managed) clearAgentState(managed.identity.actorId, projectId);
 	};
@@ -816,6 +846,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 							发送
 						</button>
 					</div>
+					<RinspaceAgentBill bill={billing} stale={billingStale} />
 					<div className='rinspace-agent-usage'>
 						<span>{view?.snapshot.usage.inputTokens ?? 0} 输入 token</span>
 						<span>{view?.snapshot.usage.outputTokens ?? 0} 输出 token</span>

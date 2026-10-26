@@ -139,6 +139,7 @@ const context: Extract<HostContext, { mode: 'managed' }> = {
 beforeEach(() => {
 	jest.clearAllMocks();
 	mockLoadState.mockReturnValue(null);
+	mockLoadRun.mockResolvedValue({ billing: null });
 	mockLoadConfig.mockResolvedValue({
 		enabled: true,
 		model: 'deepseek-test',
@@ -266,7 +267,7 @@ test('aborts a durable run on an ordinary ownership teardown', async () => {
 	expect(controller.detach).not.toHaveBeenCalled();
 });
 
-test('clears a terminal server run instead of restoring it as writable', async () => {
+test('retains a terminal run for bill recovery without restoring it as writable', async () => {
 	mockLoadState.mockReturnValue({
 		version: 1,
 		runId: 'run-finished',
@@ -283,6 +284,13 @@ test('clears a terminal server run instead of restoring it as writable', async (
 		id: 'run-finished',
 		projectId: 'project-1',
 		status: 'ABORTED',
+		billing: {
+			model: 'model-1', providerPriceVersion: 'price-1', currency: 'CNY', pendingTurns: 0,
+			providerCostCnyMicros: '20', goodnessChargedSg: '1', goodnessRevenueCnyMicros: '500', profitCnyMicros: '480',
+			turns: [{ iteration: 1, operationId: 'operation-1', requestId: 'receipt-1', receiptSha256: 'a'.repeat(64),
+				inputTokens: 7, cachedInputTokens: 2, outputTokens: 3,
+				providerCostCnyMicros: '20', goodnessChargedSg: '1', goodnessRevenueCnyMicros: '500', profitCnyMicros: '480' }],
+		},
 		usage: {
 			inputTokens: 1,
 			outputTokens: 1,
@@ -293,9 +301,10 @@ test('clears a terminal server run instead of restoring it as writable', async (
 
 	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
 
-	await waitFor(() =>
-		expect(clearAgentState).toHaveBeenCalledWith('actor-1', 'project-1'),
-	);
+	await waitFor(() => expect(screen.getByText('上一项琳任务已结束，请开始新任务')).toBeInTheDocument());
+	expect(clearAgentState).not.toHaveBeenCalled();
+	expect(screen.getByText('已结算 1 善功 · 1 回合')).toBeInTheDocument();
+	expect(screen.getByText('回执 receipt-1')).toBeInTheDocument();
 	expect(mockRestore).not.toHaveBeenCalled();
 	expect(screen.getByText('上一项琳任务已结束，请开始新任务')).toBeInTheDocument();
 });
