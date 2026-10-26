@@ -11,6 +11,15 @@ consecutive failed tools stop the next model dispatch; a successful tool or a
 new run resets that counter. The panel displays the runtime stop reason and a
 readable iteration-limit message. Push still requires explicit approval.
 
+The managed Agent panel also displays the service's confirmed bill: actual SG
+charged, model and frozen price version, per-turn input/cached/output tokens,
+provider cost, revenue, profit and receipt identifiers. Monetary decimal strings
+retain integer precision, including negative profit. Pending turns are separate;
+missing billing is shown as unconfirmed rather than zero. Refresh reads the
+server again, including for a terminal task, without restoring a writable runtime.
+A failed refresh labels the retained last-confirmed bill. Older services that
+omit the additive `billing` field remain compatible.
+
 The exact `@rinspacehq/cline-embed` v0.1.0-rinspace.3 package, dependency lock,
 external assets and reviewed TeX Live runtime are unchanged. Standalone/local
 TeXlyre retains its existing editor, compilation and Git behavior.

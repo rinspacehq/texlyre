@@ -8,6 +8,8 @@ import {
 	type ToolApprovalResult,
 } from '@rinspacehq/cline-embed';
 
+import { validateRinspaceAgentBilling, type RinspaceAgentBilling } from './RinspaceAgentBilling';
+
 import type { HostContext } from '@/workspace/contracts';
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import { RinspaceAgentModel } from './RinspaceAgentModel';
@@ -46,6 +48,7 @@ export interface RinspaceAgentRunProjection {
 	status: RinspaceAgentRunStatus;
 	usage: AgentUsage;
 	confirmedTurns: readonly RinspaceAgentConfirmedTurn[];
+	billing?: RinspaceAgentBilling | null;
 }
 
 export interface RinspaceAgentConfirmedTurn {
@@ -332,6 +335,7 @@ export async function loadRinspaceAgentRun(
 		status: value.status as RinspaceAgentRunStatus,
 		usage: validateUsage(value.usage),
 		confirmedTurns: validateConfirmedTurns(value.confirmedTurns),
+		billing: validateRinspaceAgentBilling(value.billing),
 	};
 }
 

@@ -47,6 +47,7 @@ test('recovers authoritative usage only for the exact run and project', async ()
 	);
 
 	await expect(loadRinspaceAgentRun('run-1', 'project-1', signal)).resolves.toEqual({
+		billing: null,
 		id: 'run-1',
 		projectId: 'project-1',
 		status: 'ACTIVE',

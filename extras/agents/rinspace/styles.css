@@ -328,3 +328,11 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
+
+.rinspace-agent-billing {
+  font-size: var(--font-size-sm, 0.85rem);
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+}
+.rinspace-agent-billing summary { cursor: pointer; }
+.rinspace-agent-billing details { margin-block: 0.5rem; }
