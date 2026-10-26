@@ -2461,6 +2461,10 @@ try {
 	assert.equal(persisted.usage.reasoningTokenCount, 0);
 	assert.equal(persisted.usage.totalCost, 0);
 
+	// Billing refreshes also read GetRun; only reads introduced by the reloads
+	// below belong to the recovery assertions. Model/Push/abort counts remain exact.
+	const readsBeforeReload = recoveryRun.recoveryReads;
+	assert.ok(readsBeforeReload > 0, 'completed task never refreshed its bill');
 	let recoveryRequestOffset = requests.length;
 	await client.send('Page.reload', { ignoreCache: true });
 	await waitForObservedRequest(
@@ -2474,7 +2478,7 @@ try {
 		interceptionErrors,
 	);
 	assert.equal(refreshed.approval, false);
-	assert.equal(recoveryRun.recoveryReads, 1);
+	assert.equal(recoveryRun.recoveryReads, readsBeforeReload + 1);
 	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
 	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
 	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
@@ -2530,7 +2534,7 @@ try {
 		`/rinspace/api/editor/v1/agent/runs/${persisted.runId}`,
 	);
 	await waitForRecoveryFailure(recoveryClient, interceptionErrors);
-	assert.equal(recoveryRun.recoveryReads, 1);
+	assert.equal(recoveryRun.recoveryReads, readsBeforeReload + 1);
 	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
 	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
 	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
@@ -2549,7 +2553,7 @@ try {
 	);
 	assert.equal(reconnected.approval, false);
 	assert.ok(!reconnected.text.includes('OTHER ACCOUNT OR PROJECT MUST NOT LEAK'));
-	assert.equal(recoveryRun.recoveryReads, 2);
+	assert.equal(recoveryRun.recoveryReads, readsBeforeReload + 2);
 	assert.equal(recoveryRun.turns.length, beforeRecovery.turns);
 	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
 	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
@@ -2631,7 +2635,8 @@ try {
 				smartHttpDiscovery: true,
 				smartHttpPack: true,
 				smartHttpPush: true,
-				refreshRecoveries: recoveryRun.recoveryReads,
+				refreshRecoveries: recoveryRun.recoveryReads - readsBeforeReload,
+				billingRunReadsBeforeRecovery: readsBeforeReload,
 				recoveryFailureRetries: 1,
 				isolatedRecoveryTabs: 2,
 				durableAbortRequests: recoveryRun.abortCount,
@@ -2678,6 +2683,7 @@ try {
 		)}\n`,
 	);
 } catch (error) {
+	process.stderr.write(`Failure: ${error instanceof Error ? error.stack : String(error)}\n`);
 	if (stderr) process.stderr.write(stderr);
 	if (interceptionErrors.length)
 		process.stderr.write(`${interceptionErrors.join('\n')}\n`);
