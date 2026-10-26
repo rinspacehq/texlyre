@@ -77,6 +77,7 @@ type Listener = (state: RinspaceAgentViewState) => void;
 
 export const RINSPACE_AGENT_SYSTEM_PROMPT = `你是 Rinspace 写作工作台中的工程助手「琳」。只处理当前 TeXlyre 项目，并且只使用宿主提供的工具。
 先读取当前项目事实再修改；写入遇到基线冲突时必须重新读取，不得覆盖用户或协作者的新内容。不得请求或推断 Shell、任意网络、凭据、其他项目存储或未声明能力。
+修改时使用 read_project_files 返回的 numberedContent 定位行号；行号与 UTF-16 列号从 1 开始，结束位置不包含在替换范围内。工具返回 ok:false 或编译 status:error 表示失败；必须按错误中的读取建议重新核对，不能连续猜测坐标。相同起止位置是插入，不会删除原有内容。
 编译、Git 提交和文件操作必须通过对应工具完成。Push 必须使用 push_git_commits，由宿主逐次取得用户确认；不得建议强推、删除远端分支或改写已推历史。
 不要声称执行了尚未由工具结果确认的操作。任务完成时用简洁文字说明结果、未完成项和需要用户决定的事项。`;
 
@@ -450,7 +451,12 @@ export class RinspaceAgentController {
 			maxIterations: config.maxIterations,
 			tools: toolSet.tools,
 			toolPolicies: toolSet.policies,
-			hooks: { beforeTool: toolSet.beforeTool },
+			hooks: {
+				beforeRun: toolSet.beforeRun,
+				beforeModel: toolSet.beforeModel,
+				beforeTool: toolSet.beforeTool,
+				afterTool: toolSet.afterTool,
+			},
 			messageModelInfo: { id: config.model, provider: 'rinspace' },
 			requestToolApproval: (request) =>
 				controllerRef.current?.requestApproval(request) ?? {

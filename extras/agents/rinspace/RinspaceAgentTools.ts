@@ -2,6 +2,9 @@
 import { nanoid } from 'nanoid';
 import {
 	createTool,
+	type AgentAfterToolContext,
+	type AgentAfterToolResult,
+	type AgentBeforeModelResult,
 	type AgentBeforeToolContext,
 	type AgentBeforeToolResult,
 	type AgentTool,
@@ -113,6 +116,9 @@ export interface RinspaceAgentToolHost {
 export interface RinspaceAgentToolSet {
 	tools: readonly AgentTool[];
 	policies: Readonly<Record<string, Readonly<ToolPolicy>>>;
+	beforeRun: () => undefined;
+	beforeModel: () => AgentBeforeModelResult | undefined;
+	afterTool: (context: AgentAfterToolContext) => AgentAfterToolResult;
 	beforeTool: (
 		context: AgentBeforeToolContext,
 	) => Promise<AgentBeforeToolResult | undefined>;
@@ -471,6 +477,9 @@ function readTool(host: RinspaceAgentToolHost): AgentTool {
 					startLine,
 					endLine,
 					content,
+					numberedContent: lines.slice(startLine - 1, endLine)
+						.map((line, index) => `${startLine + index} | ${line.replace(/\r$/, '')}`)
+						.join('\n'),
 				});
 			}
 			return bound({ ok: true, projectId: host.projectId, files }, { files: requests.slice(0, 1) });
@@ -510,7 +519,7 @@ function textPositionOffset(
 function patchTool(host: RinspaceAgentToolHost): AgentTool {
 	return createTool({
 		name: 'apply_project_patch',
-		description: 'Apply bounded text edits to one current-project file using a required SHA-256 baseline and one host transaction.',
+		description: 'Apply bounded text edits using the latest SHA-256 baseline and numberedContent from read_project_files. Lines and UTF-16 columns are 1-based; the end position is exclusive. Equal start/end positions insert text without replacing it. Read again after conflicts or invalid ranges; never guess coordinates.',
 		inputSchema: {
 			type: 'object',
 			additionalProperties: false,
@@ -527,10 +536,10 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 						additionalProperties: false,
 						required: ['startLine', 'startColumn', 'endLine', 'endColumn', 'replacement'],
 						properties: {
-							startLine: { type: 'integer', minimum: 1 },
-							startColumn: { type: 'integer', minimum: 1 },
-							endLine: { type: 'integer', minimum: 1 },
-							endColumn: { type: 'integer', minimum: 1 },
+							startLine: { type: 'integer', minimum: 1, description: '1-based line from numberedContent.' },
+							startColumn: { type: 'integer', minimum: 1, description: '1-based UTF-16 column in the original line, excluding its number prefix.' },
+							endLine: { type: 'integer', minimum: 1, description: '1-based line containing the exclusive end position.' },
+							endColumn: { type: 'integer', minimum: 1, description: 'Exclusive 1-based UTF-16 column; line text length + 1 denotes end of line.' },
 							replacement: { type: 'string', maxLength: LIMITS.fileBytes },
 						},
 					},
@@ -575,7 +584,19 @@ function patchTool(host: RinspaceAgentToolHost): AgentTool {
 				const from = textPositionOffset(record.content, candidate.startLine, candidate.startColumn);
 				const to = textPositionOffset(record.content, candidate.endLine, candidate.endColumn);
 				if (from === null || to === null || to < from) {
-					return failure('invalid_input', `Invalid text range for ${path}`);
+					const lines = record.content.split('\n');
+					const requestedLines = [...new Set([candidate.startLine, candidate.endLine])]
+						.filter((line): line is number => Number.isSafeInteger(line) && Number(line) >= 1 && Number(line) <= lines.length);
+					const firstLine = requestedLines[0] ?? 1;
+					return failure('invalid_input', `Invalid text range for ${path}. Read the suggested numbered lines before editing; do not guess line or column numbers.`, {
+						retry: {
+							action: 'read_project_files',
+							files: [{ path, startLine: Math.max(1, firstLine - 1), endLine: Math.min(lines.length, firstLine + 1) }],
+							totalLines: lines.length,
+							coordinateSystem: '1-based lines and UTF-16 columns; end position is exclusive',
+							lineBounds: requestedLines.map((line) => ({ line, maxColumn: lines[line - 1].replace(/\r$/, '').length + 1 })),
+						},
+					});
 				}
 				edits.push({ from, to, insert: candidate.replacement });
 			}
@@ -1408,6 +1429,7 @@ function pushGitCommitsTool(host: RinspaceAgentToolHost): AgentTool {
 
 export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceAgentToolSet {
 	const compileGate: CompileGate = { running: false, lastStartedAt: 0 };
+	let consecutiveFailures = 0;
 	const tools = [
 		listTool(host),
 		readTool(host),
@@ -1424,6 +1446,19 @@ export function createRinspaceAgentTools(host: RinspaceAgentToolHost): RinspaceA
 	];
 	return {
 		tools,
+		beforeRun: () => {
+			consecutiveFailures = 0;
+			return undefined;
+		},
+		beforeModel: () => consecutiveFailures >= 3
+			? { stop: true, reason: '连续三次工具操作失败，任务已停止。请检查错误后再继续。' }
+			: undefined,
+		afterTool: ({ result }) => {
+			const output = result.output;
+			const failed = result.isError === true || (isRecord(output) && (output.ok === false || output.status === 'error'));
+			consecutiveFailures = failed ? consecutiveFailures + 1 : 0;
+			return { result: { ...result, isError: failed } };
+		},
 		policies: Object.fromEntries(
 			tools.map((tool) => [
 				tool.name,

@@ -735,6 +735,10 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	};
 
 	const running = starting || view?.snapshot.status === 'running';
+	const runtimeError = !running ? view?.snapshot.lastError : undefined;
+	const visibleError = error || (runtimeError?.startsWith('Agent runtime exceeded maxIterations')
+		? '已达到本任务的最大回合数，请检查结果后开始新任务。'
+		: runtimeError);
 	const approval = view?.pendingApproval;
 	return (
 		<section
@@ -780,7 +784,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 							onReject={() => controller?.respondToApproval(false)}
 						/>
 					)}
-					{error && <div className='ui-message' data-tone='error'>{error}</div>}
+					{visibleError && <div className='ui-message' data-tone='error'>{visibleError}</div>}
 					<div className='rinspace-agent-composer ui-toolbar'>
 						<textarea
 							className='ui-field-control'
