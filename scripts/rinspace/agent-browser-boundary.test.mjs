@@ -22,7 +22,15 @@ test('Rinspace Agent is lazy, managed-only and contains no provider credential s
 	assert.match(plugin, /lazy\(\(\) => import\('\.\/RinspaceAgentPanel'\)\)/);
 	assert.match(plugin, /context\.mode === 'managed'/);
 
-	const combined = (await Promise.all((await sources(agentRoot)).map((file) => readFile(file, 'utf8')))).join('\n');
+	const combined = (await Promise.all((await sources(agentRoot)).map(async (file) => {
+		const source = await readFile(file, 'utf8');
+		if (path.basename(file) !== 'RinspaceAgentBinding.ts') return source;
+		// This fixed Git transport identity is not a model-provider setting.
+		// Remove only this exact comparison; other providerId uses stay forbidden.
+		const gitIdentity = "remote.providerId !== 'rinspace-gitea-session'";
+		assert.equal(source.split(gitIdentity).length, 2);
+		return source.replace(gitIdentity, 'false');
+	}))).join('\n');
 	for (const forbidden of [
 		/@cline\/core/,
 		/node:fs/,

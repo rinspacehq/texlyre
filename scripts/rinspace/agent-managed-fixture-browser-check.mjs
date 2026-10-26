@@ -768,6 +768,8 @@ async function apiResponse(repository, agentFixture, request, url) {
 		const project = repository.projects.get(fullName);
 		if (!project)
 			return jsonResponse({ error: 'fixture binding not found' }, 400);
+		assert.equal(body.binding.baseCommit, project.head,
+			'New Agent task must use the verified current synchronization base');
 		const runId = `fixture-${project.owner}-${project.repository}${agentFixture.failureGuard ? "-failure-guard" : ""}`;
 		agentFixture.runs.set(runId, {
 			failureGuard: agentFixture.failureGuard === true,
