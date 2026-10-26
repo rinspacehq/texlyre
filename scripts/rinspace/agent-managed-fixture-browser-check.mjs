@@ -352,7 +352,10 @@ async function staticResponse(url, largeAssetOrigin) {
 	try {
 		const info = await stat(candidate);
 		if (!info.isFile()) return null;
-		if (info.size > 64 * 1024 * 1024) {
+		// Stream compiler binaries instead of duplicating large buffers as CDP
+		// base64 strings. JavaScript worker/module origin behavior stays unchanged.
+		const compilerBinary = ['.wasm', '.data'].includes(path.extname(candidate));
+		if (info.size > 64 * 1024 * 1024 || (compilerBinary && info.size > 8 * 1024 * 1024)) {
 			return {
 				code: 302,
 				body: Buffer.alloc(0),
@@ -2082,6 +2085,7 @@ try {
 			'--headless=new',
 			'--no-sandbox',
 			'--disable-dev-shm-usage',
+			'--renderer-process-limit=2',
 			'--disable-background-networking',
 			'--disable-component-update',
 			'--disable-default-apps',
