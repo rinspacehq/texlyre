@@ -456,3 +456,26 @@ test('renders Cline tool cards and bounded project diff cards', async () => {
 	expect(diff).toHaveTextContent('旧标题');
 	expect(diff).toHaveTextContent('新标题');
 });
+
+test.each([
+	['连续三次工具操作失败，任务已停止。请检查错误后再继续。', '连续三次工具操作失败，任务已停止。请检查错误后再继续。'],
+	['Agent runtime exceeded maxIterations (24)', '已达到本任务的最大回合数，请检查结果后开始新任务。'],
+])('shows the stopped runtime reason: %s', async (lastError, expected) => {
+	let listener: ((view: unknown) => void) | undefined;
+	const controller = {
+		runId: 'run-failed', run: jest.fn(async () => undefined), abort: jest.fn(),
+		subscribe: jest.fn((next: (view: unknown) => void) => { listener = next; return jest.fn(); }),
+	};
+	mockCreate.mockResolvedValue(controller);
+	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
+	const composer = screen.getByPlaceholderText('让琳阅读、修改、编译或提交当前项目…');
+	await waitFor(() => expect(composer).toBeEnabled());
+	fireEvent.change(composer, { target: { value: '修改项目' } });
+	fireEvent.click(screen.getByRole('button', { name: '发送' }));
+	await waitFor(() => expect(controller.subscribe).toHaveBeenCalled());
+	act(() => listener?.({ pendingApproval: null, snapshot: {
+		agentId: 'agent-1', status: 'failed', iteration: 24, pendingToolCalls: [], messages: [], lastError,
+		usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+	} }));
+	expect(await screen.findByText(expected)).toHaveAttribute('data-tone', 'error');
+});

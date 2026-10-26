@@ -779,3 +779,64 @@ test('every tool fails closed after a project switch', async () => {
 		});
 	}
 });
+
+test('returns numbered source and actionable bounds for the miscounted patch recovery case', async () => {
+	liveMainContent = [
+		'\\documentclass[UTF8]{ctexart}', '\\begin{document}', '中文 😀', '', '',
+		'自动验收段落。', '\\[', 'e^{i\\pi}+1=0', '\\]', '% agent change',
+		'\\end{document}\\end{document}', '', '% HUMAN keep concurrent input',
+	].join('\n');
+	const baseline = createHash('sha256').update(liveMainContent).digest('hex');
+	const patch = tool('apply_project_patch');
+	const rejected = await patch.execute({
+		path: 'main.tex', expectedSha256: baseline,
+		edits: [{ startLine: 12, startColumn: 1, endLine: 12, endColumn: 30, replacement: '\\end{document}' }],
+	}, context) as { error: { retry: { files: Array<{ path: string; startLine: number; endLine: number }> } } };
+	expect(rejected).toMatchObject({ ok: false, error: {
+		code: 'invalid_input', retry: {
+			action: 'read_project_files',
+			files: [{ path: 'main.tex', startLine: 11, endLine: 13 }],
+			lineBounds: [{ line: 12, maxColumn: 1 }],
+		},
+	} });
+	expect(mockUpdateDocumentContent).not.toHaveBeenCalled();
+	const reread = await tool('read_project_files').execute({ files: rejected.error.retry.files }, context);
+	expect(reread).toMatchObject({ files: [{
+		contentSha256: baseline,
+		numberedContent: '11 | \\end{document}\\end{document}\n12 | \n13 | % HUMAN keep concurrent input',
+	}] });
+	const repaired = await patch.execute({
+		path: 'main.tex', expectedSha256: baseline,
+		edits: [{ startLine: 11, startColumn: 1, endLine: 11, endColumn: 29, replacement: '\\end{document}' }],
+	}, context);
+	expect(repaired).toMatchObject({ ok: true });
+	expect(mockUpdateDocumentContent).toHaveBeenCalledTimes(1);
+	expect(liveMainContent.match(/\\end\{document\}/g)).toHaveLength(1);
+	expect(liveMainContent).toContain('中文 😀');
+	expect(liveMainContent).toContain('% HUMAN keep concurrent input');
+});
+
+test('marks structured errors and stops the next model dispatch after repeated failures', async () => {
+	const set = createRinspaceAgentTools(host);
+	const patch = set.tools.find((candidate) => candidate.name === 'apply_project_patch');
+	if (!patch) throw new Error('Missing patch tool');
+	const badInput = { path: 'main.tex', expectedSha256: createHash('sha256').update(liveMainContent).digest('hex'),
+		edits: [{ startLine: 9, startColumn: 1, endLine: 9, endColumn: 50, replacement: 'wrong' }] };
+	for (let attempt = 0; attempt < 3; attempt++) {
+		expect(set.beforeModel()).toBeUndefined();
+		const output = await patch.execute(badInput, context);
+		const after = set.afterTool({ result: { output } } as never);
+		expect(after.result).toEqual({ output, isError: true });
+	}
+	expect(set.beforeModel()).toMatchObject({ stop: true, reason: expect.stringContaining('连续三次') });
+	expect(mockUpdateDocumentContent).not.toHaveBeenCalled();
+	set.beforeRun();
+	expect(set.beforeModel()).toBeUndefined();
+	set.afterTool({ result: { output: { ok: false, error: { code: 'conflict' } } } } as never);
+	set.afterTool({ result: { output: { ok: false, error: { code: 'conflict' } } } } as never);
+	const read = await tool('read_project_files').execute({ files: [{ path: 'main.tex' }] }, context);
+	expect(set.afterTool({ result: { output: read } } as never).result?.isError).toBe(false);
+	set.afterTool({ result: { output: { ok: false, error: { code: 'conflict' } } } } as never);
+	expect(set.beforeModel()).toBeUndefined();
+	expect(set.afterTool({ result: { output: { ok: true, status: 'error', log: 'compile failed' } } } as never).result?.isError).toBe(true);
+});
