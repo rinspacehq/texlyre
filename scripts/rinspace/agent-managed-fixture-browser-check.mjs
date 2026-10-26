@@ -765,8 +765,9 @@ async function apiResponse(repository, agentFixture, request, url) {
 		const project = repository.projects.get(fullName);
 		if (!project)
 			return jsonResponse({ error: 'fixture binding not found' }, 400);
-		const runId = `fixture-${project.owner}-${project.repository}`;
+		const runId = `fixture-${project.owner}-${project.repository}${agentFixture.failureGuard ? "-failure-guard" : ""}`;
 		agentFixture.runs.set(runId, {
+			failureGuard: agentFixture.failureGuard === true,
 			project,
 			projectId: body.projectId,
 			turns: [],
@@ -814,6 +815,25 @@ async function apiResponse(repository, agentFixture, request, url) {
 		if (!run) return jsonResponse({ error: 'fixture run not found' }, 404);
 		const body = requestJSON(request);
 		run.turns.push(body);
+		if (run.failureGuard) {
+			assert.ok(run.turns.length <= 3, 'Failure guard dispatched a fourth model request');
+			const previousFailures = toolResults(body);
+			assert.equal(previousFailures.length, run.turns.length - 1);
+			for (const result of previousFailures) {
+				assert.equal(result.isError, true, 'Structured failure was reported as success');
+				assert.equal(result.output.ok, false);
+			}
+			return confirmedTurnResponse(run, body, {
+				toolCalls: [{
+					id: `guard-failure-${run.turns.length}`,
+					name: 'read_project_files',
+					input: { files: [{ path: 'missing-agent-guard-fixture.txt' }] },
+				}],
+				finishReason: 'tool-calls',
+				requestId: `guard-request-${run.turns.length}`,
+				usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+			});
+		}
 		if (run.turns.length === 1) {
 			const prefix = `${run.project.format}-${run.project.repository}`;
 			return confirmedTurnResponse(run, body, {
@@ -2550,10 +2570,54 @@ try {
 		48,
 	);
 
+	// Use the built application's actual Cline runtime, not a mocked hook caller.
+	// Existing successful project/recovery assertions above stay independent.
+	agentFixture.failureGuard = true;
+	await evaluate(client, `(() => {
+		const button = [...document.querySelectorAll('section[data-role="agent"] button')]
+			.find(candidate => candidate.textContent?.trim() === '新任务');
+		if (!(button instanceof HTMLButtonElement)) throw new Error('New task button missing');
+		button.click();
+	})()`);
+	await evaluate(client, `(() => {
+		const textarea = document.querySelector('section[data-role="agent"] textarea');
+		if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Agent composer missing');
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(textarea, '验证工具失败停止机制');
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+	})()`);
+	const guardDeadline = Date.now() + timeoutMs;
+	let guardSent = false;
+	let guardVisible = false;
+	while (Date.now() < guardDeadline) {
+		const sample = await evaluate(client, `(() => {
+			const panel = document.querySelector('section[data-role="agent"]');
+			const button = [...panel.querySelectorAll('button')].find(candidate => candidate.textContent?.trim() === '发送');
+			const canSend = button instanceof HTMLButtonElement && !button.disabled;
+			return { canSend, error: panel.querySelector('.ui-message[data-tone="error"]')?.textContent ?? '' };
+		})()`);
+		if (!guardSent && sample.canSend) {
+			await evaluate(client, `([...document.querySelectorAll('section[data-role="agent"] button')].find(button => button.textContent?.trim() === '发送')).click()`);
+			guardSent = true;
+		}
+		if (sample.error.includes('连续三次工具操作失败')) { guardVisible = true; break; }
+		await wait(50);
+	}
+	assert.equal(guardSent, true);
+	assert.equal(guardVisible, true, 'Failure guard reason was not visible');
+	const guardRun = agentFixture.runs.get(`fixture-${recoveryScenario.owner}-${recoveryScenario.repository}-failure-guard`);
+	assert.ok(guardRun);
+	assert.equal(guardRun.turns.length, 3);
+	const guardState = await evaluate(client, `JSON.parse(sessionStorage.getItem(${JSON.stringify(savedEntry.key)}))`);
+	const guardResults = toolResults(guardState);
+	assert.equal(guardResults.length, 3, 'Final failed tool result was not persisted');
+	assert.ok(guardResults.every(result => result.isError === true && result.output.ok === false));
+	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
+
 	process.stdout.write(
 		`${JSON.stringify(
 			{
 				mode: 'managed-fixture',
+				failureGuard: { modelRequests: guardRun.turns.length, persistedErrors: guardResults.length, reasonVisible: guardVisible },
 				origin: state.origin,
 				editorReady: state.ready,
 				agentMounted: state.agent,
