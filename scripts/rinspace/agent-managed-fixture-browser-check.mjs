@@ -238,6 +238,28 @@ async function pageTarget(port) {
 	throw new Error('Timed out waiting for a Chromium page target');
 }
 
+async function closePageTarget(port, targetId) {
+	assert.equal(typeof targetId, 'string');
+	assert.ok(targetId.length > 0);
+	const response = await fetch(
+		`http://127.0.0.1:${port}/json/close/${encodeURIComponent(targetId)}`,
+		{ signal: AbortSignal.timeout(timeoutMs) },
+	);
+	assert.equal(response.ok, true, 'Chromium refused to close a completed project');
+	await response.text();
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const listing = await fetch(`http://127.0.0.1:${port}/json/list`, {
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		assert.equal(listing.ok, true);
+		const targets = await listing.json();
+		if (!targets.some((target) => target.id === targetId)) return;
+		await wait(50);
+	}
+	throw new Error('Completed project page remained open');
+}
+
 async function createPageTarget(port) {
 	const response = await fetch(
 		`http://127.0.0.1:${port}/json/new?${encodeURIComponent('about:blank')}`,
@@ -2069,6 +2091,8 @@ const fixture = await mkdtemp(
 let browser;
 let client;
 let recoveryClient;
+const pageTargets = new WeakMap();
+let closedCompletedProjectTabs = 0;
 let largeAssetServer;
 let stderr = '';
 const interceptionErrors = [];
@@ -2111,6 +2135,7 @@ try {
 
 	const configurePageClient = async (page) => {
 		const pageClient = new DevToolsClient(page.webSocketDebuggerUrl);
+		pageTargets.set(pageClient, page.id);
 		pageClient.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
 			browserErrors.push(
 				exceptionDetails.exception?.description ??
@@ -2390,6 +2415,10 @@ try {
 
 	for (const [index, scenario] of projectScenarios.entries()) {
 		if (index > 0) {
+			// Disconnecting CDP alone leaves the page and its WASM compiler alive.
+			// Retire only completed project pages; recovery still exercises two tabs.
+			await closePageTarget(port, pageTargets.get(client));
+			closedCompletedProjectTabs += 1;
 			client.close();
 			client = await configurePageClient(await createPageTarget(port));
 		}
@@ -2623,6 +2652,7 @@ try {
 	assert.ok(guardResults.every(result => result.isError === true && result.output.ok === false));
 	assert.equal(recoveryRun.project.pushCount, beforeRecovery.pushes);
 
+	assert.equal(closedCompletedProjectTabs, projectScenarios.length - 1);
 	process.stdout.write(
 		`${JSON.stringify(
 			{
@@ -2645,6 +2675,7 @@ try {
 				billingRunReadsBeforeRecovery: readsBeforeReload,
 				recoveryFailureRetries: 1,
 				isolatedRecoveryTabs: 2,
+				closedCompletedProjectTabs,
 				durableAbortRequests: recoveryRun.abortCount,
 				replayedTurnRequests: recoveryRun.turns.length - beforeRecovery.turns,
 				themeCombinations: checkedThemes.length,
@@ -2706,10 +2737,20 @@ try {
 	}
 	recoveryClient?.close();
 	client?.close();
-	if (browser?.exitCode === null) browser.kill('SIGTERM');
+	if (browser?.pid && browser.exitCode === null && browser.signalCode === null) {
+		// Wait for Chromium to stop writing the profile before removing it.
+		const exited = new Promise((resolve) => browser.once('close', resolve));
+		browser.kill('SIGTERM');
+		const deadline = setTimeout(() => browser.kill('SIGKILL'), 5000);
+		try {
+			await exited;
+		} finally {
+			clearTimeout(deadline);
+		}
+	}
 	await Promise.all([
 		largeAssetServer?.close(),
-		rm(profile, { recursive: true, force: true }),
+		rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
 		rm(fixture, { recursive: true, force: true }),
 	]);
 }
