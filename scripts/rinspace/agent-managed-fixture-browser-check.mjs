@@ -2737,10 +2737,20 @@ try {
 	}
 	recoveryClient?.close();
 	client?.close();
-	if (browser?.exitCode === null) browser.kill('SIGTERM');
+	if (browser?.pid && browser.exitCode === null && browser.signalCode === null) {
+		// Wait for Chromium to stop writing the profile before removing it.
+		const exited = new Promise((resolve) => browser.once('close', resolve));
+		browser.kill('SIGTERM');
+		const deadline = setTimeout(() => browser.kill('SIGKILL'), 5000);
+		try {
+			await exited;
+		} finally {
+			clearTimeout(deadline);
+		}
+	}
 	await Promise.all([
 		largeAssetServer?.close(),
-		rm(profile, { recursive: true, force: true }),
+		rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
 		rm(fixture, { recursive: true, force: true }),
 	]);
 }
