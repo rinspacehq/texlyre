@@ -41,6 +41,7 @@ public/rinspace-source-candidate.json
 src/plugins/*
 !src/plugins/PluginRegistry.ts
 !src/plugins/PluginInterface.ts
+!src/plugins/AgentPluginRegistry.ts
 
 # Editor directories and files
 .vscode/*

@@ -7,6 +7,7 @@ import { WorkspaceExtensionRegistry } from '../workspace/ExtensionRegistry';
 import type { WorkspaceExtensions } from '../workspace/contracts';
 import type {
 	BackupPlugin,
+	AgentPlugin,
 	CollaborativeViewerPlugin,
 	LoggerPlugin,
 	BibliographyPlugin,
@@ -18,6 +19,7 @@ import type {
 	ViewerPlugin,
 	WorkspacePlugin,
 } from './PluginInterface';
+import { AgentPluginRegistry } from './AgentPluginRegistry';
 
 const moduleLog = createNamedLogger('PluginRegistry');
 
@@ -25,6 +27,7 @@ export const pluginSettings: Setting[] = [];
 
 class PluginRegistryManager {
 	private readonly workspaceExtensions = new WorkspaceExtensionRegistry();
+	private readonly agentPlugins = new AgentPluginRegistry();
 	private registry: PluginRegistry = {
 		viewers: [],
 		collaborativeViewers: [],
@@ -35,6 +38,7 @@ class PluginRegistryManager {
 		backup: [],
 		themes: [],
 		workspace: [],
+		agents: [],
 	};
 
 	constructor() {
@@ -53,6 +57,7 @@ class PluginRegistryManager {
 				['backup plugins', plugins.backup],
 				['themes', plugins.themes],
 				['workspace extensions', plugins.workspace],
+				['Agent plugins', plugins.agents],
 			] as const;
 
 			for (const [label, group] of groups) {
@@ -108,6 +113,10 @@ class PluginRegistryManager {
 			case 'workspace':
 				this.workspaceExtensions.register(plugin as WorkspacePlugin);
 				this.registry.workspace.push(plugin as WorkspacePlugin);
+				break;
+			case 'agent':
+				this.agentPlugins.register(plugin as AgentPlugin);
+				this.registry.agents = this.agentPlugins.getAll();
 				break;
 			default:
 				moduleLog.warn(`Unsupported plugin type: ${plugin.type}`);
@@ -257,6 +266,20 @@ class PluginRegistryManager {
 
 	getWorkspaceExtensions(): WorkspaceExtensions {
 		return this.workspaceExtensions.getExtensions();
+	}
+
+	getAgents(): AgentPlugin[] {
+		return this.agentPlugins.getAll();
+	}
+
+	getAvailableAgents(context: Parameters<AgentPlugin['isAvailable']>[0]): AgentPlugin[] {
+		return this.agentPlugins.getAvailable(context);
+	}
+
+	unregisterAgent(pluginId: string): boolean {
+		const removed = this.agentPlugins.unregister(pluginId);
+		if (removed) this.registry.agents = this.agentPlugins.getAll();
+		return removed;
 	}
 
 	getThemeById(id: string): ThemePlugin | null {

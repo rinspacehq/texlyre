@@ -40,6 +40,7 @@ const mockGit = {
 	listBranches: jest.fn(async () => [] as string[]),
 	branch: jest.fn(async () => undefined),
 	deleteBranch: jest.fn(async () => undefined),
+	deleteRef: jest.fn(async () => undefined),
 	writeRef: jest.fn(async () => undefined),
 	addRemote: jest.fn(async () => undefined),
 	checkout: jest.fn(async () => undefined),
@@ -422,6 +423,88 @@ describe('GitSyncService API transport', () => {
 			'github-history-token',
 			{ scope: 'project', projectId: 'project-1' },
 		);
+	});
+
+	it('prepares an immutable Push approval preview without changing the remote', async () => {
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+
+		expect(preview).toEqual({
+			providerId: 'github',
+			providerName: 'GitHub',
+			repositoryId: 'owner/repo',
+			repositoryLabel: 'owner/repo',
+			localBranch: 'main',
+			remoteBranch: 'main',
+			localHead: 'local-head',
+			remoteHead: 'remote-base',
+			commits: [{ oid: 'local-head', subject: 'Local commit' }],
+		});
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
+	it('invalidates an approval when local HEAD changes before Push', async () => {
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+		localCommits.set('new-local-head', {
+			...localCommits.get('local-head'),
+			parent: ['local-head'],
+			message: 'New local commit',
+		});
+		mockGitService.getHeadOid.mockResolvedValue('new-local-head');
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).rejects.toThrow('Push approval expired');
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
+	it('invalidates an approval when the target branch changes before Push', async () => {
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+		const remoteStore = new GitRemoteConfigStore(storeName);
+		await remoteStore.save('project-1', { ...config, branch: 'release' });
+		gitSyncService = new GitSyncService(remoteStore);
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).rejects.toThrow('Push approval expired');
+		expect(transport.getHead).toHaveBeenLastCalledWith(
+			'secret-token',
+			'owner/repo',
+			'release',
+		);
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
+	it('invalidates an approval when the remote HEAD changes before Push', async () => {
+		localStorage.setItem(
+			'texlyre-git-remote:project-1',
+			JSON.stringify({
+				...config,
+				syncBase: { localOid: 'remote-base', remoteOid: 'remote-base' },
+			}),
+		);
+		gitSyncService = new GitSyncService(new GitRemoteConfigStore(storeName));
+		transport.getHead
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('remote-moved');
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).rejects.toThrow('Remote branch changed since the last synchronization');
+		expect(transport.createCommit).not.toHaveBeenCalled();
+	});
+
+	it('rejects read-only remotes before reading a remote HEAD', async () => {
+		localStorage.setItem(
+			'texlyre-git-remote:project-1',
+			JSON.stringify({ ...config, readOnly: true }),
+		);
+		gitSyncService = new GitSyncService(new GitRemoteConfigStore(storeName));
+
+		await expect(
+			gitSyncService.preparePush('project-1', secrets),
+		).rejects.toThrow('does not allow Push');
+		expect(transport.getHead).not.toHaveBeenCalled();
 	});
 
 	it('does not pull over local uncommitted changes', async () => {
@@ -1421,9 +1504,14 @@ describe('GitSyncService same-origin Smart HTTP transport', () => {
 
 		expect(mockGit.push).toHaveBeenCalledWith(
 			expect.objectContaining({
-				ref: 'main',
+				ref: 'refs/texlyre/approved-push/local-head',
 				remoteRef: 'main',
 				force: false,
+			}),
+		);
+		expect(mockGit.deleteRef).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'refs/texlyre/approved-push/local-head',
 			}),
 		);
 		expect(result.canonicalOid).toBe('local-head');
@@ -1432,6 +1520,33 @@ describe('GitSyncService same-origin Smart HTTP transport', () => {
 			localOid: 'local-head',
 			remoteOid: 'local-head',
 		});
+	});
+
+	it('revalidates an approved remote HEAD and pushes only the approved local commit', async () => {
+		transport.getHead
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('remote-base')
+			.mockResolvedValueOnce('local-head');
+		const preview = await gitSyncService.preparePush('project-1', secrets);
+
+		await expect(
+			gitSyncService.push('project-1', secrets, preview),
+		).resolves.toEqual(
+			expect.objectContaining({ canonicalOid: 'local-head', pushedCommits: 1 }),
+		);
+		expect(mockGit.writeRef).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'refs/texlyre/approved-push/local-head',
+				value: 'local-head',
+			}),
+		);
+		expect(mockGit.push).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'refs/texlyre/approved-push/local-head',
+				remoteRef: 'main',
+				force: false,
+			}),
+		);
 	});
 
 	it('rejects a stale remote ref before sending a Push', async () => {

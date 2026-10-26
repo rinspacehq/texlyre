@@ -4,6 +4,8 @@ import type { GitRemoteProvider } from '../types/gitRemote';
 /** Generic extension contracts. Product wire schemas are versioned separately. */
 export interface WorkspaceBinding {
 	readonly repositoryId: string;
+	/** Stable display coordinate; servers must still re-resolve it for access. */
+	readonly repositoryFullName?: string;
 	readonly branchBindingId: string;
 	readonly ref: string;
 	readonly workspaceId: string;
@@ -30,6 +32,7 @@ export type HostContext =
 
 export interface HostAdapter {
 	open(intent: Readonly<Record<string, string>>, signal: AbortSignal): Promise<HostContext>;
+	getCurrentContext?(): HostContext | null;
 	onContextInvalidated(listener: () => void): () => void;
 }
 

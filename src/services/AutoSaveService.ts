@@ -9,6 +9,7 @@ interface AutoSaveOptions {
 	enabled: boolean;
 	delay: number;
 	onSave: (fileId: string, content: string) => void | Promise<void>;
+	isCurrent?: (content: string) => boolean;
 	onError?: (error: Error) => void;
 }
 
@@ -35,6 +36,10 @@ export class AutoSaveService {
 		const previous = this.writes.get(fileId) ?? Promise.resolve();
 		const write = previous.then(async () => {
 			try {
+				if (snapshot.options.isCurrent?.(snapshot.content) === false) {
+					this.failed.delete(fileId);
+					return;
+				}
 				await snapshot.options.onSave(fileId, snapshot.content);
 				this.failed.delete(fileId);
 			} catch (cause) {

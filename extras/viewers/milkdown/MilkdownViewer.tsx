@@ -1,6 +1,7 @@
 // extras/viewers/milkdown/MilkdownViewer.tsx
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Editor } from '@milkdown/kit/core';
 import '@milkdown/crepe/theme/common/style.css';
 import 'katex/dist/katex.min.css';
 
@@ -20,8 +21,9 @@ import { usePluginFileInfo } from '@/hooks/usePluginFileInfo';
 import { useSettings } from '@/hooks/useSettings';
 import { useProperties } from '@/hooks/useProperties';
 import type { ViewerProps } from '@/plugins/PluginInterface';
-import { autoSaveService } from '@/services/AutoSaveService';
+import { autoSaveKey, autoSaveService } from '@/services/AutoSaveService';
 import { fileStoreService } from '@/services/FileStoreService';
+import { hostFileEditorService } from '@/services/HostFileEditorService';
 import { formatFileSize } from '@/utils/fileUtils';
 import { copyCleanTextToClipboard } from '@/utils/clipboardUtils';
 import type { HighlightTheme } from '@/types/editor';
@@ -31,6 +33,7 @@ import { createImageResolver } from './imageResolver';
 import { createMilkdownPasteHandler } from './toolbar/pasteUpload';
 import { getEnabledMilkdownPluginIds } from './settings';
 import { PLUGIN_NAME, PLUGIN_VERSION } from './MilkdownViewerPlugin';
+import { applyMarkdownHostEdits, readMarkdown } from './milkdownSetup';
 import './styles.css';
 import { createNamedLogger } from '@/logging';
 const moduleLog = createNamedLogger('MilkdownViewer');
@@ -76,16 +79,24 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 	const fileInfo = usePluginFileInfo(fileId, fileName);
 
 	const [markdown, setMarkdown] = useState('');
-	const [viewMode, setViewMode] = useState<'visual' | 'text'>('visual');
-	const [showToolbar, setShowToolbar] = useState(true);
+	const [viewMode, setViewMode] = useState<'visual' | 'text'>(() => {
+		const saved = getProperty('milkdown-default-view', { scope: 'global' });
+		return saved === 'text' ? 'text' : 'visual';
+	});
+	const [showToolbar, setShowToolbar] = useState(() => {
+		const saved = getProperty('toolbar-visible', { scope: 'global' });
+		return typeof saved === 'boolean' ? saved : true;
+	});
 	const [isSaving, setIsSaving] = useState(false);
 	const [isLoadingContent, setIsLoadingContent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const markdownRef = useRef('');
+	const milkdownEditorRef = useRef<Editor | null>(null);
 	const getTextContentRef = useRef<() => string>(() => '');
 	const filePathRef = useRef(fileInfo.filePath || `/${fileName}`);
 	const propertiesRegistered = useRef(false);
+	const unregisterHostEditorRef = useRef<(() => void) | null>(null);
 
 	const autoSaveEnabled =
 		(getSetting('editor-auto-save-enable')?.value as boolean) ?? false;
@@ -118,32 +129,22 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 			subcategory: 'Markdown Editor',
 			defaultValue: 'visual',
 		});
-		const savedView = getProperty('milkdown-default-view', {
-			scope: 'global',
-			// projectId: currentProjectId ?? undefined,
-		});
-		if (savedView === 'visual' || savedView === 'text') setViewMode(savedView);
-
 		// registerProperty({
 		// 	id: 'milkdown-toolbar-visible',
 		// 	category: 'Viewers',
 		// 	subcategory: 'Markdown Editor',
 		// 	defaultValue: true,
 		// });
-		const savedToolbar = getProperty('toolbar-visible', {
-			scope: 'global',
-			// projectId: currentProjectId ?? undefined,
-		});
-		if (typeof savedToolbar === 'boolean') setShowToolbar(savedToolbar);
-	}, []);
+	}, [registerProperty]);
 
 	useEffect(() => {
 		filePathRef.current = fileInfo.filePath || `/${fileName}`;
 	}, [fileInfo.filePath, fileName]);
 
+	const currentFilePath = fileInfo.filePath || `/${fileName}`;
 	const imageResolver = useMemo(
-		() => createImageResolver(() => filePathRef.current),
-		[],
+		() => createImageResolver(() => currentFilePath),
+		[currentFilePath],
 	);
 
 	const milkdownPlugins = useMemo(
@@ -157,10 +158,59 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 		[fileId],
 	);
 
+	const handleMilkdownReady = useCallback(
+		(editor: Editor) => {
+			milkdownEditorRef.current = editor;
+			unregisterHostEditorRef.current?.();
+			unregisterHostEditorRef.current = null;
+			const projectId = fileStoreService.getCurrentProjectId();
+			if (!projectId || !fileId) return;
+
+			unregisterHostEditorRef.current = hostFileEditorService.registerAdapter(
+				projectId,
+				fileId,
+				{
+					read: () => {
+						let current = '';
+						editor.action((ctx) => {
+							current = readMarkdown(ctx);
+						});
+						return current;
+					},
+					apply: (edits, origin) => {
+						let updated = '';
+						editor.action((ctx) => {
+							updated = applyMarkdownHostEdits(ctx, edits, origin);
+						});
+						return updated;
+					},
+				},
+			);
+		},
+		[fileId],
+	);
+
+	useEffect(() => {
+		if (viewMode === 'visual') return;
+		milkdownEditorRef.current = null;
+		unregisterHostEditorRef.current?.();
+		unregisterHostEditorRef.current = null;
+	}, [viewMode]);
+
+	useEffect(
+		() => () => {
+			milkdownEditorRef.current = null;
+			unregisterHostEditorRef.current?.();
+			unregisterHostEditorRef.current = null;
+		},
+		[fileId],
+	);
+
 	useEffect(() => {
 		return () => imageResolver.dispose();
 	}, [imageResolver]);
 
+	/* eslint-disable react-hooks/set-state-in-effect -- FileStore bytes are an external source; the mounted editor must synchronize replacements and loading state. */
 	useEffect(() => {
 		if (isProbablyStaleLargeContent(content)) {
 			setIsLoadingContent(true);
@@ -174,6 +224,7 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 		setIsLoadingContent(false);
 		setError(null);
 	}, [content]);
+	/* eslint-enable react-hooks/set-state-in-effect */
 
 	const handleChange = useCallback((md: string) => {
 		setMarkdown(md);
@@ -181,8 +232,16 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 	}, []);
 
 	const getCurrentContent = useCallback(() => {
-		if (viewMode !== 'text') return markdownRef.current;
-		return getTextContentRef.current() || markdownRef.current;
+		if (viewMode === 'text') {
+			return getTextContentRef.current() || markdownRef.current;
+		}
+		const editor = milkdownEditorRef.current;
+		if (!editor) return markdownRef.current;
+		let current = markdownRef.current;
+		editor.action((ctx) => {
+			current = readMarkdown(ctx);
+		});
+		return current;
 	}, [viewMode]);
 
 	const switchView = (next: 'visual' | 'text') => {
@@ -268,9 +327,12 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 		if (!fileId) return;
 
 		const saveFileId = fileId;
+		const projectId = fileStoreService.getCurrentProjectId();
+		if (!projectId) return;
+		const saveKey = autoSaveKey(projectId, saveFileId);
 
 		autoSaveRef.current = autoSaveService.createAutoSaver(
-			saveFileId,
+			saveKey,
 			() => getCurrentContent(),
 			{
 				enabled: autoSaveEnabled,
@@ -279,12 +341,13 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 					const bytes = new TextEncoder().encode(content).buffer;
 					await fileStoreService.updateFileContent(saveFileId, bytes);
 				},
+				isCurrent: (content) => getCurrentContent() === content,
 				onError: (error) => moduleLog.error('Auto-save failed:', error),
 			},
 		);
 
 		return () => {
-			autoSaveService.clearAutoSaver(saveFileId);
+			autoSaveService.clearAutoSaver(saveKey);
 			autoSaveRef.current = null;
 		};
 	}, [fileId, autoSaveEnabled, autoSaveDelay, getCurrentContent]);
@@ -395,6 +458,7 @@ const MilkdownViewer: React.FC<ViewerProps> = ({
 						<MilkdownEditor
 							key={`visual-${fileId ?? fileName}-${highlightTheme}`}
 							markdown={markdown}
+							onReady={handleMilkdownReady}
 							editable={true}
 							onChange={handleChange}
 							plugins={milkdownPlugins}

@@ -765,6 +765,10 @@ export class RinspaceManagedWorkspaceRuntime {
 		return this.state;
 	}
 
+	getCurrentContext(): Extract<HostContext, { mode: 'managed' }> | null {
+		return this.state.status === 'connected' ? this.state.context : null;
+	}
+
 	subscribe(listener: (state: RinspaceWorkspaceState) => void): () => void {
 		this.listeners.add(listener);
 		listener(this.state);
@@ -906,6 +910,7 @@ export class RinspaceManagedWorkspaceRuntime {
 			},
 			binding: {
 				repositoryId: String(resolved.repository.id),
+				repositoryFullName: resolved.repository.fullName,
 				branchBindingId: await sha256Hex(
 					`${resolved.repository.id}\0${resolved.ref}`,
 				),

@@ -3,6 +3,24 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "generic-agent-plugin-extension",
+      "files": ["src/plugins/PluginInterface.ts", "src/plugins/AgentPluginRegistry.ts", "src/plugins/PluginRegistry.ts", "src/components/agent/AgentPanelHost.tsx", "src/components/app/AppRouter.tsx", "src/components/app/EditorApp.tsx", "src/components/editor/FileDocumentController.tsx", "src/services/SearchService.ts", "src/workspace/contracts.ts", "src/types/texlyre.ts", "texlyre.config.ts"],
+      "purpose": "Add a product-neutral Agent plugin type with current-host availability, registration, removal, lazily evaluated panel ownership and a standard resizable workspace panel host. Remount the optional panel when project, actor, permission epoch or workspace generation changes so no controller survives an ownership boundary. Export the existing SearchService constructor so an optional Agent can use an isolated cancellation scope instead of cancelling the human search panel. Keep model vendors, credentials, tools, billing and Rinspace policy outside core.",
+      "tests": ["scripts/rinspace/agent-plugin-contract.test.mjs", "generated plugin index consistency", "StrictMode and host-identity remount regression", "standalone local editor regression"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream supplies an equivalent product-neutral assistant panel lifecycle and plugin generator support.",
+      "integrationStatus": "Source implementation for the Rin Agent batch; public CI, immutable release and product consumption remain pending."
+    },
+    {
+      "id": "host-document-edit-transactions",
+      "files": ["src/services/DocumentTextEdits.ts", "src/services/HostFileEditorService.ts", "src/services/AutoSaveService.ts", "src/services/CollabService.ts", "src/services/FileStoreService.ts", "src/types/collab.ts", "src/contexts/CollabContext.tsx", "src/hooks/editor/useEditorView.ts"],
+      "purpose": "Let an optional host apply validated disjoint text edits through the existing Yjs document rather than deleting and reinserting the whole source. For an open ordinary FileStore file, expose the current editor draft through a product-neutral registry, flush older saves, compare the refreshed live baseline synchronously and dispatch one identified, isolated history transaction before conditional persistence. Drop a queued automatic-save snapshot after the editor has advanced so old content cannot re-enter storage. Carry a product-neutral transaction origin, keep each host operation in an isolated tracked undo item, preserve untouched collaborative positions and disconnect temporary document sessions even when a baseline callback rejects the write. Supply conditional UTF-8 create/move/delete/restore transactions that validate path and stored-content baselines, create nested parents in the same IndexedDB transaction, preserve stable file identity and retain recoverable deletion content without overwriting a concurrent browser writer. Product names, Agent policy and tool schemas remain outside core.",
+      "tests": ["tests/services/DocumentTextEdits.test.ts", "tests/services/HostFileEditorService.test.ts", "tests/services/FileStoreServiceConditionalStructure.test.ts", "tests/unit/extras/agents/RinspaceAgentReadTools.test.ts", "tests/unit/services/AutoSaveServiceProjectScope.test.ts", "concurrent Yjs and native IME browser acceptance"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream exposes equivalent bounded host edits with explicit origins, minimal Yjs mutations, isolated undo boundaries and conditional structure transactions that preserve file identity and concurrent browser data.",
+      "integrationStatus": "The source candidate passes focused editor and Agent tests, the complete fork foundation suite, a production build and real managed-browser acceptance across LaTeX, Typst and Markdown with concurrent edits, native composition, isolated undo/redo and stale-baseline conflicts. Exact hosted checks remain pending."
+    },
+    {
       "id": "editor-overwrite-storage-quota",
       "files": ["src/services/FileStoreService.ts", "src/hooks/editor/editorSaveFailure.ts", "src/hooks/editor/useEditorView.ts", "src/hooks/editor/useEditorNavigation.ts"],
       "purpose": "Let IndexedDB decide whether an existing file can be overwritten. Browser storage estimates cannot account for replacement space and can falsely reject an equal-size save. Bind each save to the database and project captured before reading so a concurrent project switch cannot redirect or silently skip the write. Preserve actual quota failures and identify them in the editor instead of reporting every failure as an unspecified storage error.",
@@ -86,11 +104,11 @@
     {
       "id": "durable-git-remote-configuration",
       "files": ["src/services/GitRemoteConfigStore.ts", "src/services/GitSyncService.ts", "src/components/history/GitHistoryPanel.tsx", "src/components/history/GitRemoteStatusIndicator.tsx"],
-      "purpose": "Persist generic remote configuration and local/remote synchronization baselines in IndexedDB, not quota-limited synchronous Web Storage. Await commits and restore them before Git actions; retain read-only legacy migration, provider credential references and read-only permissions. Durable disconnect tombstones prevent legacy resurrection. Managed boot awaits restoration before considering its original import fallback. Never evict project/draft data or hide a durable write failure.",
-      "tests": ["tests/services/GitRemoteConfigStore.test.ts", "tests/services/GitSyncService.test.ts", "tests/unit/workspace/RinspaceManagedGit.test.ts", "real browser storage-pressure and reopen/Push acceptance"],
+      "purpose": "Persist generic remote configuration and local/remote synchronization baselines in IndexedDB, not quota-limited synchronous Web Storage. Await commits and restore them before Git actions; retain read-only legacy migration, provider credential references and read-only permissions. Durable disconnect tombstones prevent legacy resurrection. Managed boot awaits restoration before considering its original import fallback. Expose a read-only Push preview that binds provider, repository, branches, local/remote heads and pending commits; revalidate it immediately before an approved Push and pin Smart HTTP to the approved commit object without force. Never evict project/draft data or hide a durable write failure.",
+      "tests": ["tests/services/GitRemoteConfigStore.test.ts", "tests/services/GitSyncService.test.ts", "tests/unit/workspace/RinspaceManagedGit.test.ts", "tests/unit/extras/agents/RinspaceAgentReadTools.test.ts", "real browser storage-pressure, approval invalidation and reopen/Push acceptance"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies equivalent durable remote configuration and synchronization-baseline restoration with Web Storage quota and full-browser-restart regressions.",
-      "integrationStatus": "Production book-opening quota failure reproduced in a real test account. Full application types, changed-file lint and 47 nearby persistence/Git/managed-boot tests passed in a credential-free isolated environment, including transaction aborts. Full public CI, immutable release and real-browser candidate/production verification remain separate and pending."
+      "integrationStatus": "Production book-opening quota failure reproduced in a real test account. The durable-store baseline passed full application types, changed-file lint and 47 nearby persistence/Git/managed-boot tests in a credential-free isolated environment, including transaction aborts. The approval-bound Push extension is a source candidate with hosted checks and real-browser approval invalidation still pending. Immutable release and production verification remain separate."
     },
     {
       "id": "busytex-warning-driven-reruns",

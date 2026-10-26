@@ -18,6 +18,11 @@ import { parseUrlFragments } from '../utils/urlUtils';
 import { offlineService } from './OfflineService';
 import { getStartupIntent } from '../workspace/RuntimeStartup';
 import { allowsAutomaticConnections } from '../workspace/StartupPolicy';
+import {
+	applyDocumentTextEdits,
+	minimalDocumentTextEdits,
+	type DocumentUpdateOptions,
+} from './DocumentTextEdits';
 
 const moduleLog = createNamedLogger('CollabService');
 
@@ -370,8 +375,24 @@ class CollabService {
 
 			const ymap = doc.getMap('data');
 			const docData = ymap.toJSON();
-
-			return (docData?.projectMetadata as any) ?? null;
+			const metadata = docData?.projectMetadata;
+			if (
+				metadata &&
+				typeof metadata === 'object' &&
+				'name' in metadata &&
+				'description' in metadata &&
+				'type' in metadata &&
+				typeof metadata.name === 'string' &&
+				typeof metadata.description === 'string' &&
+				typeof metadata.type === 'string'
+			) {
+				return {
+					name: metadata.name,
+					description: metadata.description,
+					type: metadata.type,
+				};
+			}
+			return null;
 		} catch (error) {
 			moduleLog.error('Error checking document metadata:', error);
 			return null;
@@ -567,11 +588,22 @@ class CollabService {
 		}
 	}
 
+	public async readDocumentContent(
+		projectId: string,
+		documentId: string,
+	): Promise<string> {
+		const collectionName = `yjs_${documentId}`;
+		const container = this.getDocContainer(projectId, collectionName);
+		if (container) return container.doc.getText('codemirror').toString();
+		return this.getDocumentContent(`yjs:${projectId}`, documentId);
+	}
+
 	public async updateDocumentContent(
 		projectId: string,
 		documentId: string,
 		updater: (currentContent: string) => string,
-	): Promise<void> {
+		options: DocumentUpdateOptions = {},
+	): Promise<string> {
 		const collectionName = `yjs_${documentId}`;
 		const containerId = `${projectId}-${collectionName}`;
 
@@ -612,18 +644,28 @@ class CollabService {
 
 		if (!container) throw new Error('Could not access document');
 
-		const ytext = container.doc.getText('codemirror');
-		const currentContent = ytext.toString();
-		const newContent = updater(currentContent);
+		try {
+			const ytext = container.doc.getText('codemirror');
+			const currentContent = ytext.toString();
+			const newContent = updater(currentContent);
+			const edits = options.edits ?? minimalDocumentTextEdits(currentContent, newContent);
+			if (applyDocumentTextEdits(currentContent, edits) !== newContent) {
+				throw new Error('Document text edits do not produce the requested content');
+			}
 
-		container.doc.transact(() => {
-			ytext.delete(0, ytext.length);
-			ytext.insert(0, newContent);
-		});
+			container.doc.transact(() => {
+				for (const edit of [...edits].sort((left, right) => right.from - left.from)) {
+					if (edit.to > edit.from) ytext.delete(edit.from, edit.to - edit.from);
+					if (edit.insert) ytext.insert(edit.from, edit.insert);
+				}
+			}, options.origin);
 
-		if (!wasConnected) {
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			this.disconnect(projectId, collectionName);
+			if (!wasConnected) {
+				await new Promise((resolve) => setTimeout(resolve, 500));
+			}
+			return newContent;
+		} finally {
+			if (!wasConnected) this.disconnect(projectId, collectionName);
 		}
 	}
 

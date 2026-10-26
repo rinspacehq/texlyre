@@ -6,7 +6,7 @@ import type { BackupStatus } from '../types/backup';
 import type { BibEntry } from '../types/bibliography';
 import type { GitRemoteProvider } from '../types/gitRemote';
 import type { SourceMapHighlight } from '../types/sourceMap';
-import type { WorkspaceExtensionPlugin } from '../workspace/contracts';
+import type { HostContext, WorkspaceExtensionPlugin } from '../workspace/contracts';
 
 export interface Plugin {
 	id: string;
@@ -19,6 +19,18 @@ export interface Plugin {
 export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin & {
 	gitRemote?: GitRemoteProvider;
 };
+
+export interface AgentPanelProps {
+	context: HostContext;
+	projectId: string;
+}
+
+/** Generic assistant surface. Product models, tools and policy stay in extras. */
+export interface AgentPlugin extends Plugin {
+	type: 'agent';
+	isAvailable(context: HostContext): boolean;
+	renderPanel: React.ComponentType<AgentPanelProps>;
+}
 
 export interface SupportedExtension {
 	extension: string;
@@ -275,4 +287,5 @@ export type PluginRegistry = {
 	backup: BackupPlugin[];
 	themes: ThemePlugin[];
 	workspace: WorkspacePlugin[];
+	agents: AgentPlugin[];
 };

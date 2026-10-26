@@ -88,7 +88,9 @@ import { EditorDraftService, editorDraftService } from '../../services/EditorDra
 import { notificationService } from '../../services/NotificationService';
 import { detectFileType, isBibFile } from '../../utils/fileUtils';
 import { collabService } from '../../services/CollabService';
+import { HostDocumentEditOrigin } from '../../services/DocumentTextEdits';
 import { fileStoreService } from '../../services/FileStoreService';
+import { hostFileEditorService } from '../../services/HostFileEditorService';
 import { filePathCacheService } from '../../services/FilePathCacheService';
 import type { CollabProvider } from '../../types/collab';
 import { registerEditorClipboard } from './editorClipboard';
@@ -678,20 +680,36 @@ export const useEditorView = (
 			getCollabOptions() ?? {},
 		);
 
+		/* eslint-disable react-hooks/set-state-in-effect -- The external collaboration connection creates the state values consumed by the editor lifecycle. */
 		setYDoc(doc);
 		setProvider(collabProvider);
+		/* eslint-enable react-hooks/set-state-in-effect */
 
 		const ytext = doc.getText('codemirror');
 		ytextRef.current = ytext;
-		undoManagerRef.current = new UndoManager(ytext);
+		const undoManager = new UndoManager(ytext, {
+			trackedOrigins: new Set([null, HostDocumentEditOrigin]),
+		});
+		const isolateHostEdit = (transaction: Y.Transaction) => {
+			if (transaction.origin instanceof HostDocumentEditOrigin) {
+				undoManager.stopCapturing();
+			}
+		};
+		doc.on('beforeTransaction', isolateHostEdit);
+		doc.on('afterTransaction', isolateHostEdit);
+		undoManagerRef.current = undoManager;
 
 		return () => {
+			doc.off('beforeTransaction', isolateHostEdit);
+			doc.off('afterTransaction', isolateHostEdit);
+			undoManager.destroy();
 			undoManagerRef.current = null;
 			collabService.disconnect(projectId, collectionName);
 			setYDoc(null);
 			setProvider(null);
 			ytextRef.current = null;
 		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps -- getCollabOptions is intentionally sampled only when the document connection key changes.
 	}, [projectId, documentId, isDocumentSelected, isEditingFile]);
 
 	useEffect(() => {
@@ -725,6 +743,7 @@ export const useEditorView = (
 		}
 
 		let disposeClipboard: (() => void) | null = null;
+		let unregisterHostFileEditor: (() => void) | null = null;
 		let createdView: EditorView | null = null;
 		const identity = isEditingFile && currentFileId ? { projectId, fileId: currentFileId } : null;
 		const viewKey = identity ? EditorDraftService.key(identity) : null;
@@ -863,6 +882,13 @@ export const useEditorView = (
 			const view = new EditorView({ state, parent: editorRef.current });
 			createdView = view;
 			viewRef.current = view;
+			if (identity) {
+				unregisterHostFileEditor = hostFileEditorService.register(
+					identity.projectId,
+					identity.fileId,
+					view,
+				);
+			}
 			lastFileViewKeyRef.current = viewKey;
 			applyEditorAppearance(view, editorSettings);
 
@@ -896,6 +922,8 @@ export const useEditorView = (
 		}
 
 		return () => {
+			unregisterHostFileEditor?.();
+			unregisterHostFileEditor = null;
 			disposeClipboard?.();
 			disposeClipboard = null;
 
@@ -917,6 +945,7 @@ export const useEditorView = (
 				if (viewRef.current === createdView) viewRef.current = null;
 			}
 		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps -- Build helpers close over settings handled by the separate reconfiguration effect.
 	}, [
 		editorRef,
 		projectId,
@@ -982,6 +1011,7 @@ export const useEditorView = (
 
 		toolbarControllerRef.current = controller;
 		setToolbarController(controller);
+	// eslint-disable-next-line react-hooks/exhaustive-deps -- editorSettingsVersion is the intentional settings reconfiguration trigger.
 	}, [editorSettingsVersion, toolbarVisible, fileName]);
 
 	useEffect(() => {
@@ -1031,6 +1061,8 @@ export const useEditorView = (
 						else if (!isEditingFile && documentId)
 							await saveDocumentToLinkedFile(content);
 					},
+						isCurrent: (content) =>
+							viewRef.current?.state.doc.toString() === content,
 					onError: reportSaveFailure,
 				},
 			);

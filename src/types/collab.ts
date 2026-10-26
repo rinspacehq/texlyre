@@ -21,7 +21,7 @@ export interface CollabContextType<T = unknown> {
 	doc?: Y.Doc;
 	provider?: CollabProvider;
 	data: T | undefined;
-	changeData: (fn: (data: T) => void) => void;
+	changeData: (fn: (data: T) => void, origin?: unknown) => void;
 	isConnected: boolean;
 	getAwareness: (collectionName: string) => Awareness | null;
 }

@@ -25,7 +25,7 @@ export interface SearchMatch {
 	matchEnd: number;
 }
 
-class SearchService {
+export class SearchService {
 	private currentAbortController: AbortController | null = null;
 	private readonly CHUNK_SIZE = 50;
 
@@ -447,24 +447,20 @@ class SearchService {
 
 		for (const result of results) {
 			if (result.matchType === 'content') {
-				let replaced = false;
-
-				if (result.isLinkedDocument && result.documentId) {
-					replaced = await this.replaceInDocument(
+				const replaced = result.isLinkedDocument && result.documentId
+					? await this.replaceInDocument(
 						result.documentId,
 						projectId,
 						searchQuery,
 						replaceText,
 						options,
-					);
-				} else {
-					replaced = await this.replaceInFile(
+					)
+					: await this.replaceInFile(
 						result.fileId,
 						searchQuery,
 						replaceText,
 						options,
 					);
-				}
 
 				if (replaced) replacedCount++;
 			}
