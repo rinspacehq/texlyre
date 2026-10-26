@@ -13,6 +13,7 @@ import { validateRinspaceAgentBilling, type RinspaceAgentBilling } from './Rinsp
 import type { HostContext } from '@/workspace/contracts';
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import { RinspaceAgentModel } from './RinspaceAgentModel';
+import { loadSynchronizedAgentBinding } from './RinspaceAgentBinding';
 import {
 	isRinspaceAgentCallId,
 	isRinspaceAgentToolName,
@@ -345,7 +346,9 @@ async function createRun(
 	config: RinspaceAgentConfig,
 	signal?: AbortSignal,
 ): Promise<string> {
+	const binding = await loadSynchronizedAgentBinding(context, projectId, signal);
 	const session = await loadRinspaceSession(fetch, signal);
+	signal?.throwIfAborted();
 	const response = await fetch('/rinspace/api/editor/v1/agent/runs', {
 		method: 'POST',
 		credentials: 'include',
@@ -359,7 +362,7 @@ async function createRun(
 		body: JSON.stringify({
 			requestId: crypto.randomUUID(),
 			projectId,
-			binding: context.binding,
+			binding,
 			model: config.model,
 			maxGoodness: config.maxGoodness,
 		}),
