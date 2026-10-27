@@ -83,3 +83,27 @@ test('applies one identified host transaction with isolated undo and redo', () =
 	view.destroy();
 	parent.remove();
 });
+
+
+test('keeps continued typing before an external insertion at the caret', () => {
+	const parent = document.createElement('div');
+	document.body.append(parent);
+	const initial = '// HUMAN 中文';
+	const inserted = '\n\nAgent paragraph\n// AGENT';
+	const view = new EditorView({ parent, state: EditorState.create({
+		doc: initial, selection: { anchor: initial.length }, extensions: [history()],
+	}) });
+	const service = new HostFileEditorService();
+	const unregister = service.register('project', 'file', view);
+	try {
+		expect(service.apply('project', 'file', initial,
+			[{ from: initial.length, to: initial.length, insert: inserted }],
+			new HostDocumentEditOrigin('test-host', 'caret-boundary'),
+		)).toEqual({ status: 'updated', content: initial + inserted });
+		expect(view.state.selection.main.head).toBe(initial.length);
+		view.dispatch(view.state.replaceSelection('123'));
+		expect(view.state.doc.toString()).toBe(initial + '123' + inserted);
+	} finally {
+		unregister(); view.destroy(); parent.remove();
+	}
+});
