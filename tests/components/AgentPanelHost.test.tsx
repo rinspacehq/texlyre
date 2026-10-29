@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import AgentPanelHost from '@src/components/agent/AgentPanelHost';
 import type { AgentPlugin } from '@src/plugins/PluginInterface';
@@ -14,7 +14,25 @@ jest.mock('@src/plugins/PluginRegistry', () => ({
 
 jest.mock('@src/components/common/ResizablePanel', () => ({
 	__esModule: true,
-	default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+	default: ({
+		children,
+		collapsed,
+		onCollapse,
+	}: {
+		children: React.ReactNode;
+		collapsed?: boolean;
+		onCollapse?: (collapsed: boolean) => void;
+	}) => (
+		<div
+			data-testid='agent-panel-shell'
+			data-collapsed={String(Boolean(collapsed))}
+		>
+			<button type='button' onClick={() => onCollapse?.(!collapsed)}>
+				shell-collapse
+			</button>
+			{children}
+		</div>
+	),
 }));
 
 let nextInstance = 0;
@@ -44,16 +62,34 @@ const managedContext = (overrides: {
 
 beforeEach(() => {
 	nextInstance = 0;
-	const Panel: AgentPlugin['renderPanel'] = ({ context, projectId }) => {
+	const Panel: AgentPlugin['renderPanel'] = ({
+		context,
+		projectId,
+		collapsed,
+		onCollapsedChange,
+	}) => {
 		const [instance] = useState(() => ++nextInstance);
 		return (
 			<div data-testid='agent-panel' data-instance={instance}>
 				{context.mode}:{projectId}
+				<button type='button' onClick={() => onCollapsedChange?.(!collapsed)}>
+					panel-collapse
+				</button>
 			</div>
 		);
 	};
 	mockGetAvailableAgents.mockReset();
 	mockGetAvailableAgents.mockReturnValue([{ renderPanel: Panel }]);
+});
+
+test('shares collapse state between the Agent header and the resizable shell', () => {
+	render(<AgentPanelHost context={managedContext()} projectId='project-1' />);
+	const shell = screen.getByTestId('agent-panel-shell');
+	expect(shell).toHaveAttribute('data-collapsed', 'false');
+	fireEvent.click(screen.getByRole('button', { name: 'panel-collapse' }));
+	expect(shell).toHaveAttribute('data-collapsed', 'true');
+	fireEvent.click(screen.getByRole('button', { name: 'shell-collapse' }));
+	expect(shell).toHaveAttribute('data-collapsed', 'false');
 });
 
 test('preserves one panel across equivalent contexts and remounts at every ownership boundary', () => {

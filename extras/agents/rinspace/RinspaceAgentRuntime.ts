@@ -14,6 +14,7 @@ import type { HostContext } from '@/workspace/contracts';
 import { loadRinspaceSession } from '../../workspace/rinspace/RinspaceSession';
 import { RinspaceAgentModel } from './RinspaceAgentModel';
 import { loadSynchronizedAgentBinding } from './RinspaceAgentBinding';
+import { rinspaceAgentProblem } from './RinspaceAgentProblem';
 import {
 	isRinspaceAgentCallId,
 	isRinspaceAgentToolName,
@@ -301,7 +302,7 @@ export async function loadRinspaceAgentConfig(
 		headers: { Accept: 'application/json' },
 		signal,
 	});
-	if (!response.ok) throw new Error(`Agent config failed (${response.status})`);
+	if (!response.ok) throw await rinspaceAgentProblem(response, 'config');
 	return validateConfig(await response.json());
 }
 
@@ -319,8 +320,7 @@ export async function loadRinspaceAgentRun(
 			signal,
 		},
 	);
-	if (!response.ok)
-		throw new Error(`Agent run recovery failed (${response.status})`);
+	if (!response.ok) throw await rinspaceAgentProblem(response, 'recover');
 	const value = (await response.json()) as Record<string, unknown>;
 	if (
 		value.id !== runId ||
@@ -367,8 +367,7 @@ async function createRun(
 			maxGoodness: config.maxGoodness,
 		}),
 	});
-	if (!response.ok)
-		throw new Error(`Agent run creation failed (${response.status})`);
+	if (!response.ok) throw await rinspaceAgentProblem(response, 'create');
 	const value = (await response.json()) as { id?: unknown };
 	if (typeof value.id !== 'string' || !value.id.trim()) {
 		throw new Error('Agent run response is invalid');
@@ -390,7 +389,7 @@ async function abortRun(runId: string): Promise<void> {
 			},
 		},
 	);
-	if (!response.ok) throw new Error(`Agent abort failed (${response.status})`);
+	if (!response.ok) throw await rinspaceAgentProblem(response, 'abort');
 }
 
 export class RinspaceAgentController {

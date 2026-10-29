@@ -224,7 +224,12 @@ function MessageContent({
 	);
 }
 
-const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) => {
+const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
+	context,
+	projectId,
+	collapsed: controlledCollapsed,
+	onCollapsedChange,
+}) => {
 	const managed = context.mode === 'managed' ? context : null;
 	const actorId = managed?.identity.actorId;
 	const savedState = useMemo(
@@ -237,7 +242,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 	const external = useExternalTypesetter();
 	const secrets = useSecrets();
 	const { getSetting } = useSettings();
-	const [collapsed, setCollapsed] = useState(false);
+	const [internalCollapsed, setInternalCollapsed] = useState(false);
+	const collapsed = controlledCollapsed ?? internalCollapsed;
+	const setCollapsed = (next: boolean) => {
+		if (controlledCollapsed === undefined) setInternalCollapsed(next);
+		onCollapsedChange?.(next);
+	};
 	const [prompt, setPrompt] = useState('');
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
@@ -796,7 +806,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 						type='button'
 						className='ui-icon-button'
 						aria-label={collapsed ? '展开琳' : '折叠琳'}
-						onClick={() => setCollapsed((value) => !value)}
+						onClick={() => setCollapsed(!collapsed)}
 					>
 						{collapsed ? <ChevronUpIcon /> : <ChevronDownIcon />}
 					</button>
@@ -804,7 +814,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 			</div>
 			{!collapsed && (
 				<div className='ui-panel-content' data-role='agent'>
-					<AgentMessageList empty={<p>描述你希望琳完成的写作任务。</p>} messages={messages} />
+					<AgentMessageList empty={<></>} messages={messages} />
 					{approval && (
 						<AgentApprovalCard
 							title='确认 Push'

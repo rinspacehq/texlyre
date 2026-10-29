@@ -257,10 +257,14 @@ test('rejects declared and actual oversized responses plus malformed JSON', asyn
 });
 
 test('surfaces policy failures and marks temporary failures for an idempotent retry', async () => {
-	for (const status of [401, 402, 429]) {
-		(fetch as jest.Mock).mockResolvedValueOnce(response('{}', status));
+	for (const [status, body, message] of [
+		[401, '{"code":"UNAUTHENTICATED"}', '登录状态已失效，请重新登录。'],
+		[402, '{}', '琳任务执行失败 (402)'],
+		[429, '{"code":"POLICY_LIMIT"}', '当前账号已达到琳的使用限制，请稍后再试。'],
+	] as const) {
+		(fetch as jest.Mock).mockResolvedValueOnce(response(body, status));
 		await expect(collect(new RinspaceAgentModel('run-1'))).rejects.toThrow(
-			`Agent turn failed (${status})`,
+			message,
 		);
 	}
 	expect(fetch).toHaveBeenCalledTimes(3);

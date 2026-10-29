@@ -23,6 +23,8 @@ export type WorkspacePlugin = Plugin & WorkspaceExtensionPlugin & {
 export interface AgentPanelProps {
 	context: HostContext;
 	projectId: string;
+	collapsed?: boolean;
+	onCollapsedChange?: (collapsed: boolean) => void;
 }
 
 /** Generic assistant surface. Product models, tools and policy stay in extras. */
