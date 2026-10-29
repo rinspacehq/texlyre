@@ -3,7 +3,11 @@ name: Tests
 
 on:
   push:
-    branches: ['**']
+    # Feature branches are checked by pull_request below. Running both events
+    # for the same commit creates two identically named required checks; the
+    # concurrency cancellation of one can then poison branch protection even
+    # when the other succeeds.
+    branches: ['main']
   pull_request:
     branches: ['**']
 
