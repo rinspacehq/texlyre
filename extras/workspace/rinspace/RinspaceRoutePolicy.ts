@@ -6,6 +6,27 @@ export function isRinspaceAccountRoute(search: string, origin: string): boolean 
 	return modes.length === 0 || (modes.length === 1 && modes[0] === 'managed');
 }
 
+export function replaceRinspaceManagedRoute(intent: {
+	owner: string;
+	repository: string;
+	ref: string;
+}): void {
+	const url = new URL(window.location.href);
+	url.searchParams.set('mode', 'managed');
+	url.searchParams.set('owner', intent.owner);
+	url.searchParams.set('repository', intent.repository);
+	url.searchParams.set('ref', intent.ref);
+	window.history.replaceState(null, '', url);
+}
+
+export function clearRinspaceManagedRoute(): void {
+	const url = new URL(window.location.href);
+	for (const key of ['mode', 'owner', 'repository', 'ref']) {
+		url.searchParams.delete(key);
+	}
+	window.history.replaceState(null, '', url);
+}
+
 /** The default entry is only a fallback, not a replacement for an open file. */
 export function rinspaceProjectActivationHash(
 	currentHash: string,

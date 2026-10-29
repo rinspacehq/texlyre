@@ -2,7 +2,7 @@
 import { formatAgentCny, type RinspaceAgentBilling } from './RinspaceAgentBilling';
 
 export function RinspaceAgentBill({ bill, stale }: { bill: RinspaceAgentBilling | null; stale: boolean }) {
-	if (!bill) return <p className='rinspace-agent-billing'>实际扣费待确认</p>;
+	if (!bill) return null;
 	return <details className='rinspace-agent-billing'>
 		<summary>已结算 {bill.goodnessChargedSg} 善功 · {bill.turns.length} 回合{stale ? ' · 更新失败，显示上次确认账单' : ''}</summary>
 		<p>{bill.model} · {bill.providerPriceVersion}</p>

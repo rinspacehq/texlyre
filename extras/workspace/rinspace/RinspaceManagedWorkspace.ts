@@ -19,7 +19,11 @@ import { replaceHash } from '@/utils/urlUtils';
 import { managedLocalProfileScope } from '@/workspace/LocalProfile';
 
 import { invalidManagedBuild, parseRinspaceManifest } from './RinspaceManifest';
-import { rinspaceProjectActivationHash } from './RinspaceRoutePolicy';
+import {
+	clearRinspaceManagedRoute,
+	replaceRinspaceManagedRoute,
+	rinspaceProjectActivationHash,
+} from './RinspaceRoutePolicy';
 import {
 	loadRinspaceSession,
 	type RinspaceNativeSession,
@@ -769,6 +773,11 @@ export class RinspaceManagedWorkspaceRuntime {
 		return this.state.status === 'connected' ? this.state.context : null;
 	}
 
+	close(): void {
+		clearRinspaceManagedRoute();
+		this.invalidate({ status: this.enabled ? 'idle' : 'disabled' });
+	}
+
 	subscribe(listener: (state: RinspaceWorkspaceState) => void): () => void {
 		this.listeners.add(listener);
 		listener(this.state);
@@ -923,6 +932,12 @@ export class RinspaceManagedWorkspaceRuntime {
 			capabilities,
 		};
 		this.assertCurrent(generation, signal);
+		const [owner] = resolved.repository.fullName.split('/');
+		replaceRinspaceManagedRoute({
+			owner,
+			repository: resolved.repository.name,
+			ref: resolved.ref,
+		});
 		this.updateState({
 			status: 'connected',
 			context,

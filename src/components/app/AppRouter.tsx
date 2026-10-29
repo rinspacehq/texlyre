@@ -415,6 +415,7 @@ const AppRouter: React.FC = () => {
 		_projectDescription?: string,
 		projectId?: string,
 	) => {
+		pluginRegistry.getWorkspaceExtensions().host?.close?.();
 		setHostContext(localHostContext);
 		setTargetDocId(null);
 		setTargetFilePath(null);
@@ -477,6 +478,7 @@ const AppRouter: React.FC = () => {
 	};
 
 	const handleLogout = async () => {
+		pluginRegistry.getWorkspaceExtensions().host?.close?.();
 		await logout();
 		setDocUrl(null);
 		setCurrentProjectId(null);
@@ -491,6 +493,7 @@ const AppRouter: React.FC = () => {
 	};
 
 	const handleBackToProjects = () => {
+		pluginRegistry.getWorkspaceExtensions().host?.close?.();
 		setCurrentView('projects');
 		setDocUrl(null);
 		setCurrentProjectId(null);
@@ -508,6 +511,7 @@ const AppRouter: React.FC = () => {
 	};
 
 	const handleShareTargetOpen = (openDocUrl: string, projectId: string) => {
+		pluginRegistry.getWorkspaceExtensions().host?.close?.();
 		setHostContext(localHostContext);
 		if (pendingShare) {
 			shareTargetService.clearPendingShare(pendingShare.id);
