@@ -847,11 +847,6 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({ context, projectId }) =
 						</button>
 					</div>
 					<RinspaceAgentBill bill={billing} stale={billingStale} />
-					<div className='rinspace-agent-usage'>
-						<span>{view?.snapshot.usage.inputTokens ?? 0} 输入 token</span>
-						<span>{view?.snapshot.usage.outputTokens ?? 0} 输出 token</span>
-						<span>善功上限 {config?.maxGoodness ?? '—'}</span>
-					</div>
 				</div>
 			)}
 		</section>

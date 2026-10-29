@@ -149,6 +149,15 @@ beforeEach(() => {
 	});
 });
 
+test('omits billing placeholders and technical usage copy before a task has started', async () => {
+	render(<RinspaceAgentPanel context={context} projectId='project-1' />);
+	await waitFor(() => expect(mockLoadConfig).toHaveBeenCalled());
+	expect(screen.queryByText('实际扣费待确认')).toBeNull();
+	expect(screen.queryByText('0 输入 token')).toBeNull();
+	expect(screen.queryByText('0 输出 token')).toBeNull();
+	expect(screen.queryByText(/善功上限/)).toBeNull();
+});
+
 test('single-flights run creation and rejects a controller returned after Stop', async () => {
 	let resolveCreate: ((controller: unknown) => void) | undefined;
 	mockCreate.mockImplementation(

@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { isRinspaceAccountRoute, rinspaceProjectActivationHash } from '@extras/workspace/rinspace/RinspaceRoutePolicy';
+import {
+	clearRinspaceManagedRoute,
+	isRinspaceAccountRoute,
+	replaceRinspaceManagedRoute,
+	rinspaceProjectActivationHash,
+} from '@extras/workspace/rinspace/RinspaceRoutePolicy';
 import { RinspaceManagedWorkspaceRuntime } from '@extras/workspace/rinspace/RinspaceManagedWorkspace';
 import { RinspaceProjectCatalog } from '@extras/workspace/rinspace/RinspaceProjectCatalog';
 
@@ -36,4 +41,15 @@ describe('managed project activation', () => {
 	test.each(['', '#', `#yjs:${projectId}`, `#yjs:${projectId}&file:`, '#yjs:550e8400-e29b-41d4-a716-446655440001&file:%2Fother.tex', '#&file:%2Fsections%2Fintro.tex'])('uses the entry when no same-project file was requested: %s', hash => {
 		expect(rinspaceProjectActivationHash(hash, projectId, '/main.tex')).toBe(fallback);
 	});
+});
+
+test('persists a refresh-safe managed launch and clears it when leaving', () => {
+	window.history.replaceState(null, '', '/editor/?source=catalog#yjs:project-1');
+	replaceRinspaceManagedRoute({ owner: 'a', repository: '42', ref: 'main' });
+	expect(window.location.search).toBe('?source=catalog&mode=managed&owner=a&repository=42&ref=main');
+	expect(window.location.hash).toBe('#yjs:project-1');
+
+	clearRinspaceManagedRoute();
+	expect(window.location.search).toBe('?source=catalog');
+	expect(window.location.hash).toBe('#yjs:project-1');
 });

@@ -32,6 +32,8 @@ export type HostContext =
 
 export interface HostAdapter {
 	open(intent: Readonly<Record<string, string>>, signal: AbortSignal): Promise<HostContext>;
+	/** Leave the managed host and clear any durable launch intent. */
+	close?(): void;
 	getCurrentContext?(): HostContext | null;
 	onContextInvalidated(listener: () => void): () => void;
 }

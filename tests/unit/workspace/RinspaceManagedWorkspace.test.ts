@@ -92,6 +92,7 @@ function queuedFetch(queue: Response[]): jest.MockedFunction<typeof fetch> {
 
 describe('Rinspace managed workspace', () => {
 	beforeEach(() => {
+		window.history.replaceState(null, '', '/editor/');
 		jest.mocked(crypto.subtle.digest).mockImplementation(async (_algorithm, data) => {
 			const bytes = data instanceof ArrayBuffer
 				? new Uint8Array(data)
@@ -155,6 +156,10 @@ describe('Rinspace managed workspace', () => {
 			}),
 		);
 		expect(materialize).toHaveBeenCalledTimes(1);
+		expect(window.location.search).toBe('?mode=managed&owner=a&repository=42&ref=main');
+		runtime.close();
+		expect(window.location.search).toBe('');
+		expect(runtime.getCurrentContext()).toBeNull();
 	});
 
 	it('requests a real shared tag repository write grant only when explicitly opening it', async () => {
