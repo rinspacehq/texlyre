@@ -292,6 +292,6 @@ test('accepts only the exact server run-state vocabulary', async () => {
 test('does not treat a failed recovery response as a resumable run', async () => {
 	(fetch as jest.Mock).mockResolvedValue(response({}, 401));
 	await expect(loadRinspaceAgentRun('run-1', 'project-1')).rejects.toThrow(
-		'Agent run recovery failed (401)',
+		'登录状态已失效，请重新登录。',
 	);
 });

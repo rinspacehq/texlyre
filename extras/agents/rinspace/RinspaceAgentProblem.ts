@@ -13,7 +13,7 @@ const messages: Partial<Record<string, string>> = {
 };
 
 async function publicProblemCode(response: Response): Promise<string> {
-	const declared = Number(response.headers.get('content-length') ?? '0');
+	const declared = Number(response.headers?.get?.('content-length') ?? '0');
 	if (Number.isFinite(declared) && declared > BODY_LIMIT) return '';
 	let raw: string;
 	try {
@@ -37,6 +37,12 @@ export async function rinspaceAgentProblem(
 	operation: AgentOperation,
 ): Promise<Error> {
 	const code = await publicProblemCode(response);
+	if (code === 'UNAUTHENTICATED' || response.status === 401) {
+		return new Error(messages.UNAUTHENTICATED);
+	}
+	if (code === 'PERMISSION_DENIED' || response.status === 403) {
+		return new Error(messages.PERMISSION_DENIED);
+	}
 	if (
 		operation === 'create' &&
 		(code === 'NOT_FOUND' || response.status === 404)

@@ -170,7 +170,7 @@ test('reports header collapse to the host shell', async () => {
 			projectId='project-1'
 			collapsed={false}
 			onCollapsedChange={onCollapsedChange}
-		/,
+			/>,
 	);
 	await waitFor(() => expect(mockLoadConfig).toHaveBeenCalled());
 	fireEvent.click(screen.getByRole('button', { name: '折叠琳' }));
