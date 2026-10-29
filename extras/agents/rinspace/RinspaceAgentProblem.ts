@@ -15,7 +15,7 @@ const messages: Partial<Record<string, string>> = {
 async function publicProblemCode(response: Response): Promise<string> {
 	const declared = Number(response.headers.get('content-length') ?? '0');
 	if (Number.isFinite(declared) && declared > BODY_LIMIT) return '';
-	let raw = '';
+	let raw: string;
 	try {
 		raw = await response.text();
 	} catch {
