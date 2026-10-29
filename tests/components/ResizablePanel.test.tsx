@@ -75,3 +75,25 @@ describe('ResizablePanel stacked sizing', () => {
 		expect(container.querySelector('.second')).toHaveStyle({ order: '0' });
 	});
 });
+
+describe('ResizablePanel controlled collapse', () => {
+	it('releases non-stacked width and restores its content', () => {
+		const { container, rerender } = render(
+			<ResizablePanel direction='horizontal' width={360} collapsed>
+				Agent
+			</ResizablePanel>,
+		);
+		const panel = container.querySelector('.resizable-panel') as HTMLElement;
+		expect(panel.style.getPropertyValue('--ui-resizable-min-size')).toBe('0');
+		expect(panel.style.getPropertyValue('--ui-resizable-max-size')).toBe('0');
+		expect(container.querySelector('.panel-content')).toHaveClass('hidden');
+
+		rerender(
+			<ResizablePanel direction='horizontal' width={360} collapsed={false}>
+				Agent
+			</ResizablePanel>,
+		);
+		expect(panel.style.getPropertyValue('--ui-resizable-size')).toBe('360px');
+		expect(container.querySelector('.panel-content')).not.toHaveClass('hidden');
+	});
+});

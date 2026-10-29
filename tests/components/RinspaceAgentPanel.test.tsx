@@ -30,11 +30,14 @@ jest.mock('@rinspacehq/cline-embed/ui', () => ({
 		</div>
 	),
 	AgentMessageList: ({
+		empty,
 		messages,
 	}: {
+		empty: ReactNode;
 		messages: Array<{ id: string; content: ReactNode }>;
 	}) => (
 		<div data-testid='messages'>
+			{messages.length === 0 ? empty : null}
 			{messages.map((message) => <div key={message.id}>{message.content}</div>)}
 		</div>
 	),
@@ -156,6 +159,22 @@ test('omits billing placeholders and technical usage copy before a task has star
 	expect(screen.queryByText('0 输入 token')).toBeNull();
 	expect(screen.queryByText('0 输出 token')).toBeNull();
 	expect(screen.queryByText(/善功上限/)).toBeNull();
+	expect(screen.queryByText('描述你希望琳完成的写作任务。')).toBeNull();
+});
+
+test('reports header collapse to the host shell', async () => {
+	const onCollapsedChange = jest.fn();
+	render(
+		<RinspaceAgentPanel
+			context={context}
+			projectId='project-1'
+			collapsed={false}
+			onCollapsedChange={onCollapsedChange}
+		/,
+	);
+	await waitFor(() => expect(mockLoadConfig).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole('button', { name: '折叠琳' }));
+	expect(onCollapsedChange).toHaveBeenCalledWith(true);
 });
 
 test('single-flights run creation and rejects a controller returned after Stop', async () => {

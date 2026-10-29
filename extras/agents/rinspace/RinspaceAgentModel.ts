@@ -15,6 +15,7 @@ import {
 	isRinspaceAgentToolName,
 	RINSPACE_AGENT_MAX_TOOL_CALLS,
 } from './RinspaceAgentProtocol';
+import { rinspaceAgentProblem } from './RinspaceAgentProblem';
 
 const TURN_LIMIT = 1024 * 1024;
 const RESPONSE_LIMIT = 1024 * 1024;
@@ -234,7 +235,7 @@ export class RinspaceAgentModel implements AgentModel {
 			);
 			return;
 		}
-		if (!result.ok) throw new Error(`Agent turn failed (${result.status})`);
+		if (!result.ok) throw await rinspaceAgentProblem(result, 'turn');
 		let rawResponse: unknown;
 		try {
 			rawResponse = await readBoundedResponse(result);

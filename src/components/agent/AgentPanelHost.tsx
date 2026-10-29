@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type React from 'react';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 
 import { pluginRegistry } from '../../plugins/PluginRegistry';
 import type { HostContext } from '../../workspace/contracts';
@@ -12,6 +12,7 @@ interface AgentPanelHostProps {
 }
 
 const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) => {
+	const [collapsed, setCollapsed] = useState(false);
 	const plugin = pluginRegistry.getAvailableAgents(context)[0];
 	if (!plugin) return null;
 	const Panel = plugin.renderPanel;
@@ -33,6 +34,8 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) =
 			minWidth={280}
 			maxWidth={600}
 			maintainAlignment={true}
+			collapsed={collapsed}
+			onCollapse={setCollapsed}
 			className='agent-panel-container'
 		>
 			<Suspense
@@ -42,7 +45,13 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({ context, projectId }) =
 					</div>
 				}
 			>
-				<Panel key={panelKey} context={context} projectId={projectId} />
+				<Panel
+					key={panelKey}
+					context={context}
+					projectId={projectId}
+					collapsed={collapsed}
+					onCollapsedChange={setCollapsed}
+				/>
 			</Suspense>
 		</ResizablePanel>
 	);

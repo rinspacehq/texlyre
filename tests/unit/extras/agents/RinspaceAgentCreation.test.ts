@@ -67,3 +67,15 @@ test('does not create a task when cancelled while reading the synchronization ba
  await expect(RinspaceAgentController.create(context, 'workspace-1', config, host, [], controller.signal)).rejects.toThrow();
  expect(fetch).not.toHaveBeenCalled();
 });
+
+test('turns a stale production binding 404 into an actionable synchronization error', async () => {
+	global.fetch = jest.fn(async () => ({
+		ok: false,
+		status: 404,
+		headers: { get: () => '20' },
+		text: async () => '{"code":"NOT_FOUND"}',
+	})) as jest.Mock;
+	await expect(
+		RinspaceAgentController.create(context, 'workspace-1', config, host),
+	).rejects.toThrow('项目版本已变化，请同步仓库后重试。');
+});
