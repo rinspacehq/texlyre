@@ -9,11 +9,13 @@ import CommentItem from './CommentItem';
 interface CommentPanelProps {
 	className?: string;
 	onLineClick?: (line: number) => void;
+	forceVisible?: boolean;
 }
 
 const CommentPanel: React.FC<CommentPanelProps> = ({
 	className = '',
 	onLineClick,
+	forceVisible = false,
 }) => {
 	const { comments, showComments } = useComments();
 	const [activeTab, setActiveTab] = useState<'list' | 'resolved'>('list');
@@ -45,7 +47,7 @@ const CommentPanel: React.FC<CommentPanelProps> = ({
 		}
 	}, [searchQuery, comments, activeTab]);
 
-	if (!showComments) {
+	if (!showComments && !forceVisible) {
 		return null;
 	}
 

@@ -27,6 +27,7 @@ import './styles/components/codemirror.css';
 import './styles/components/conflicts.css';
 import './styles/components/file-explorer.css';
 import './styles/components/resizable-panel.css';
+import './styles/components/auxiliary-sidebar.css';
 import './styles/components/toast.css';
 import './styles/components/comments.css';
 import './styles/components/review.css';

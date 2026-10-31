@@ -23,6 +23,7 @@ import type { BibEntry } from '../../types/bibliography';
 
 interface BibliographyPanelProps {
 	className?: string;
+	forceVisible?: boolean;
 }
 
 type PendingBibliographyDelete =
@@ -31,6 +32,7 @@ type PendingBibliographyDelete =
 
 const BibliographyPanel: React.FC<BibliographyPanelProps> = ({
 	className = '',
+	forceVisible = false,
 }) => {
 	const {
 		showPanel,
@@ -221,7 +223,7 @@ const BibliographyPanel: React.FC<BibliographyPanelProps> = ({
 		}
 	};
 
-	if (!showPanel) return null;
+	if (!showPanel && !forceVisible) return null;
 
 	const renderProviderDropdown = () => (
 		<PositionedDropdown
@@ -534,7 +536,7 @@ const BibliographyPanel: React.FC<BibliographyPanelProps> = ({
 						<input
 							type='text'
 							placeholder={
-							selectedProvider === 'all'
+								selectedProvider === 'all'
 									? t('Search all sources...')
 									: selectedProvider === 'local'
 										? t('Search local bibliography...')

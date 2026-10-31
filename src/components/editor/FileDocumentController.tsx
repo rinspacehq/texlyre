@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { createNamedLogger } from '@/logging';
+import { AuxiliarySidebarProvider } from '../../contexts/AuxiliarySidebarContext';
 import { EditorTabsProvider } from '../../contexts/EditorTabsContext';
 import { SearchProvider } from '../../contexts/SearchContext';
 import { useEditorLayout } from '../../hooks/editor/useEditorLayout';
@@ -16,6 +17,7 @@ import type { Project } from '../../types/projects';
 import type { YjsDocUrl } from '../../types/yjs';
 import type { HostContext } from '../../workspace/contracts';
 import AgentPanelHost from '../agent/AgentPanelHost';
+import AuxiliarySidebarHost from '../auxiliary/AuxiliarySidebarHost';
 import GitDiffViewer, { type GitDiffView } from '../history/GitDiffViewer';
 import ProjectExportModal from '../project/ProjectExportModal';
 import Editor from './Editor';
@@ -223,7 +225,10 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 					className='editor-container'
 					style={{ flex: 1, minWidth: 0, position: 'relative' }}
 				>
-					<EditorTabs onTabSwitch={navigation.handleTabSwitch} projectId={docUrl.replace(/^yjs:/, '')} />
+					<EditorTabs
+						onTabSwitch={navigation.handleTabSwitch}
+						projectId={docUrl.replace(/^yjs:/, '')}
+					/>
 					<div className='git-editor-surface'>
 						{!navigation.bootstrapResolved ? (
 							<div className='file-loading-overlay'>
@@ -334,6 +339,10 @@ const FileDocumentControllerContent: React.FC<FileDocumentControllerProps> = ({
 				context={hostContext}
 				projectId={docUrl.replace(/^yjs:/, '')}
 			/>
+			<AuxiliarySidebarHost
+				width={layout.auxiliarySidebarWidth}
+				onResize={layout.handleAuxiliarySidebarResize}
+			/>
 
 			{showCurrentProjectExportModal && currentProjectForExport && (
 				<ProjectExportModal
@@ -350,11 +359,13 @@ const FileDocumentController: React.FC<FileDocumentControllerProps> = (
 	props,
 ) => {
 	return (
-		<SearchProvider>
-			<EditorTabsProvider>
-				<FileDocumentControllerContent {...props} />
-			</EditorTabsProvider>
-		</SearchProvider>
+		<AuxiliarySidebarProvider>
+			<SearchProvider>
+				<EditorTabsProvider>
+					<FileDocumentControllerContent {...props} />
+				</EditorTabsProvider>
+			</SearchProvider>
+		</AuxiliarySidebarProvider>
 	);
 };
 

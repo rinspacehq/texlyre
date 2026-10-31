@@ -48,6 +48,7 @@ export interface ReviewSnapshot {
 export interface ReviewContextType {
 	reviews: ReviewSnapshot[];
 	showReviews: boolean;
+	setReviewsVisible: (visible: boolean) => void;
 	toggleReviews: () => void;
 	trackChanges: boolean;
 	trackChangesLocal: boolean;

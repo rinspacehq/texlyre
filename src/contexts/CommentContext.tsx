@@ -142,9 +142,13 @@ export const CommentProvider: React.FC<CommentProviderProps> = ({
 		};
 	}, [getCommentById, scrollToComment]);
 
-	const toggleComments = () => {
-		setShowComments(!showComments);
-	};
+	const setCommentsVisible = useCallback((visible: boolean) => {
+		setShowComments(visible);
+	}, []);
+
+	const toggleComments = useCallback(() => {
+		setShowComments((visible) => !visible);
+	}, []);
 
 	const addComment = (content: string): CommentRaw => {
 		if (!user) return { openTag: '', closeTag: '', commentId: '' };
@@ -263,6 +267,7 @@ export const CommentProvider: React.FC<CommentProviderProps> = ({
 				deleteResponse,
 				resolveComment,
 				showComments,
+				setCommentsVisible,
 				toggleComments,
 				parseComments,
 				getCommentAtPosition,

@@ -9,11 +9,15 @@ import ReviewItem from './ReviewItem';
 
 interface ReviewPanelProps {
 	className?: string;
+	forceVisible?: boolean;
 }
 
 const CARD_GAP = 8;
 
-const ReviewPanel: React.FC<ReviewPanelProps> = ({ className = '' }) => {
+const ReviewPanel: React.FC<ReviewPanelProps> = ({
+	className = '',
+	forceVisible = false,
+}) => {
 	const {
 		reviews,
 		showReviews,
@@ -198,7 +202,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ className = '' }) => {
 		};
 	}, [showReviews]);
 
-	if (!showReviews) {
+	if (!showReviews && !forceVisible) {
 		return null;
 	}
 

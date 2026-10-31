@@ -12,22 +12,31 @@ jest.mock('@src/plugins/PluginRegistry', () => ({
 	pluginRegistry: { getAvailableAgents: (...args: unknown[]) => mockGetAvailableAgents(...args) },
 }));
 
-jest.mock('@src/components/common/ResizablePanel', () => ({
+jest.mock('@src/hooks/useProperties', () => ({
+	useProperties: () => ({
+		isReady: false,
+		getProperty: jest.fn(),
+		setProperty: jest.fn(),
+		registerProperty: jest.fn(),
+	}),
+}));
+
+jest.mock('@src/components/auxiliary/AuxiliaryPanelPortal', () => ({
 	__esModule: true,
 	default: ({
 		children,
-		collapsed,
-		onCollapse,
+		open,
+		onOpenChange,
 	}: {
 		children: React.ReactNode;
-		collapsed?: boolean;
-		onCollapse?: (collapsed: boolean) => void;
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
 	}) => (
 		<div
 			data-testid='agent-panel-shell'
-			data-collapsed={String(Boolean(collapsed))}
+			data-collapsed={String(!open)}
 		>
-			<button type='button' onClick={() => onCollapse?.(!collapsed)}>
+			<button type='button' onClick={() => onOpenChange(!open)}>
 				shell-collapse
 			</button>
 			{children}
