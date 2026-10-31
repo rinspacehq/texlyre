@@ -19,8 +19,10 @@ import { ReviewProvider } from '../../contexts/ReviewContext';
 import { hasToolbarSupport } from '../../extensions/codemirror/ToolbarExtension';
 import { useEditorView } from '../../hooks/editor/useEditorView';
 import { useCollab } from '../../hooks/useCollab';
+import { useBibliography } from '../../hooks/useBibliography';
 import { useComments } from '../../hooks/useComments';
 import { usePluginFileInfo } from '../../hooks/usePluginFileInfo';
+import { useReview } from '../../hooks/useReview';
 import { useSourceMap } from '../../hooks/useSourceMap';
 import { useSettings } from '../../hooks/useSettings';
 import type {
@@ -58,15 +60,19 @@ import ReviewToggleButton, {
 } from '../review/ReviewToggleButton';
 import BibliographyToggleButton from '../bibliography/BibliographyToggleButton';
 import BibliographyPanel from '../bibliography/BibliographyPanel';
+import AuxiliaryPanelPortal from '../auxiliary/AuxiliaryPanelPortal';
 import CommentModal from '../comments/CommentModal';
 import ContentFormatterButton from './ContentFormatterButton';
 import LSPNavigationButton from './LSPNavigationButton';
 import SourceMapButton from './SourceMapButton';
 import {
+	BibliographyIcon,
+	CommentIcon,
 	CopyIcon,
 	DownloadIcon,
 	FileTextIcon,
 	LinkIcon,
+	ReviewPanelIcon,
 	SaveIcon,
 	ToolbarShowIcon,
 } from '../common/Icons';
@@ -217,7 +223,11 @@ const EditorContent: React.FC<{
 		forwardClickEnabled,
 		forwardClickMode,
 	} = useSourceMap();
-	const { addComment, updateComments } = useComments();
+	const { addComment, updateComments, showComments, setCommentsVisible } =
+		useComments();
+	const { showReviews, setReviewsVisible } = useReview();
+	const { showPanel: showBibliography, setShowPanel: setShowBibliography } =
+		useBibliography();
 	const fileInfo = usePluginFileInfo(fileId, fileName);
 	const {
 		data: doc,
@@ -965,15 +975,57 @@ const EditorContent: React.FC<{
 							data-density='compact'
 						>
 							<span>
-								{isViewOnly ? t('Cannot Save Read-Only') : t('Saved in this browser')}
+								{isViewOnly
+									? t('Cannot Save Read-Only')
+									: t('Saved in this browser')}
 							</span>
 						</div>
 					)}
 				</div>
 
-				{!isViewOnly && <ReviewPanel className='editor-review-panel' />}
-				{!isViewOnly && <CommentPanel className='editor-comment-panel' />}
-				{!isViewOnly && <BibliographyPanel className='editor-lsp-panel' />}
+				{!isViewOnly && (
+					<>
+						<AuxiliaryPanelPortal
+							id='bibliography'
+							label={t('Bibliography')}
+							icon={BibliographyIcon}
+							order={20}
+							open={showBibliography}
+							onOpenChange={setShowBibliography}
+						>
+							<BibliographyPanel
+								className='editor-lsp-panel'
+								forceVisible={true}
+							/>
+						</AuxiliaryPanelPortal>
+						<AuxiliaryPanelPortal
+							id='comments'
+							label={t('Comments')}
+							icon={CommentIcon}
+							order={30}
+							open={showComments}
+							onOpenChange={setCommentsVisible}
+						>
+							<CommentPanel
+								className='editor-comment-panel'
+								forceVisible={true}
+							/>
+						</AuxiliaryPanelPortal>
+						<AuxiliaryPanelPortal
+							id='review'
+							label={t('Changes')}
+							icon={ReviewPanelIcon}
+							order={40}
+							open={showReviews}
+							onOpenChange={setReviewsVisible}
+						>
+							<ReviewPanel
+								className='editor-review-panel'
+								forceVisible={true}
+							/>
+						</AuxiliaryPanelPortal>
+					</>
+				)}
 			</div>
 		</>
 	);

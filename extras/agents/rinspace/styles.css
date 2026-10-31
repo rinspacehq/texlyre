@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 .agent-panel-container {
+	width: 100%;
+	height: 100%;
 	min-height: 0;
+	overflow: hidden;
 	background: var(--pico-background);
-	border-inline-start: 1px solid var(--accent-border);
 }
 
 .rinspace-agent {
@@ -40,7 +42,7 @@
 	display: flex;
 }
 
-.rinspace-agent .cline-chat-message[data-role='user'] {
+.rinspace-agent .cline-chat-message[data-role="user"] {
 	justify-content: flex-end;
 }
 
@@ -52,11 +54,15 @@
 	border-radius: var(--cline-ui-radius);
 }
 
-.rinspace-agent .cline-chat-message[data-role='user'] .cline-chat-message-content {
+.rinspace-agent
+	.cline-chat-message[data-role="user"]
+	.cline-chat-message-content {
 	background: var(--cline-ui-accent);
 }
 
-.rinspace-agent .cline-chat-message[data-role='status'] .cline-chat-message-content {
+.rinspace-agent
+	.cline-chat-message[data-role="status"]
+	.cline-chat-message-content {
 	width: 100%;
 	max-width: 100%;
 	padding: 0;
@@ -101,7 +107,7 @@
 	background: var(--cline-ui-accent);
 }
 
-.rinspace-agent .cline-chat-tool-trigger[data-status='error'] {
+.rinspace-agent .cline-chat-tool-trigger[data-status="error"] {
 	color: var(--cline-ui-destructive);
 }
 
@@ -305,24 +311,19 @@
 }
 
 @media (max-width: 720px) {
-	.agent-panel-container {
-		position: fixed;
-		inset: var(--mobile-header-height, 44px) 0 var(--mobile-footer-height, 44px);
-		z-index: var(--z-modal);
-		width: 100% !important;
-		min-width: 0 !important;
-		max-width: none !important;
-	}
-
 	.rinspace-agent-diff-columns {
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
 
 .rinspace-agent-billing {
-  font-size: var(--font-size-sm, 0.85rem);
-  overflow-wrap: anywhere;
-  padding: 0.5rem;
+	font-size: var(--font-size-sm, 0.85rem);
+	overflow-wrap: anywhere;
+	padding: 0.5rem;
 }
-.rinspace-agent-billing summary { cursor: pointer; }
-.rinspace-agent-billing details { margin-block: 0.5rem; }
+.rinspace-agent-billing summary {
+	cursor: pointer;
+}
+.rinspace-agent-billing details {
+	margin-block: 0.5rem;
+}

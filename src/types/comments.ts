@@ -38,6 +38,7 @@ export interface CommentContextType {
 	deleteResponse: (commentId: string, responseId: string) => void;
 	resolveComment: (commentId: string) => void;
 	showComments: boolean;
+	setCommentsVisible: (visible: boolean) => void;
 	toggleComments: () => void;
 	parseComments: (editorContent: string) => Comment[];
 	getCommentAtPosition: (position: number) => Comment | null;

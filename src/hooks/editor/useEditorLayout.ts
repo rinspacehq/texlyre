@@ -22,6 +22,7 @@ export const useEditorLayout = () => {
 	const [latexOutputWidth, setLatexOutputWidth] = useState(550);
 	const [typstOutputWidth, setTypstOutputWidth] = useState(550);
 	const [externalOutputWidth, setExternalOutputWidth] = useState(550);
+	const [auxiliarySidebarWidth, setAuxiliarySidebarWidth] = useState(360);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [latexOutputCollapsed, setLatexOutputCollapsed] = useState(false);
 	const [typstOutputCollapsed, setTypstOutputCollapsed] = useState(false);
@@ -106,6 +107,14 @@ export const useEditorLayout = () => {
 		[setProperty],
 	);
 
+	const handleAuxiliarySidebarResize = useCallback(
+		(width: number) => {
+			setAuxiliarySidebarWidth(width);
+			setProperty('auxiliary-sidebar-width', width);
+		},
+		[setProperty],
+	);
+
 	const handleToolbarToggle = useCallback(
 		(visible: boolean) => {
 			setToolbarVisible(visible);
@@ -162,6 +171,12 @@ export const useEditorLayout = () => {
 			category: 'UI',
 			subcategory: 'Layout',
 			defaultValue: externalOutputWidth,
+		});
+		registerProperty({
+			id: 'auxiliary-sidebar-width',
+			category: 'UI',
+			subcategory: 'Layout',
+			defaultValue: auxiliarySidebarWidth,
 		});
 		registerProperty({
 			id: 'latex-output-width',
@@ -236,6 +251,7 @@ export const useEditorLayout = () => {
 
 		const storedSidebarWidth = getProperty('sidebar-width');
 		const storedExternalWidth = getProperty('external-output-width');
+		const storedAuxiliarySidebarWidth = getProperty('auxiliary-sidebar-width');
 		const storedLatexWidth = getProperty('latex-output-width');
 		const storedTypstWidth = getProperty('typst-output-width');
 		const storedSidebarCollapsed = getProperty('sidebar-collapsed');
@@ -253,6 +269,8 @@ export const useEditorLayout = () => {
 			setSidebarWidth(Number(storedSidebarWidth));
 		if (storedExternalWidth !== undefined)
 			setExternalOutputWidth(Number(storedExternalWidth));
+		if (storedAuxiliarySidebarWidth !== undefined)
+			setAuxiliarySidebarWidth(Number(storedAuxiliarySidebarWidth));
 		if (storedLatexWidth !== undefined)
 			setLatexOutputWidth(Number(storedLatexWidth));
 		if (storedTypstWidth !== undefined)
@@ -284,6 +302,7 @@ export const useEditorLayout = () => {
 		latexOutputWidth,
 		typstOutputWidth,
 		externalOutputWidth,
+		auxiliarySidebarWidth,
 		sidebarCollapsed,
 		latexOutputCollapsed,
 		typstOutputCollapsed,
@@ -303,6 +322,7 @@ export const useEditorLayout = () => {
 		handleTypstOutputCollapse,
 		handleExternalOutputWidthResize,
 		handleExternalOutputCollapse,
+		handleAuxiliarySidebarResize,
 		handleToolbarToggle,
 	};
 };

@@ -651,6 +651,43 @@ function addUsage(base, current) {
 	};
 }
 
+function billingForRun(run) {
+	const turns = run.confirmedTurns.map((turn) => {
+		const providerCost = BigInt(
+			(turn.usage.inputTokens + turn.usage.outputTokens) * 10,
+		);
+		const revenue = providerCost * 2n;
+		return {
+			iteration: turn.iteration,
+			operationId: turn.operationId,
+			requestId: turn.requestId,
+			receiptSha256: createHash('sha256')
+				.update(`${turn.operationId}:${turn.requestId}`)
+				.digest('hex'),
+			inputTokens: turn.usage.inputTokens,
+			cachedInputTokens: turn.usage.cacheReadTokens,
+			outputTokens: turn.usage.outputTokens,
+			providerCostCnyMicros: providerCost.toString(),
+			goodnessChargedSg: '1',
+			goodnessRevenueCnyMicros: revenue.toString(),
+			profitCnyMicros: (revenue - providerCost).toString(),
+		};
+	});
+	const sum = (field) =>
+		turns.reduce((total, turn) => total + BigInt(turn[field]), 0n).toString();
+	return {
+		model: 'fixture-model',
+		providerPriceVersion: 'fixture-price-v1',
+		currency: 'CNY',
+		pendingTurns: 0,
+		turns,
+		providerCostCnyMicros: sum('providerCostCnyMicros'),
+		goodnessChargedSg: sum('goodnessChargedSg'),
+		goodnessRevenueCnyMicros: sum('goodnessRevenueCnyMicros'),
+		profitCnyMicros: sum('profitCnyMicros'),
+	};
+}
+
 function confirmedTurnResponse(run, requestBody, responseBody) {
 	assert.match(
 		requestBody.operationKey,
@@ -831,6 +868,7 @@ async function apiResponse(repository, agentFixture, request, url) {
 			status: 'ACTIVE',
 			usage: run.usage,
 			confirmedTurns: run.confirmedTurns,
+			billing: billingForRun(run),
 		});
 	}
 	const turnMatch = url.pathname.match(
@@ -2021,25 +2059,33 @@ async function waitForRecoveryState(client, expectedText, interceptionErrors) {
 			client,
 			`(() => {
 				const panel = document.querySelector('section[data-role="agent"]');
-				const usage = panel?.querySelector('.rinspace-agent-usage')?.textContent ?? '';
+				const usage = panel?.querySelector('.rinspace-agent-billing')?.textContent ?? '';
 				const text = panel?.textContent ?? '';
 				const keys = Object.keys(sessionStorage).filter(key => key.startsWith('rinspace-agent:'));
+				const states = keys.map(key => ({ key, value: sessionStorage.getItem(key) }));
+				const projectId = sessionStorage.getItem('currentProjectId');
+				const currentState = states.find(({ key }) => key === 'rinspace-agent:' + encodeURIComponent('fixture-user-17') + ':' + encodeURIComponent(projectId ?? ''));
+				const runtimeUsage = currentState?.value
+					? JSON.parse(currentState.value).usage
+					: null;
 				return {
 					status: panel?.querySelector('.ui-badge')?.textContent?.trim(),
 					text,
 					usage,
 					error: panel?.querySelector('.ui-message[data-tone="error"]')?.textContent ?? '',
 					approval: Boolean(panel?.querySelector('.cline-ui-agent-approval-card')),
-					projectId: sessionStorage.getItem('currentProjectId'),
-					states: keys.map(key => ({ key, value: sessionStorage.getItem(key) })),
+					projectId,
+					states,
+					runtimeUsage,
 				};
 			})()`,
 		);
 		if (
 			state.status === '就绪' &&
 			state.text.includes(expectedText) &&
-			state.usage.includes('412 输入 token') &&
-			state.usage.includes('92 输出 token')
+			state.usage.includes('6 回合') &&
+			state.runtimeUsage?.inputTokens === 412 &&
+			state.runtimeUsage?.outputTokens === 92
 		) {
 			return state;
 		}
@@ -2065,7 +2111,7 @@ async function waitForRecoveryFailure(client, interceptionErrors) {
 				};
 			})()`,
 		);
-		if (state.error.includes('Agent run recovery failed (503)')) return state;
+		if (state.error.includes('琳任务恢复失败 (503)')) return state;
 		await wait(50);
 	}
 	throw new Error(`Agent recovery failure was not surfaced: ${JSON.stringify(state)}`);
@@ -2332,7 +2378,7 @@ try {
 					};
 					const panel = document.querySelector('section[data-role="agent"]');
 					const textarea = panel?.querySelector('textarea');
-					const usage = panel?.querySelector('.rinspace-agent-usage');
+					const usage = panel?.querySelector('.rinspace-agent-billing') ?? panel?.querySelector('.ui-panel-header');
 					if (!(panel instanceof HTMLElement) || !(textarea instanceof HTMLElement) || !(usage instanceof HTMLElement)) throw new Error('Agent controls disappeared');
 					const panelRect = panel.getBoundingClientRect();
 					const textStyle = getComputedStyle(textarea);

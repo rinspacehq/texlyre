@@ -171,6 +171,9 @@ export const ReviewProvider: React.FC<ReviewProviderProps> = ({
 		() => setShowReviews((visible) => !visible),
 		[],
 	);
+	const setReviewsVisible = useCallback((visible: boolean) => {
+		setShowReviews(visible);
+	}, []);
 
 	const toggleTrackChanges = useCallback(() => {
 		const next = !trackChangesLocal;
@@ -301,6 +304,7 @@ export const ReviewProvider: React.FC<ReviewProviderProps> = ({
 			value={{
 				reviews,
 				showReviews,
+				setReviewsVisible,
 				toggleReviews,
 				trackChanges,
 				trackChangesLocal,
