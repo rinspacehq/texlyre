@@ -41,6 +41,14 @@ test('optional theme hook has one owner without requiring a host or identity', (
 	assert.equal(registry.getExtensions().catalog, undefined);
 	assert.throws(() => registry.register(extension('other', { theme })), /already provided/);
 });
+test('optional project home source stays independent of host and has one owner', () => {
+	const registry = new WorkspaceExtensionRegistry();
+	const projectHome = { id: 'remote', label: 'Remote', isEnabled: () => true, subscribe: () => () => {}, Sidebar: () => null, Content: () => null };
+	registry.register(extension('remote', { projectHome }));
+	assert.equal(registry.getExtensions().projectHome, projectHome);
+	assert.equal(registry.getExtensions().host, undefined);
+	assert.throws(() => registry.register(extension('other', { projectHome })), /already provided/);
+});
 test('conflicting registration is atomic and cannot replace the host', () => {
 	const registry = new WorkspaceExtensionRegistry();
 	registry.register(extension('existing', { host }));

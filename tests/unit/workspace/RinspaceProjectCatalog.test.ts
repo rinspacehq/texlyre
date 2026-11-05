@@ -123,6 +123,14 @@ describe('Rinspace project catalog', () => {
 		await expect(new RinspaceProjectCatalog(enabledRuntime(),request).listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
 	});
 
+	it('preserves a preparing repository row without treating it as openable', async () => {
+		const request = jest.fn(async () => response(wire([{ ...project(41, 'a'), creationState: 'preparing' }])) ) as jest.MockedFunction<typeof fetch>;
+		const result = await new RinspaceProjectCatalog(enabledRuntime(), request).listPage({page:1,pageSize:24},new AbortController().signal);
+		expect(result).toEqual(expect.objectContaining({projects:[expect.objectContaining({readiness:'preparing',repositoryLabel:'a/41'})]}));
+		const malformed = jest.fn(async () => response(wire([{ ...project(41, 'a'), creationState: 'unknown' }]))) as jest.MockedFunction<typeof fetch>;
+		await expect(new RinspaceProjectCatalog(enabledRuntime(), malformed).listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
+	});
+
 	it('does not request the platform while disabled', async () => {
 		const runtime = new RinspaceManagedWorkspaceRuntime(
 			{ fetch: jest.fn(), materialize: jest.fn() },

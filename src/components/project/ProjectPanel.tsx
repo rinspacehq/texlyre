@@ -1,6 +1,5 @@
 // src/components/project/ProjectPanel.tsx
 import type React from 'react';
-import { useState } from 'react';
 
 import { t } from '@/i18n';
 import { useWheelScroll } from '../../hooks/useWheelScroll';
@@ -17,6 +16,9 @@ interface ProjectPanelProps {
 	onFilterByType: (type: string) => void;
 	onFilterByGroup: (group: string) => void;
 	onOpenProject?: (project: Project) => void;
+	searchQuery: string;
+	selectedTag: string;
+	selectedType: string;
 	projects: Project[];
 	availableTags: string[];
 	availableTypes: string[];
@@ -29,17 +31,15 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 	onSearch,
 	onFilterByTag,
 	onFilterByType,
-	onFilterByGroup,
 	onOpenProject,
+	searchQuery,
+	selectedTag,
+	selectedType,
 	projects,
 	availableTags,
 	availableTypes,
-	availableGroups,
 }) => {
 	const headerActionsRef = useWheelScroll<HTMLDivElement>();
-	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedTag, setSelectedTag] = useState('');
-	const [selectedType, setSelectedType] = useState('');
 	// const [selectedGroup, setSelectedGroup] = useState('');
 	const favoriteProjects = projects
 		.filter((project) => project.isFavorite)
@@ -92,7 +92,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 						placeholder={t('Search projects...')}
 						value={searchQuery}
 						onChange={(event) => {
-							setSearchQuery(event.target.value);
 							onSearch(event.target.value);
 						}}
 						className='search-input ui-field-control ui-search-control'
@@ -103,7 +102,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 							aria-label={t('Clear search')}
 							className='ui-search-clear'
 							onClick={() => {
-								setSearchQuery('');
 								onSearch('');
 							}}
 							title={t('Clear search')}
@@ -115,7 +113,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 				<select
 					value={selectedTag}
 					onChange={(event) => {
-						setSelectedTag(event.target.value);
 						onFilterByTag(event.target.value);
 					}}
 					className='tag-filter ui-field-control'
@@ -130,7 +127,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 				<select
 					value={selectedType}
 					onChange={(event) => {
-						setSelectedType(event.target.value);
 						onFilterByType(event.target.value);
 					}}
 					className='type-filter ui-field-control'

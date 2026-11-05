@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { ComponentType } from 'react';
 import type { GitRemoteProvider } from '../types/gitRemote';
 
 /** Generic extension contracts. Product wire schemas are versioned separately. */
@@ -32,6 +33,8 @@ export type HostContext =
 
 export interface HostAdapter {
 	open(intent: Readonly<Record<string, string>>, signal: AbortSignal): Promise<HostContext>;
+	/** Optional route intent; open must still verify the current session and ACL. */
+	getStartupIntent?(): Readonly<Record<string, string>> | null;
 	/** Leave the managed host and clear any durable launch intent. */
 	close?(): void;
 	getCurrentContext?(): HostContext | null;
@@ -48,6 +51,8 @@ export interface WorkspaceCatalogProject {
 	readonly updatedAt?: number;
 	readonly private: boolean;
 	readonly access: 'owner' | 'collaborator';
+	/** A source may retain a catalog row while its initial content is not openable. */
+	readonly readiness?: 'ready' | 'preparing' | 'attention';
 	readonly openIntent: Readonly<Record<string, string>>;
 }
 
@@ -78,6 +83,22 @@ export interface WorkspaceProjectCatalog {
 		request: { readonly page: number; readonly pageSize: number; readonly query?: string; readonly cursor?: string },
 		signal: AbortSignal,
 	): Promise<WorkspaceCatalogPage>;
+}
+
+/** Presentation slot for an optional project source. Core owns the Local source. */
+export interface ProjectHomeSource {
+	readonly id: string;
+	readonly label: string;
+	isEnabled(): boolean;
+	subscribe(listener: () => void): () => void;
+	readonly Sidebar: ComponentType<{ searchQuery: string; onSearch(query: string): void; onCreate(): void; onRefresh(): void }>;
+	readonly Content: ComponentType<{
+		searchQuery: string;
+		createRequested: boolean;
+		refreshEpoch: number;
+		onCloseCreate(): void;
+		onOpenProject(project: WorkspaceCatalogProject): Promise<void>;
+	}>;
 }
 
 export interface GitHttpRequest {
@@ -208,6 +229,7 @@ export interface WorkspaceExtensions {
 	};
 	readonly host?: HostAdapter;
 	readonly catalog?: WorkspaceProjectCatalog;
+	readonly projectHome?: ProjectHomeSource;
 	readonly git?: GitTransport;
 	readonly collaboration?: CollaborationAdapter;
 	readonly snapshots?: SourceSnapshotProvider;

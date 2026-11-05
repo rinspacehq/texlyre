@@ -3,6 +3,24 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "generic-host-responsive-viewport",
+      "files": ["src/utils/viewportUtils.ts"],
+      "purpose": "Let an optional workspace host request the actual device viewport while preserving TeXlyre's existing 1200px standalone desktop viewport. The Rinspace plugin uses this hook only on its first-party account route so its narrow project sidebar is reachable on phones.",
+      "tests": ["tests/unit/utils/viewportUtils.test.ts", "Rinspace account-route mobile Chromium fixture"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream exposes an equivalent host-scoped responsive viewport option.",
+      "integrationStatus": "The source candidate passed a fresh-profile 390px Chromium fixture on the Rinspace account route: the device viewport and mobile sidebar toggle were active, both project sources were present, and the three-step create form filled the 725px workspace with a 689px content area. Real-account and immutable-artifact acceptance remain pending."
+    },
+    {
+      "id": "generic-project-home-source",
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/components/app/ProjectApp.tsx", "src/components/app/AppRouter.tsx", "src/components/project/ProjectPanel.tsx", "src/styles/components/project.css"],
+      "purpose": "Give an optional workspace plugin its own project-home sidebar and content view while retaining the complete Local project flow, a shared resizable layout, independent search state and cancellation when a source is unmounted. Let a source report generic project readiness so the host does not open a pending project. Restore an optional host startup intent only after the host rechecks the current session and access; prevent a managed workspace from being imported as Local. Product identity and project policy stay in the plugin.",
+      "tests": ["tests/components/RinspaceProjectHomeContent.test.tsx", "scripts/rinspace/workspace-contracts.test.mjs", "project source tab, managed refresh and Local-only browser regression"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides an equivalent optional project-home source extension with isolated Local state.",
+      "integrationStatus": "The source candidate passed a fresh-profile Chromium fixture for Rinspace and Local tabs, remote sidebar, mobile create panel, and ArrowLeft/ArrowRight focus and source switching; Local retained its own project controls. The managed fixture passed after the optional readiness field was added. Real-account, Gitea, and private same-package acceptance remain pending."
+    },
+    {
       "id": "generic-agent-plugin-extension",
       "files": ["src/plugins/PluginInterface.ts", "src/plugins/AgentPluginRegistry.ts", "src/plugins/PluginRegistry.ts", "src/components/agent/AgentPanelHost.tsx", "src/components/app/AppRouter.tsx", "src/components/app/EditorApp.tsx", "src/components/editor/FileDocumentController.tsx", "src/services/SearchService.ts", "src/workspace/contracts.ts", "src/types/texlyre.ts", "texlyre.config.ts"],
       "purpose": "Add a product-neutral Agent plugin type with current-host availability, registration, removal, lazily evaluated panel ownership and a standard resizable workspace panel host. Remount the optional panel when project, actor, permission epoch or workspace generation changes so no controller survives an ownership boundary. Export the existing SearchService constructor so an optional Agent can use an isolated cancellation scope instead of cancelling the human search panel. Keep model vendors, credentials, tools, billing and Rinspace policy outside core.",
@@ -157,9 +175,9 @@
     },
     {
       "id": "workspace-account-presentation",
-      "files": ["src/workspace/contracts.ts", "src/components/workspace/WorkspaceAccountIndicator.tsx", "src/components/profile/UserDropdown.tsx", "src/styles/components/auth.css", "src/components/project/WorkspaceCatalogSection.tsx"],
+      "files": ["src/workspace/contracts.ts", "src/components/workspace/WorkspaceAccountIndicator.tsx", "src/components/profile/UserDropdown.tsx", "src/styles/components/auth.css", "extras/workspace/rinspace/RinspaceProjectHomeContent.tsx"],
       "purpose": "Optional catalog account-display hook presents verified host nickname/avatar separately from browser-local account operations. The product profile/session and explicit-local route adapters remain in extras; no local ownership, credentials, permissions or authentication providers change. Abort stale results and clear account display on identity changes. Do not reload the project catalog on focus/visibility or unrelated workspace connection states; preserve explicit refresh, search, continuation and actual account-change invalidation.",
-      "tests": ["tests/services/RinspaceAccount.test.ts", "tests/components/WorkspaceAccountIndicator.test.tsx", "tests/components/UserDropdown.test.tsx", "tests/components/WorkspaceCatalogSection.test.tsx", "tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/unit/workspace/RinspaceRoutePolicy.test.ts"],
+      "tests": ["tests/services/RinspaceAccount.test.ts", "tests/components/WorkspaceAccountIndicator.test.tsx", "tests/components/UserDropdown.test.tsx", "tests/components/RinspaceProjectHomeContent.test.tsx", "tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/unit/workspace/RinspaceRoutePolicy.test.ts"],
       "upstreamIssue": null,
       "removalCondition": "Upstream provides an equivalent optional host-account display that does not conflate browser-local ownership with platform authentication.",
       "integrationStatus": "Production bug reproduced with real testbot; candidate checks and post-release real-browser verification required."
@@ -238,9 +256,9 @@
     },
     {
       "id": "workspace-account-project-catalog",
-      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/components/app/ProjectApp.tsx", "src/components/app/AppRouter.tsx", "src/components/project/WorkspaceCatalogSection.tsx", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx"],
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/components/app/ProjectApp.tsx", "src/components/app/AppRouter.tsx", "extras/workspace/rinspace/RinspaceProjectHomeContent.tsx", "src/services/AuthService.ts", "src/contexts/AuthContext.tsx"],
       "purpose": "Allow an optional packaged workspace plugin to contribute paginated read-only project metadata to the existing project page and hand an explicit open intent back to the existing host adapter. Forward optional debounced search and opaque continuation cursors to that provider, clear cursors on refresh/query changes and abort stale queries instead of filtering only loaded pages. Let a generic host close its managed context when the user returns to local projects, logs out or opens a local source; the product adapter owns any refresh-safe launch route. Keep local projects visible, initialize one persistent browser-local owner for both anonymous and signed-in use, and never model remote entries as deletable local Project records. Product session, repository filtering and wire formats remain outside core.",
-      "tests": ["tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/unit/workspace/RinspaceManagedWorkspace.test.ts", "tests/unit/workspace/RinspaceGitRemoteProvider.test.ts", "tests/unit/workspace/RinspaceSession.test.ts", "tests/components/WorkspaceCatalogSection.test.tsx", "tests/components/AuthLocalStartup.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "real Chromium local-plus-account catalog, lazy Smart HTTP and plugin-disable acceptance"],
+      "tests": ["tests/unit/workspace/RinspaceProjectCatalog.test.ts", "tests/unit/workspace/RinspaceManagedWorkspace.test.ts", "tests/unit/workspace/RinspaceGitRemoteProvider.test.ts", "tests/unit/workspace/RinspaceSession.test.ts", "tests/components/RinspaceProjectHomeContent.test.tsx", "tests/components/AuthLocalStartup.test.tsx", "tests/services/AuthServiceLocalProfile.test.ts", "real Chromium local-plus-account catalog, lazy Smart HTTP and plugin-disable acceptance"],
       "upstreamIssue": null,
       "removalCondition": "Upstream supplies an optional remote project catalog that composes with local projects and delegates materialization to an existing host adapter without requiring a cloud account or eager repository download.",
       "integrationStatus": "The accepted baseline reads project and branch metadata through the same-origin product Editor BFF, not token-authenticated Gitea REST in the browser. The 2026-10-15 local candidate forwards complete-catalog search, restores Native sessions under the host's refresh lock, and initializes the Gitea web cookie with at most one safe GET round trip after a cold-session 401. It never replays a receive-pack POST. Actual account Markdown opening, editing, Commit, cold-session Push and exact remote source readback passed using locally served candidate assets and real services. Complete global-tag search still requires the coordinated private BFF/Control Plane update and real-service acceptance. No new immutable release or production rollout is implied by these source checks."

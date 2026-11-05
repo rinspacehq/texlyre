@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import WorkspaceCatalogSection from '@src/components/project/WorkspaceCatalogSection';
+import RinspaceProjectHomeContent from '@extras/workspace/rinspace/RinspaceProjectHomeContent';
 import type {
 	WorkspaceCatalogPage,
 	WorkspaceCatalogProject,
@@ -9,7 +9,7 @@ import type {
 } from '@src/workspace/contracts';
 
 let catalog: WorkspaceProjectCatalog | undefined;
-jest.mock('@src/plugins/PluginRegistry', () => ({
+jest.mock('@/plugins/PluginRegistry', () => ({
 	pluginRegistry: {
 		getWorkspaceExtensions: () => ({ catalog }),
 	},
@@ -44,7 +44,7 @@ const ownedProject: WorkspaceCatalogProject = {
 	openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
 };
 
-describe('WorkspaceCatalogSection', () => {
+describe('RinspaceProjectHomeContent', () => {
 	it('uses bounded previous/next pages rather than appending every loaded project', async () => {
 		const listPage = jest.fn(async ({ page }: { page: number }) => ({
 			status: 'authenticated' as const, accountLabel: 'alice', page,
@@ -52,7 +52,7 @@ describe('WorkspaceCatalogSection', () => {
 			projects: [{ ...ownedProject, id: String(page), name: `Page project ${page}` }],
 		}));
 		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 		await screen.findByText('Page project 1');
 		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
 		await screen.findByText('Page project 2');
@@ -71,7 +71,7 @@ describe('WorkspaceCatalogSection', () => {
 			projects: [{ ...ownedProject, name: `Refresh page ${page}` }],
 		}));
 		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 		await screen.findByText('Refresh page 1');
 		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
 		await screen.findByText('Refresh page 2');
@@ -92,11 +92,11 @@ describe('WorkspaceCatalogSection', () => {
 		});
 		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
 		const onOpen = jest.fn();
-		const { rerender } = render(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
 		await screen.findByText('Initial page');
 		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
 		await waitFor(() => expect(releaseNext).toBeDefined());
-		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='fresh' />);
+		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='fresh' />);
 		await screen.findByText('Fresh search result');
 		await act(async () => { releaseNext?.({ status: 'authenticated', accountLabel: 'alice', page: 2,
 			projects: [{ ...ownedProject, name: 'Obsolete next page' }], hasMore: false }); });
@@ -106,7 +106,7 @@ describe('WorkspaceCatalogSection', () => {
 	it('does not request or display account projects in disabled local mode', async () => {
 		const listPage = jest.fn();
 		catalog = { isEnabled: () => false, subscribe: () => () => {}, listPage };
-		const { container } = render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		const { container } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 		fireEvent.focus(window);
 		fireEvent(document, new Event('visibilitychange'));
 		await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
@@ -122,12 +122,12 @@ describe('WorkspaceCatalogSection', () => {
 		}));
 		catalog = {isEnabled:()=>true,subscribe:()=>()=>{},listPage};
 		const onOpen=jest.fn();
-		const {rerender}=render(<WorkspaceCatalogSection onOpenProject={onOpen}/>);
+		const {rerender}=render(<RinspaceProjectHomeContent onOpenProject={onOpen}/>);
 		await screen.findByText('Project 1');
 		fireEvent.click(screen.getByRole('button',{name:'Next →'}));
 		await screen.findByText('Project 2');
 		expect(listPage).toHaveBeenLastCalledWith({page:2,pageSize:12,cursor:'opaque-next'},expect.any(AbortSignal));
-		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='new search'/>);
+		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='new search'/>);
 		await screen.findByText('Search match');
 		expect(listPage).toHaveBeenLastCalledWith({page:1,pageSize:12,query:'new search'},expect.any(AbortSignal));
 	});
@@ -138,13 +138,13 @@ describe('WorkspaceCatalogSection', () => {
 		}));
 		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
 		const onOpen = jest.fn();
-		const { rerender } = render(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
 		await screen.findByText('Owned article');
-		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} searchQuery='remote title' />);
+		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='remote title' />);
 		expect(await screen.findByText('Global tag')).toBeInTheDocument();
 		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 12, query: 'remote title' }, expect.any(AbortSignal));
 		expect(screen.queryByText('Owned article')).not.toBeInTheDocument();
-		rerender(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
 		expect(await screen.findByText('Owned article')).toBeInTheDocument();
 		expect(screen.queryByText('Global tag')).not.toBeInTheDocument();
 	});
@@ -153,16 +153,16 @@ describe('WorkspaceCatalogSection', () => {
 		jest.clearAllMocks();
 	});
 
-	it('stays absent for an anonymous visitor', async () => {
+	it('shows a sign-in state without displaying account projects', async () => {
 		catalog = fakeCatalog({ status: 'anonymous', projects: [] });
-		const { container } = render(
-			<WorkspaceCatalogSection onOpenProject={jest.fn()} />,
+		render(
+			<RinspaceProjectHomeContent onOpenProject={jest.fn()} />,
 		);
 		await waitFor(() => expect(catalog?.listPage).toHaveBeenCalled());
 		await waitFor(() =>
 			expect(screen.queryByText('Rinspace Projects')).not.toBeInTheDocument(),
 		);
-		expect(container).toBeEmptyDOMElement();
+		expect(screen.getByText('Rinspace sign-in is required')).toBeInTheDocument();
 	});
 
 	it('renders account metadata and delegates opening without local project actions', async () => {
@@ -186,7 +186,7 @@ describe('WorkspaceCatalogSection', () => {
 			],
 		});
 		const onOpen = jest.fn(async () => {});
-		render(<WorkspaceCatalogSection onOpenProject={onOpen} />);
+		render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
 
 		expect(await screen.findByText('A shared article')).toBeInTheDocument();
 		expect(screen.getByText('Rinspace Projects')).toBeInTheDocument();
@@ -198,6 +198,17 @@ describe('WorkspaceCatalogSection', () => {
 		));
 	});
 
+	it('shows an unconfirmed account repository without offering an open action', async () => {
+		catalog = fakeCatalog({ status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false,
+			projects: [{ ...ownedProject, readiness: 'preparing' }] });
+		const onOpen = jest.fn();
+		render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
+		expect(await screen.findByText('Preparing project files...')).toBeInTheDocument();
+		fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+		expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
+		expect(onOpen).not.toHaveBeenCalled();
+	});
+
 	it('does not reload the account catalog on focus or visibility; manual refresh still works', async () => {
 		catalog = fakeCatalog({
 			status: 'authenticated',
@@ -206,7 +217,7 @@ describe('WorkspaceCatalogSection', () => {
 			hasMore: false,
 			projects: [],
 		});
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 		await screen.findByText('No Rinspace projects found');
 		const callsBeforeFocus = (catalog?.listPage as jest.Mock).mock.calls.length;
 
@@ -227,7 +238,7 @@ describe('WorkspaceCatalogSection', () => {
 			hasMore: false,
 			projects: [],
 		});
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 
 		expect(await screen.findByText('No Rinspace projects found')).toBeInTheDocument();
 		expect(screen.getByText('alice')).toBeInTheDocument();
@@ -250,7 +261,7 @@ describe('WorkspaceCatalogSection', () => {
 			subscribe: () => () => {},
 			listPage,
 		};
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 
 		expect(await screen.findByText('Owned article')).toBeInTheDocument();
 		expect(screen.queryByText('Second page book')).not.toBeInTheDocument();
@@ -280,7 +291,7 @@ describe('WorkspaceCatalogSection', () => {
 			subscribe: () => () => {},
 			listPage,
 		};
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 
 		expect(await screen.findByText('Gitea unavailable')).toBeInTheDocument();
 		available = true;
@@ -319,7 +330,7 @@ describe('WorkspaceCatalogSection', () => {
 			},
 			listPage,
 		};
-		render(<WorkspaceCatalogSection onOpenProject={jest.fn()} />);
+		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
 		expect(await screen.findByText('Owned article')).toBeInTheDocument();
 
 		account = 'anonymous';
