@@ -39,6 +39,7 @@ interface ProjectWire {
 	rinspaceContentType?: string;
 	rinspaceProjectionVersion?: number;
 	access: 'owner' | 'collaborator';
+	creationState?: 'ready' | 'preparing' | 'attention';
 	permissions: { pull: boolean; push: boolean; admin: boolean };
 }
 
@@ -90,6 +91,7 @@ function catalogProject(
 		!SAFE_COORDINATE.test(parts[0]) ||
 		!SAFE_COORDINATE.test(parts[1]) ||
 		!repository.permissions?.pull ||
+		(repository.creationState !== undefined && !['ready', 'preparing', 'attention'].includes(repository.creationState)) ||
 		!['owner', 'collaborator'].includes(repository.access)
 	) {
 		return null;
@@ -109,6 +111,7 @@ function catalogProject(
 		...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
 		private: repository.private,
 		access: repository.access,
+		...(repository.creationState ? { readiness: repository.creationState } : {}),
 		openIntent: {
 			mode: 'managed',
 			owner: parts[0],

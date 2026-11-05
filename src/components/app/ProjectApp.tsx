@@ -1,10 +1,11 @@
 // src/components/app/ProjectApp.tsx
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { t } from '@/i18n';
 import { createNamedLogger } from '@/logging';
 import { typesetterRegistryService } from '../../services/TypesetterRegistryService';
+import { pluginRegistry } from '../../plugins/PluginRegistry';
 import { useAuth } from '../../hooks/useAuth';
 import { useWheelScroll } from '../../hooks/useWheelScroll';
 import { useDiskBackup } from '../../hooks/useDiskBackup';
@@ -32,7 +33,6 @@ import ProjectForm from '../project/ProjectForm';
 import ProjectImportModal from '../project/ProjectImportModal';
 import ProjectList from '../project/ProjectList';
 import ProjectPanel from '../project/ProjectPanel';
-import WorkspaceCatalogSection from '../project/WorkspaceCatalogSection';
 import SettingsButton from '../settings/SettingsButton';
 import PrivacyModal from '../common/PrivacyModal';
 import DeleteAccountModal from '../profile/DeleteAccountModal';
@@ -44,6 +44,9 @@ import ServiceStatusBanner from '../common/ServiceStatusBanner';
 import QuotaBanner from '../common/QuotaBanner';
 
 const moduleLog = createNamedLogger('ProjectApp');
+const PROJECT_SOURCE_STORAGE_KEY = 'texlyre-project-source-tab';
+
+type ProjectSource = 'remote' | 'local';
 
 interface ProjectManagerProps {
 	onOpenProject: (
@@ -81,21 +84,35 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 		getRootHandle,
 	} = useDiskBackup();
 	const backupRootHandle = getRootHandle();
+	const projectHomeSource = pluginRegistry.getWorkspaceExtensions().projectHome;
+	const [hasRemoteProjects, setHasRemoteProjects] = useState(
+		() => Boolean(onOpenManagedProject && projectHomeSource?.isEnabled()),
+	);
+	const [activeProjectSource, setActiveProjectSource] = useState<ProjectSource>(
+		() => {
+			if (!onOpenManagedProject || !projectHomeSource?.isEnabled()) return 'local';
+			try { return localStorage.getItem(PROJECT_SOURCE_STORAGE_KEY) === 'local' ? 'local' : 'remote'; } catch { return 'remote'; }
+		},
+	);
+	const visibleProjectSource: ProjectSource = hasRemoteProjects ? activeProjectSource : 'local';
 
 	const [projects, setProjects] = useState<Project[]>([]);
-	const [filteredProjects, setFilteredProjects] = useState<Project[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 	const [availableTags, setAvailableTags] = useState<string[]>([]);
 	const [availableTypes, setAvailableTypes] = useState<string[]>([]);
 	const [availableGroups, setAvailableGroups] = useState<string[]>([]);
-	const [searchQuery, setSearchQuery] = useState('');
+	const [localSearchQuery, setLocalSearchQuery] = useState('');
+	const [remoteSearchQuery, setRemoteSearchQuery] = useState('');
+	const [remoteCreateRequested, setRemoteCreateRequested] = useState(false);
+	const [remoteRefreshEpoch, setRemoteRefreshEpoch] = useState(0);
 	const [selectedTag, setSelectedTag] = useState('');
 	const [selectedType, setSelectedType] = useState('');
 	const [selectedGroup, setSelectedGroup] = useState('');
 	const [sidebarWidth, setSidebarWidth] = useState(
 		currentLayout?.defaultFileExplorerWidth || 250,
 	);
+	const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
 	const headerRightRef = useWheelScroll<HTMLDivElement>();
 	const [showProfileModal, setShowProfileModal] = useState(false);
@@ -121,6 +138,19 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	>([]);
 	const [showPrivacy, setShowPrivacy] = useState(false);
 
+	useEffect(() => {
+		const updateAvailability = () => {
+			setHasRemoteProjects(
+				Boolean(onOpenManagedProject && projectHomeSource?.isEnabled()),
+			);
+		};
+		updateAvailability();
+		return projectHomeSource?.subscribe(() => {
+			updateAvailability();
+			setRemoteSearchQuery('');
+		});
+	}, [onOpenManagedProject, projectHomeSource]);
+
 	const loadProjects = useCallback(async () => {
 		try {
 			setIsLoading(true);
@@ -128,7 +158,6 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 				(project) => !project.managedBinding,
 			);
 			setProjects(userProjects);
-			setFilteredProjects(userProjects);
 
 			const tags = new Set<string>();
 			userProjects.forEach((project) => {
@@ -162,7 +191,8 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	}, [getProjects]);
 
 	useEffect(() => {
-		loadProjects();
+		const timer = window.setTimeout(() => void loadProjects(), 0);
+		return () => window.clearTimeout(timer);
 	}, [loadProjects]);
 
 	const handleAccountDeleted = async () => {
@@ -191,10 +221,9 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 		}
 	};
 
-	useEffect(() => {
-		const query = searchQuery.trim().toLowerCase();
-		setFilteredProjects(
-			projects.filter(
+	const filteredProjects = useMemo(() => {
+		const query = localSearchQuery.trim().toLowerCase();
+		return projects.filter(
 				(project) =>
 					(!query ||
 						project.name.toLowerCase().includes(query) ||
@@ -203,11 +232,10 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 					(!selectedTag || project.tags.includes(selectedTag)) &&
 					(!selectedType || project.type === selectedType) &&
 					(!selectedGroup || (project.group ?? project.type) === selectedGroup),
-			),
-		);
-	}, [projects, searchQuery, selectedTag, selectedType, selectedGroup]);
+			);
+	}, [projects, localSearchQuery, selectedTag, selectedType, selectedGroup]);
 
-	const handleSearch = (query: string) => setSearchQuery(query);
+	const handleSearch = (query: string) => setLocalSearchQuery(query);
 	const handleFilterByTag = (tag: string) => setSelectedTag(tag);
 	const handleFilterByType = (type: string) => setSelectedType(type);
 	const handleFilterByGroup = (group: string) => setSelectedGroup(group);
@@ -452,6 +480,25 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 		setSidebarWidth(width);
 	};
 
+	const selectProjectSource = (source: ProjectSource) => {
+		if (source === 'remote' && !hasRemoteProjects) return;
+		setActiveProjectSource(source);
+		setMobileSidebarOpen(false);
+		try { localStorage.setItem(PROJECT_SOURCE_STORAGE_KEY, source); } catch { /* Optional preference. */ }
+	};
+
+	const handleProjectSourceKeyDown = (
+		event: React.KeyboardEvent<HTMLButtonElement>,
+		source: ProjectSource,
+	) => {
+		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+		event.preventDefault();
+		const nextSource: ProjectSource = source === 'remote' ? 'local' : 'remote';
+		if (nextSource === 'remote' && !hasRemoteProjects) return;
+		selectProjectSource(nextSource);
+		document.getElementById(`project-source-tab-${nextSource}`)?.focus();
+	};
+
 	return (
 		<div className={`app-container ${currentThemePlugin?.id || 'default'}`}>
 			{isGuestUser(user) && (
@@ -493,73 +540,153 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 			</header>
 
 			<div className='main-content'>
-				<ResizablePanel
-					direction='horizontal'
-					width={sidebarWidth}
-					minWidth={currentLayout?.minFileExplorerWidth || 200}
-					maxWidth={currentLayout?.maxFileExplorerWidth || 500}
-					onResize={handleSidebarResize}
-					className='sidebar-container'
-				>
-					<ProjectPanel
-						onCreateProject={openCreateModal}
-						onImportProject={openImportModal}
-						onSearch={handleSearch}
-						onFilterByTag={handleFilterByTag}
-						onFilterByType={handleFilterByType}
-						onFilterByGroup={handleFilterByGroup}
-						onOpenProject={openProject}
-						projects={projects}
-						availableTags={availableTags}
-						availableTypes={availableTypes}
-						availableGroups={availableGroups}
-					/>
-				</ResizablePanel>
-
-				<div className='editor-container'>
-					{error && (
-						<div
-							className='ui-message'
-							data-tone='error'
-							style={{
-								padding: '1rem',
-								margin: '1rem',
-								borderRadius: '4px',
-							}}
-						>
-							{error}
-						</div>
-					)}
-
-					{onOpenManagedProject && (
-						<WorkspaceCatalogSection
-							searchQuery={searchQuery}
-							onOpenProject={onOpenManagedProject}
-						/>
-					)}
-					<section data-role='local-projects'>
-						<h2 className='ui-panel-title'>{t('Local Projects')}</h2>
-						{isLoading ? (
-							<div className='ui-loading-state' data-fill='true'>
-								<div className='loading-spinner' />
-								<p>{t('Loading projects...')}</p>
-							</div>
-						) : (
-							<ProjectList
-								// key={`${searchQuery}:${selectedTag}:${selectedType}:${selectedGroup}`}
-								projects={filteredProjects}
-								onOpenProject={openProject}
-								onOpenProjectDefault={handleOpenDefault}
-								onEditProject={openEditModal}
-								onDeleteProject={openDeleteModal}
-								onToggleFavorite={handleToggleFavorite}
-								onToggleViewMode={handleToggleViewMode}
-								onExportSelected={handleExportSelected}
-								onDeleteSelected={handleDeleteSelected}
-								viewMode={viewMode}
-							/>
+				<div className='project-source-shell'>
+					<div
+						className='project-source-tabs ui-tab-list'
+						data-variant='switcher'
+						role='tablist'
+						aria-label={t('Projects')}
+					>
+						{hasRemoteProjects && (
+							<button
+								id='project-source-tab-remote'
+								type='button'
+								role='tab'
+								className={`ui-tab ${visibleProjectSource === 'remote' ? 'active' : ''}`}
+								aria-selected={visibleProjectSource === 'remote'}
+								aria-controls='project-source-panel-remote'
+								tabIndex={visibleProjectSource === 'remote' ? 0 : -1}
+								onClick={() => selectProjectSource('remote')}
+								onKeyDown={(event) =>
+									handleProjectSourceKeyDown(event, 'remote')
+								}
+							>
+								{projectHomeSource?.label}
+							</button>
 						)}
-					</section>
+						<button
+							id='project-source-tab-local'
+							type='button'
+							role='tab'
+							className={`ui-tab ${visibleProjectSource === 'local' ? 'active' : ''}`}
+							aria-selected={visibleProjectSource === 'local'}
+							aria-controls='project-source-panel-local'
+							tabIndex={visibleProjectSource === 'local' ? 0 : -1}
+							onClick={() => selectProjectSource('local')}
+							onKeyDown={(event) =>
+								handleProjectSourceKeyDown(event, 'local')
+							}
+						>
+							Local
+						</button>
+						<button
+							type='button'
+							className='button secondary project-source-sidebar-toggle'
+							aria-controls='project-source-body'
+							aria-expanded={mobileSidebarOpen}
+							onClick={() => setMobileSidebarOpen((open) => !open)}
+						>
+							{t('Projects')}
+						</button>
+					</div>
+
+					<div id='project-source-body' className='project-source-body' data-sidebar-open={mobileSidebarOpen}>
+						<ResizablePanel
+							direction='horizontal'
+							width={sidebarWidth}
+							minWidth={currentLayout?.minFileExplorerWidth || 200}
+							maxWidth={currentLayout?.maxFileExplorerWidth || 500}
+							onResize={handleSidebarResize}
+							className='sidebar-container'
+						>
+							{visibleProjectSource === 'remote' ? (
+								projectHomeSource && <projectHomeSource.Sidebar
+									searchQuery={remoteSearchQuery}
+									onSearch={setRemoteSearchQuery}
+									onCreate={() => { setRemoteCreateRequested(true); setMobileSidebarOpen(false); }}
+									onRefresh={() => setRemoteRefreshEpoch((epoch) => epoch + 1)}
+								/>
+							) : (
+								<ProjectPanel
+									onCreateProject={openCreateModal}
+									onImportProject={openImportModal}
+									onSearch={handleSearch}
+									onFilterByTag={handleFilterByTag}
+									onFilterByType={handleFilterByType}
+									onFilterByGroup={handleFilterByGroup}
+									onOpenProject={openProject}
+									searchQuery={localSearchQuery}
+									selectedTag={selectedTag}
+									selectedType={selectedType}
+									projects={projects}
+									availableTags={availableTags}
+									availableTypes={availableTypes}
+									availableGroups={availableGroups}
+								/>
+							)}
+						</ResizablePanel>
+
+						<div className='editor-container project-source-content'>
+							{error && (
+								<div
+									className='ui-message'
+									data-tone='error'
+									style={{
+										padding: '1rem',
+										margin: '1rem',
+										borderRadius: '4px',
+									}}
+								>
+									{error}
+								</div>
+							)}
+
+							{visibleProjectSource === 'remote' && onOpenManagedProject ? (
+								<div
+									id='project-source-panel-remote'
+									className='project-source-panel'
+									role='tabpanel'
+									aria-labelledby='project-source-tab-remote'
+								>
+									{projectHomeSource && <projectHomeSource.Content
+										searchQuery={remoteSearchQuery}
+										createRequested={remoteCreateRequested}
+										refreshEpoch={remoteRefreshEpoch}
+										onCloseCreate={() => setRemoteCreateRequested(false)}
+										onOpenProject={onOpenManagedProject}
+									/>}
+								</div>
+							) : (
+								<section
+									id='project-source-panel-local'
+									className='project-source-panel'
+									data-role='local-projects'
+									role='tabpanel'
+									aria-labelledby='project-source-tab-local'
+								>
+									{isLoading ? (
+										<div className='ui-loading-state' data-fill='true'>
+											<div className='loading-spinner' />
+											<p>{t('Loading projects...')}</p>
+										</div>
+									) : (
+										<ProjectList
+											projects={filteredProjects}
+											onOpenProject={openProject}
+											onOpenProjectDefault={handleOpenDefault}
+											onEditProject={openEditModal}
+											onDeleteProject={openDeleteModal}
+											onToggleFavorite={handleToggleFavorite}
+											onToggleViewMode={handleToggleViewMode}
+											onExportSelected={handleExportSelected}
+											onDeleteSelected={handleDeleteSelected}
+											viewMode={viewMode}
+										/>
+									)}
+								</section>
+							)}
+						</div>
+					</div>
 				</div>
 				<ProjectExportModal
 					isOpen={showExportModal}

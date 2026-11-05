@@ -1,21 +1,30 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
 import { formatLastModified } from '@/utils/dateUtils';
-import { pluginRegistry } from '../../plugins/PluginRegistry';
-import type { WorkspaceCatalogProject } from '../../workspace/contracts';
-import { FolderIcon } from '../common/Icons';
+import { pluginRegistry } from '@/plugins/PluginRegistry';
+import type { WorkspaceCatalogProject } from '@/workspace/contracts';
+import { FolderIcon } from '@/components/common/Icons';
+import RinspaceProjectCreate from './RinspaceProjectCreate';
+import type { ProjectCreationOperation } from './RinspaceProjectCreation';
 
 const PAGE_SIZE = 12;
 
-interface WorkspaceCatalogSectionProps {
+interface RinspaceProjectHomeContentProps {
 	searchQuery?: string;
+	createRequested?: boolean;
+	refreshEpoch?: number;
+	onCloseCreate?: () => void;
 	onOpenProject: (project: WorkspaceCatalogProject) => Promise<void>;
 }
 
-const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
+const RinspaceProjectHomeContent: React.FC<RinspaceProjectHomeContentProps> = ({
 	searchQuery = '',
+	createRequested = false,
+	refreshEpoch = 0,
+	onCloseCreate,
 	onOpenProject,
 }) => {
 	const catalog = pluginRegistry.getWorkspaceExtensions().catalog;
@@ -114,9 +123,26 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 			window.clearTimeout(timer);
 			requestRef.current?.abort();
 		};
-	}, [catalog, loadPage, query]);
+	}, [catalog, loadPage, query, refreshEpoch]);
 
-	if (!catalog || status === 'disabled' || status === 'anonymous') return null;
+	if (!catalog || status === 'disabled') return null;
+	if (createRequested) {
+		return <RinspaceProjectCreate onClose={() => { onCloseCreate?.(); void loadPage(1, true); }} onOpen={async (operation: ProjectCreationOperation) => {
+			if (!operation.openIntent) throw new Error(t('Project is not ready'));
+			const intent = operation.openIntent;
+			await onOpenProject({
+				id: operation.contentId, name: operation.title, description: '',
+				repositoryLabel: `${intent.owner}/${intent.repository}`,
+				contentType: operation.kind, defaultRef: intent.ref || 'main',
+				private: operation.sourceVisibility !== 'open', access: 'owner', openIntent: intent,
+			});
+		}} />;
+	}
+	if (status === 'anonymous') {
+		return <section className='ui-empty-state' data-role='workspace-project-catalog'>
+			<p>{t('Rinspace sign-in is required')}</p>
+		</section>;
+	}
 
 	return (
 		<section className='ui-panel' data-role='workspace-project-catalog'>
@@ -125,14 +151,16 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 					<h2 className='ui-panel-title'>{t('Rinspace Projects')}</h2>
 					{accountLabel && <span className='ui-meta'>{accountLabel}</span>}
 				</div>
-				<button
-					type='button'
-					className='button secondary'
-					onClick={() => void loadPage(1, true)}
-					disabled={status === 'loading'}
-				>
-					{t('Refresh')}
-				</button>
+				<div className='ui-toolbar-actions' data-role='workspace-catalog-actions'>
+					<button
+						type='button'
+						className='button secondary'
+						onClick={() => void loadPage(1, true)}
+						disabled={status === 'loading'}
+					>
+						{t('Refresh')}
+					</button>
+				</div>
 			</div>
 
 			<div className='ui-panel-content' data-padding='sm'>
@@ -176,6 +204,8 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 								<p className='project-card-description'>
 									{project.description || project.repositoryLabel}
 								</p>
+								{project.readiness === 'preparing' && <p className='ui-meta' role='status'>{t('Preparing project files...')}</p>}
+								{project.readiness === 'attention' && <p className='ui-meta' role='status'>{t('Project creation needs attention')}</p>}
 								<div
 									className='ui-meta'
 									data-layout='row'
@@ -200,7 +230,7 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 									<button
 										type='button'
 										className='button primary'
-										disabled={Boolean(openingId)}
+										disabled={Boolean(openingId) || project.readiness === 'preparing' || project.readiness === 'attention'}
 										onClick={async () => {
 											setOpeningId(project.id);
 											try {
@@ -254,4 +284,4 @@ const WorkspaceCatalogSection: React.FC<WorkspaceCatalogSectionProps> = ({
 	);
 };
 
-export default WorkspaceCatalogSection;
+export default RinspaceProjectHomeContent;

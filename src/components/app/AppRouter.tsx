@@ -274,6 +274,41 @@ const AppRouter: React.FC = () => {
 
 	useEffect(() => {
 		const hashUrl = window.location.hash.substring(1);
+		const host = pluginRegistry.getWorkspaceExtensions().host;
+		const managedIntent = host?.getStartupIntent?.();
+		if (managedIntent && host) {
+			if (!isAuthenticated || isInitializing) return;
+			const controller = new AbortController();
+			let requested: ReturnType<typeof parseUrlFragments> = { yjsUrl: '' };
+			try { requested = parseUrlFragments(hashUrl); } catch { /* A malformed hash cannot restore a file. */ }
+			void host.open(managedIntent, controller.signal).then((context) => {
+				if (controller.signal.aborted || context.mode !== 'managed') return;
+				const managedDocUrl = `yjs:${context.binding.workspaceId}` as YjsDocUrl;
+				const sameWorkspace = requested.yjsUrl === managedDocUrl;
+				const filePath = sameWorkspace ? requested.filePath : undefined;
+				const docId = sameWorkspace ? requested.docId : undefined;
+				setHostContext(context);
+				setDocUrl(managedDocUrl);
+				setCurrentProjectId(context.binding.workspaceId);
+				setTargetDocId(docId || null);
+				setTargetFilePath(filePath || null);
+				sessionStorage.setItem('currentProjectId', context.binding.workspaceId);
+				if (sameWorkspace && (filePath || docId || requested.compile)) {
+					const suffix = [docId && `doc:${encodeURIComponent(docId)}`, filePath && `file:${encodeURIComponent(filePath)}`, requested.compile && `compile:${encodeURIComponent(requested.compile)}`].filter(Boolean).join('&');
+					replaceHash(`${managedDocUrl}&${suffix}`);
+				}
+				setCurrentView('editor');
+			}).catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				moduleLog.error('Managed startup could not be restored:', error);
+				host.close?.();
+				setHostContext(localHostContext);
+				setDocUrl(null);
+				setCurrentView('projects');
+				replaceHash('');
+			});
+			return () => controller.abort();
+		}
 
 		if (extractTempPrf(hashUrl)) {
 			replaceHash('');
@@ -333,7 +368,7 @@ const AppRouter: React.FC = () => {
 
 	useEffect(() => {
 		const checkAndCreateProject = async () => {
-			if (isAuthenticated && !isInitializing && docUrl) {
+			if (isAuthenticated && !isInitializing && docUrl && hostContext.mode !== 'managed' && !pluginRegistry.getWorkspaceExtensions().host?.getStartupIntent?.()) {
 				const lastCheckedUrl = sessionStorage.getItem('lastCheckedDocUrl');
 				if (lastCheckedUrl === docUrl) {
 					return;
@@ -385,6 +420,7 @@ const AppRouter: React.FC = () => {
 		docUrl,
 		getProjects,
 		createProjectForDocument,
+		hostContext.mode,
 	]);
 
 	useEffect(() => {

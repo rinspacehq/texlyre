@@ -2232,6 +2232,10 @@ try {
 					body: response.body.toString('base64'),
 				});
 			})().catch(async (error) => {
+				// A navigation or tab close can cancel an intercepted request while
+				// the fixture is preparing its response. Chromium then rejects the
+				// obsolete interception ID; the page no longer awaits that response.
+				if (error instanceof Error && error.message.includes('Invalid InterceptionId')) return;
 				interceptionErrors.push(
 					error instanceof Error ? (error.stack ?? error.message) : String(error),
 				);

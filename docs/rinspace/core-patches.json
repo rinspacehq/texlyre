@@ -3,6 +3,24 @@
   "upstreamCommit": "d10e020a7c6452c83dedebf943615dcecfe65919",
   "patches": [
     {
+      "id": "generic-host-responsive-viewport",
+      "files": ["src/utils/viewportUtils.ts"],
+      "purpose": "Let an optional workspace host request the actual device viewport while preserving TeXlyre's existing 1200px standalone desktop viewport. The Rinspace plugin uses this hook only on its first-party account route so its narrow project sidebar is reachable on phones.",
+      "tests": ["tests/unit/utils/viewportUtils.test.ts", "Rinspace account-route mobile Chromium fixture"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream exposes an equivalent host-scoped responsive viewport option.",
+      "integrationStatus": "The source candidate passed a fresh-profile 390px Chromium fixture on the Rinspace account route: the device viewport and mobile sidebar toggle were active, both project sources were present, and the three-step create form filled the 725px workspace with a 689px content area. Real-account and immutable-artifact acceptance remain pending."
+    },
+    {
+      "id": "generic-project-home-source",
+      "files": ["src/workspace/contracts.ts", "src/workspace/ExtensionRegistry.ts", "src/components/app/ProjectApp.tsx", "src/components/app/AppRouter.tsx", "src/components/project/ProjectPanel.tsx", "src/styles/components/project.css"],
+      "purpose": "Give an optional workspace plugin its own project-home sidebar and content view while retaining the complete Local project flow, a shared resizable layout, independent search state and cancellation when a source is unmounted. Let a source report generic project readiness so the host does not open a pending project. Restore an optional host startup intent only after the host rechecks the current session and access; prevent a managed workspace from being imported as Local. Product identity and project policy stay in the plugin.",
+      "tests": ["tests/components/RinspaceProjectHomeContent.test.tsx", "scripts/rinspace/workspace-contracts.test.mjs", "project source tab, managed refresh and Local-only browser regression"],
+      "upstreamIssue": null,
+      "removalCondition": "Upstream provides an equivalent optional project-home source extension with isolated Local state.",
+      "integrationStatus": "The source candidate passed a fresh-profile Chromium fixture for Rinspace and Local tabs, remote sidebar, mobile create panel, and ArrowLeft/ArrowRight focus and source switching; Local retained its own project controls. The managed fixture passed after the optional readiness field was added. Real-account, Gitea, and private same-package acceptance remain pending."
+    },
+    {
       "id": "generic-agent-plugin-extension",
       "files": ["src/plugins/PluginInterface.ts", "src/plugins/AgentPluginRegistry.ts", "src/plugins/PluginRegistry.ts", "src/components/agent/AgentPanelHost.tsx", "src/components/app/AppRouter.tsx", "src/components/app/EditorApp.tsx", "src/components/editor/FileDocumentController.tsx", "src/services/SearchService.ts", "src/workspace/contracts.ts", "src/types/texlyre.ts", "texlyre.config.ts"],
       "purpose": "Add a product-neutral Agent plugin type with current-host availability, registration, removal, lazily evaluated panel ownership and a standard resizable workspace panel host. Remount the optional panel when project, actor, permission epoch or workspace generation changes so no controller survives an ownership boundary. Export the existing SearchService constructor so an optional Agent can use an isolated cancellation scope instead of cancelling the human search panel. Keep model vendors, credentials, tools, billing and Rinspace policy outside core.",
