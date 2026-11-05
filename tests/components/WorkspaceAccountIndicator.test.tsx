@@ -31,6 +31,22 @@ test('shows Native nickname and avatar independently of local account ownership'
 	expect(screen.getByLabelText('真实昵称')).toHaveTextContent('真实昵称');
 });
 
+test('does not flash the browser-local fallback while Native identity is loading', () => {
+	getAccount.mockImplementation(() => new Promise(() => {}));
+	render(<WorkspaceAccountIndicator fallback={<span>Browser profile</span>} />);
+	expect(screen.getByText('Loading account...')).toBeInTheDocument();
+	expect(screen.queryByText('Browser profile')).not.toBeInTheDocument();
+});
+
+test('keeps the last verified Native identity visible during a background refresh', async () => {
+	render(<WorkspaceAccountIndicator fallback={<span>Browser profile</span>} />);
+	await screen.findByLabelText('真实昵称');
+	getAccount.mockImplementation(() => new Promise(() => {}));
+	act(() => notify());
+	expect(screen.getByLabelText('真实昵称')).toBeInTheDocument();
+	expect(screen.queryByText('Browser profile')).not.toBeInTheDocument();
+});
+
 test('clears a prior platform identity when login changes to anonymous', async () => {
 	render(<WorkspaceAccountIndicator />);
 	await screen.findByLabelText('真实昵称');

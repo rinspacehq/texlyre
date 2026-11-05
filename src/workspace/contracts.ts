@@ -47,6 +47,8 @@ export interface WorkspaceCatalogProject {
 	readonly description: string;
 	readonly repositoryLabel: string;
 	readonly contentType: string;
+	readonly tags?: readonly string[];
+	readonly createdAt?: number;
 	readonly defaultRef: string;
 	readonly updatedAt?: number;
 	readonly private: boolean;
@@ -83,6 +85,10 @@ export interface WorkspaceProjectCatalog {
 		request: { readonly page: number; readonly pageSize: number; readonly query?: string; readonly cursor?: string },
 		signal: AbortSignal,
 	): Promise<WorkspaceCatalogPage>;
+	/** Warm non-sensitive catalog metadata without opening a project. */
+	prefetch?(): void;
+	/** Drop presentation caches after an explicit refresh or account change. */
+	invalidate?(): void;
 }
 
 /** Presentation slot for an optional project source. Core owns the Local source. */
@@ -91,7 +97,7 @@ export interface ProjectHomeSource {
 	readonly label: string;
 	isEnabled(): boolean;
 	subscribe(listener: () => void): () => void;
-	readonly Sidebar: ComponentType<{ searchQuery: string; onSearch(query: string): void; onCreate(): void; onRefresh(): void }>;
+	readonly Sidebar: ComponentType<{ searchQuery: string; onSearch(query: string): void; onCreate(): void; onRefresh(): void; onOpenProject(project: WorkspaceCatalogProject): Promise<void> }>;
 	readonly Content: ComponentType<{
 		searchQuery: string;
 		createRequested: boolean;
