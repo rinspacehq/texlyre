@@ -100,55 +100,6 @@
 	min-height: 0;
 }
 
-.rinspace-project-create > .ui-panel-content {
-	flex: 1 1 auto;
-	min-height: 0;
-	overflow-y: auto;
-}
-
-.rinspace-create-fieldset,
-.rinspace-create-form,
-.rinspace-create-tags,
-.rinspace-create-new-tag,
-.rinspace-create-review {
-	display: grid;
-	gap: var(--space-md);
-	max-width: 760px;
-	margin-block: var(--space-lg);
-}
-
-.rinspace-create-fieldset {
-	padding: var(--space-md);
-	border: 1px solid var(--accent-border);
-	border-radius: var(--radius-sm);
-}
-
-.rinspace-create-choices {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-	gap: var(--space-md);
-}
-
-.rinspace-create-choices > label,
-.rinspace-create-form > label,
-.rinspace-create-tags > label,
-.rinspace-create-new-tag > label {
-	display: grid;
-	gap: var(--space-xs);
-}
-
-.rinspace-create-choices > label {
-	display: flex;
-	align-items: center;
-	gap: var(--space-sm);
-	cursor: pointer;
-}
-
-.rinspace-create-form input:not([type="radio"]):not([type="file"]),
-.rinspace-create-form textarea {
-	width: 100%;
-}
-
 .rinspace-create-tag-results {
 	max-height: 260px;
 	overflow-y: auto;

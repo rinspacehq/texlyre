@@ -95,6 +95,18 @@ describe('Rinspace project catalog', () => {
 		expect(JSON.stringify(request.mock.calls)).not.toMatch(/archive|git-upload-pack|authorization|token/i);
 	});
 
+	it('reuses validated catalog metadata until an explicit refresh invalidates it', async () => {
+		const request = jest.fn(async () => response(wire([project(41)]))) as jest.MockedFunction<typeof fetch>;
+		const catalog = new RinspaceProjectCatalog(enabledRuntime(), request);
+		const input = { page: 1, pageSize: 24 } as const;
+		await catalog.listPage(input, new AbortController().signal);
+		await catalog.listPage(input, new AbortController().signal);
+		expect(request).toHaveBeenCalledTimes(1);
+		catalog.invalidate();
+		await catalog.listPage(input, new AbortController().signal);
+		expect(request).toHaveBeenCalledTimes(2);
+	});
+
 	it.each([undefined,'0','01','-1','9223372036854775808'])('rejects missing or invalid continuation before requesting (%s)',async(cursor) => {
 		const request=jest.fn() as jest.MockedFunction<typeof fetch>;
 		const catalog=new RinspaceProjectCatalog(enabledRuntime(),request);

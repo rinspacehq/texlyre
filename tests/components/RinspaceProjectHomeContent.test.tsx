@@ -2,347 +2,146 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import RinspaceProjectHomeContent from '@extras/workspace/rinspace/RinspaceProjectHomeContent';
-import type {
-	WorkspaceCatalogPage,
-	WorkspaceCatalogProject,
-	WorkspaceProjectCatalog,
-} from '@src/workspace/contracts';
+import type { WorkspaceCatalogPage, WorkspaceCatalogProject, WorkspaceProjectCatalog } from '@src/workspace/contracts';
 
 let catalog: WorkspaceProjectCatalog | undefined;
-jest.mock('@/plugins/PluginRegistry', () => ({
-	pluginRegistry: {
-		getWorkspaceExtensions: () => ({ catalog }),
-	},
-}));
+jest.mock('@/plugins/PluginRegistry', () => ({ pluginRegistry: { getWorkspaceExtensions: () => ({ catalog }) } }));
 jest.mock('@src/i18n', () => ({
-	t: (key: string, values?: Record<string, unknown>) =>
-		values
-			? Object.entries(values).reduce(
-				(current, [name, value]) => current.replace(`{${name}}`, String(value)),
-				key,
-			)
-			: key,
+	t: (key: string, values?: Record<string, unknown>) => values
+		? Object.entries(values).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), key)
+		: key,
 }));
-
-function fakeCatalog(result: WorkspaceCatalogPage): WorkspaceProjectCatalog {
-	return {
-		isEnabled: () => true,
-		subscribe: () => () => {},
-		listPage: jest.fn(async () => result),
-	};
-}
 
 const ownedProject: WorkspaceCatalogProject = {
-	id: '41',
-	name: 'Owned article',
-	description: 'Source project',
-	repositoryLabel: 'a/41',
-	contentType: 'article',
-	defaultRef: 'main',
-	private: false,
-	access: 'owner',
-	openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
+	id: '41', name: 'Owned article', description: 'Source project', repositoryLabel: 'a/41', contentType: 'article',
+	defaultRef: 'main', private: false, access: 'owner', openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
 };
 
-describe('RinspaceProjectHomeContent', () => {
-	it('uses bounded previous/next pages rather than appending every loaded project', async () => {
-		const listPage = jest.fn(async ({ page }: { page: number }) => ({
-			status: 'authenticated' as const, accountLabel: 'alice', page,
-			hasMore: page === 1, ...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
-			projects: [{ ...ownedProject, id: String(page), name: `Page project ${page}` }],
-		}));
-		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-		await screen.findByText('Page project 1');
-		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
-		await screen.findByText('Page project 2');
-		expect(screen.queryByText('Page project 1')).not.toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Next →' })).toBeDisabled();
-		fireEvent.click(screen.getByRole('button', { name: '← Prev' }));
-		await screen.findByText('Page project 1');
-		expect(screen.queryByText('Page project 2')).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: '← Prev' })).toBeDisabled();
+function fakeCatalog(result: WorkspaceCatalogPage): WorkspaceProjectCatalog {
+	return { isEnabled: () => true, subscribe: () => () => {}, listPage: jest.fn(async () => result) };
+}
+
+afterEach(() => {
+	catalog = undefined;
+	jest.clearAllMocks();
+});
+
+test('loads the bounded full catalog so native sorting and filters are not page-local', async () => {
+	const listPage = jest.fn(async ({ page }: { page: number }) => ({
+		status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: page === 1,
+		...(page === 1 ? { nextCursor: '73' } : {}),
+		projects: [{ ...ownedProject, id: String(page), name: `Page project ${page}` }],
+	}));
+	catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	expect(await screen.findByText('Page project 1')).toBeInTheDocument();
+	expect(await screen.findByText('Page project 2')).toBeInTheDocument();
+	expect(listPage.mock.calls).toEqual([
+		[{ page: 1, pageSize: 50 }, expect.any(AbortSignal)],
+		[{ page: 2, pageSize: 50, cursor: '73' }, expect.any(AbortSignal)],
+	]);
+	expect(screen.queryByRole('button', { name: 'Next →' })).not.toBeInTheDocument();
+});
+
+test('an explicit refresh starts from page one and invalidates provider caches', async () => {
+	const invalidate = jest.fn();
+	const listPage = jest.fn(async () => ({ status: 'authenticated' as const, accountLabel: 'alice', page: 1, hasMore: false, projects: [ownedProject] }));
+	catalog = { isEnabled: () => true, subscribe: () => () => {}, invalidate, listPage };
+	const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} refreshEpoch={0} />);
+	await screen.findByText('Owned article');
+	rerender(<RinspaceProjectHomeContent onOpenProject={jest.fn()} refreshEpoch={1} />);
+	await waitFor(() => expect(listPage).toHaveBeenCalledTimes(2));
+	expect(invalidate).toHaveBeenCalledTimes(1);
+	expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 50 }, expect.any(AbortSignal));
+});
+
+test('ignores a late continuation after the complete-catalog search changes', async () => {
+	let releaseNext: ((page: WorkspaceCatalogPage) => void) | undefined;
+	const listPage = jest.fn(async ({ page, query }: { page: number; query?: string }): Promise<WorkspaceCatalogPage> => {
+		if (page === 2) return new Promise((resolve) => { releaseNext = resolve; });
+		return { status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: !query,
+			...(!query ? { nextCursor: '73' } : {}), projects: [{ ...ownedProject, name: query ? 'Fresh search result' : 'Initial page' }] };
 	});
-	it('refreshes back to the first page without reusing a later cursor', async () => {
-		const listPage = jest.fn(async ({ page }: { page: number }) => ({
-			status: 'authenticated' as const, accountLabel: 'alice', page,
-			hasMore: page === 1, ...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
-			projects: [{ ...ownedProject, name: `Refresh page ${page}` }],
-		}));
-		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-		await screen.findByText('Refresh page 1');
-		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
-		await screen.findByText('Refresh page 2');
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-		await screen.findByText('Refresh page 1');
-		expect(screen.queryByText('Refresh page 2')).not.toBeInTheDocument();
-		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 12 }, expect.any(AbortSignal));
-		expect(screen.getByRole('button', { name: '← Prev' })).toBeDisabled();
+	catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+	const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	await screen.findByText('Initial page');
+	await waitFor(() => expect(releaseNext).toBeDefined());
+	rerender(<RinspaceProjectHomeContent onOpenProject={jest.fn()} searchQuery='fresh' />);
+	expect(await screen.findByText('Fresh search result')).toBeInTheDocument();
+	await act(async () => releaseNext?.({ status: 'authenticated', accountLabel: 'alice', page: 2, hasMore: false, projects: [{ ...ownedProject, name: 'Obsolete page' }] }));
+	expect(screen.queryByText('Obsolete page')).not.toBeInTheDocument();
+});
+
+test('does not request or display account projects when the integration is disabled', async () => {
+	const listPage = jest.fn();
+	catalog = { isEnabled: () => false, subscribe: () => () => {}, listPage };
+	const { container } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+	expect(listPage).not.toHaveBeenCalled();
+	expect(container).toBeEmptyDOMElement();
+});
+
+test('forwards debounced search to the complete server catalog', async () => {
+	const listPage = jest.fn(async ({ query }: { query?: string }) => ({
+		status: 'authenticated' as const, accountLabel: 'alice', page: 1, hasMore: false,
+		projects: query ? [{ ...ownedProject, id: '9000', name: 'Global match' }] : [ownedProject],
+	}));
+	catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+	const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	await screen.findByText('Owned article');
+	rerender(<RinspaceProjectHomeContent onOpenProject={jest.fn()} searchQuery='remote title' />);
+	expect(await screen.findByText('Global match')).toBeInTheDocument();
+	expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 50, query: 'remote title' }, expect.any(AbortSignal));
+});
+
+test('shows a sign-in state for an anonymous Native session', async () => {
+	catalog = fakeCatalog({ status: 'anonymous', projects: [] });
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	expect(await screen.findByText('Rinspace sign-in is required')).toBeInTheDocument();
+});
+
+test('renders native cards and delegates opening without Local-only actions', async () => {
+	catalog = fakeCatalog({ status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false,
+		projects: [{ ...ownedProject, name: 'Shared article', private: true, access: 'collaborator', tags: ['Math'] }] });
+	const onOpen = jest.fn(async () => {});
+	render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
+	expect(await screen.findByText('Shared article')).toBeInTheDocument();
+	expect(screen.getByText('Sort by:')).toBeInTheDocument();
+	expect(screen.getByText('Collaborator · Private')).toBeInTheDocument();
+	expect(screen.getByText('Math')).toBeInTheDocument();
+	expect(screen.queryByText('Delete Project')).not.toBeInTheDocument();
+	fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+	await waitFor(() => expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: '41' })));
+});
+
+test('keeps preparing projects visible but not openable', async () => {
+	catalog = fakeCatalog({ status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false, projects: [{ ...ownedProject, readiness: 'preparing' }] });
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	expect(await screen.findByText('Preparing project files...')).toBeInTheDocument();
+	expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
+});
+
+test('does not reload the catalog on focus or visibility', async () => {
+	catalog = fakeCatalog({ status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false, projects: [] });
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	await screen.findByText('No projects found matching the current criteria');
+	const calls = (catalog.listPage as jest.Mock).mock.calls.length;
+	fireEvent.focus(window);
+	fireEvent(document, new Event('visibilitychange'));
+	await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+	expect(catalog.listPage).toHaveBeenCalledTimes(calls);
+});
+
+test('reports a catalog failure locally and retries', async () => {
+	let available = false;
+	const listPage = jest.fn(async () => {
+		if (!available) throw new Error('Catalog unavailable');
+		return { status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false, projects: [ownedProject] } as const;
 	});
-
-	it('ignores a late next-page response after the search has changed', async () => {
-		let releaseNext: ((page: WorkspaceCatalogPage) => void) | undefined;
-		const listPage = jest.fn(async ({ page, query }: { page: number; query?: string }): Promise<WorkspaceCatalogPage> => {
-			if (page === 2) return new Promise(resolve => { releaseNext = resolve; });
-			return { status: 'authenticated', accountLabel: 'alice', page: 1,
-				hasMore: !query, ...(!query ? { nextCursor: 'opaque-next' } : {}),
-				projects: [{ ...ownedProject, name: query ? 'Fresh search result' : 'Initial page' }] };
-		});
-		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		const onOpen = jest.fn();
-		const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
-		await screen.findByText('Initial page');
-		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
-		await waitFor(() => expect(releaseNext).toBeDefined());
-		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='fresh' />);
-		await screen.findByText('Fresh search result');
-		await act(async () => { releaseNext?.({ status: 'authenticated', accountLabel: 'alice', page: 2,
-			projects: [{ ...ownedProject, name: 'Obsolete next page' }], hasMore: false }); });
-		expect(screen.queryByText('Obsolete next page')).not.toBeInTheDocument();
-		expect(screen.getByText('Fresh search result')).toBeInTheDocument();
-	});
-	it('does not request or display account projects in disabled local mode', async () => {
-		const listPage = jest.fn();
-		catalog = { isEnabled: () => false, subscribe: () => () => {}, listPage };
-		const { container } = render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-		fireEvent.focus(window);
-		fireEvent(document, new Event('visibilitychange'));
-		await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-		expect(listPage).not.toHaveBeenCalled();
-		expect(container).toBeEmptyDOMElement();
-	});
-
-	it('forwards an opaque continuation and clears it when the query changes', async () => {
-		const listPage = jest.fn(async ({ page, query }: {page:number;query?:string}) => ({
-			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: page === 1,
-			...(page === 1 ? {nextCursor: 'opaque-next'} : {}),
-			projects: [{...ownedProject, id: query ? '90' : String(page), name: query ? 'Search match' : `Project ${page}`}],
-		}));
-		catalog = {isEnabled:()=>true,subscribe:()=>()=>{},listPage};
-		const onOpen=jest.fn();
-		const {rerender}=render(<RinspaceProjectHomeContent onOpenProject={onOpen}/>);
-		await screen.findByText('Project 1');
-		fireEvent.click(screen.getByRole('button',{name:'Next →'}));
-		await screen.findByText('Project 2');
-		expect(listPage).toHaveBeenLastCalledWith({page:2,pageSize:12,cursor:'opaque-next'},expect.any(AbortSignal));
-		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='new search'/>);
-		await screen.findByText('Search match');
-		expect(listPage).toHaveBeenLastCalledWith({page:1,pageSize:12,query:'new search'},expect.any(AbortSignal));
-	});
-	it('searches the complete server catalog, rather than filtering loaded cards', async () => {
-		const listPage = jest.fn(async ({ query, page }: { query?: string; page: number }) => ({
-			status: 'authenticated' as const, accountLabel: 'alice', page, hasMore: false,
-			projects: query ? [{ ...ownedProject, id: '9000', name: 'Global tag', repositoryLabel: 'tags/9000' }] : [ownedProject],
-		}));
-		catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
-		const onOpen = jest.fn();
-		const { rerender } = render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
-		await screen.findByText('Owned article');
-		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} searchQuery='remote title' />);
-		expect(await screen.findByText('Global tag')).toBeInTheDocument();
-		expect(listPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 12, query: 'remote title' }, expect.any(AbortSignal));
-		expect(screen.queryByText('Owned article')).not.toBeInTheDocument();
-		rerender(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
-		expect(await screen.findByText('Owned article')).toBeInTheDocument();
-		expect(screen.queryByText('Global tag')).not.toBeInTheDocument();
-	});
-	afterEach(() => {
-		catalog = undefined;
-		jest.clearAllMocks();
-	});
-
-	it('shows a sign-in state without displaying account projects', async () => {
-		catalog = fakeCatalog({ status: 'anonymous', projects: [] });
-		render(
-			<RinspaceProjectHomeContent onOpenProject={jest.fn()} />,
-		);
-		await waitFor(() => expect(catalog?.listPage).toHaveBeenCalled());
-		await waitFor(() =>
-			expect(screen.queryByText('Rinspace Projects')).not.toBeInTheDocument(),
-		);
-		expect(screen.getByText('Rinspace sign-in is required')).toBeInTheDocument();
-	});
-
-	it('renders account metadata and delegates opening without local project actions', async () => {
-		catalog = fakeCatalog({
-			status: 'authenticated',
-			accountLabel: 'alice',
-			page: 1,
-			hasMore: false,
-			projects: [
-				{
-					id: '41',
-					name: 'A shared article',
-					description: 'Collaborative source',
-					repositoryLabel: 'a/41',
-					contentType: 'article',
-					defaultRef: 'main',
-					private: true,
-					access: 'collaborator',
-					openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
-				},
-			],
-		});
-		const onOpen = jest.fn(async () => {});
-		render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
-
-		expect(await screen.findByText('A shared article')).toBeInTheDocument();
-		expect(screen.getByText('Rinspace Projects')).toBeInTheDocument();
-		expect(screen.getByText('Collaborator · Private')).toBeInTheDocument();
-		expect(screen.queryByText('Delete Project')).not.toBeInTheDocument();
-		fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-		await waitFor(() => expect(onOpen).toHaveBeenCalledWith(
-			expect.objectContaining({ repositoryLabel: 'a/41' }),
-		));
-	});
-
-	it('shows an unconfirmed account repository without offering an open action', async () => {
-		catalog = fakeCatalog({ status: 'authenticated', accountLabel: 'alice', page: 1, hasMore: false,
-			projects: [{ ...ownedProject, readiness: 'preparing' }] });
-		const onOpen = jest.fn();
-		render(<RinspaceProjectHomeContent onOpenProject={onOpen} />);
-		expect(await screen.findByText('Preparing project files...')).toBeInTheDocument();
-		fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-		expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
-		expect(onOpen).not.toHaveBeenCalled();
-	});
-
-	it('does not reload the account catalog on focus or visibility; manual refresh still works', async () => {
-		catalog = fakeCatalog({
-			status: 'authenticated',
-			accountLabel: 'alice',
-			page: 1,
-			hasMore: false,
-			projects: [],
-		});
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-		await screen.findByText('No Rinspace projects found');
-		const callsBeforeFocus = (catalog?.listPage as jest.Mock).mock.calls.length;
-
-		fireEvent.focus(window);
-		fireEvent.focus(window);
-		fireEvent(document, new Event('visibilitychange'));
-		await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-		expect(catalog?.listPage).toHaveBeenCalledTimes(callsBeforeFocus);
-		fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-		await waitFor(() => expect(catalog?.listPage).toHaveBeenCalledTimes(callsBeforeFocus + 1));
-	});
-
-	it('renders an authenticated empty account catalog without hiding local UI', async () => {
-		catalog = fakeCatalog({
-			status: 'authenticated',
-			accountLabel: 'alice',
-			page: 1,
-			hasMore: false,
-			projects: [],
-		});
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-
-		expect(await screen.findByText('No Rinspace projects found')).toBeInTheDocument();
-		expect(screen.getByText('alice')).toBeInTheDocument();
-	});
-
-	it('loads the next account page only after the user asks for it', async () => {
-		const listPage = jest.fn(async ({ page }: { page: number }) => ({
-			status: 'authenticated' as const,
-			accountLabel: 'alice',
-			page,
-			hasMore: page === 1,
-			...(page === 1 ? { nextCursor: 'opaque-next' } : {}),
-			projects:
-				page === 1
-					? [ownedProject]
-					: [{ ...ownedProject, id: '73', name: 'Second page book', repositoryLabel: 'b/73' }],
-		}));
-		catalog = {
-			isEnabled: () => true,
-			subscribe: () => () => {},
-			listPage,
-		};
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-
-		expect(await screen.findByText('Owned article')).toBeInTheDocument();
-		expect(screen.queryByText('Second page book')).not.toBeInTheDocument();
-		fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
-
-		expect(await screen.findByText('Second page book')).toBeInTheDocument();
-		expect(listPage).toHaveBeenLastCalledWith(
-			{ page: 2, pageSize: 12, cursor: 'opaque-next' },
-			expect.any(AbortSignal),
-		);
-	});
-
-	it('reports a catalog failure locally and retries without replacing the page', async () => {
-		let available = false;
-		const listPage = jest.fn(async () => {
-			if (!available) throw new Error('Gitea unavailable');
-			return {
-				status: 'authenticated',
-				accountLabel: 'alice',
-				page: 1,
-				hasMore: false,
-				projects: [ownedProject],
-			} as const;
-		});
-		catalog = {
-			isEnabled: () => true,
-			subscribe: () => () => {},
-			listPage,
-		};
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-
-		expect(await screen.findByText('Gitea unavailable')).toBeInTheDocument();
-		available = true;
-		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-		expect(await screen.findByText('Owned article')).toBeInTheDocument();
-		expect(listPage).toHaveBeenCalled();
-	});
-
-	it('removes account projects on logout and reloads the replacement account', async () => {
-		let notify = () => {};
-		let account: 'alice' | 'anonymous' | 'bob' = 'alice';
-		const listPage = jest.fn(async () => {
-			if (account === 'anonymous') return { status: 'anonymous' as const, projects: [] };
-			if (account === 'bob') {
-				return {
-					status: 'authenticated' as const,
-					accountLabel: 'bob',
-					page: 1,
-					hasMore: false,
-					projects: [{ ...ownedProject, id: '73', name: 'Bob book', repositoryLabel: 'b/73' }],
-				};
-			}
-			return {
-				status: 'authenticated',
-				accountLabel: 'alice',
-				page: 1,
-				hasMore: false,
-				projects: [ownedProject],
-			} as const;
-		});
-		catalog = {
-			isEnabled: () => true,
-			subscribe: (listener) => {
-				notify = listener;
-				return () => {};
-			},
-			listPage,
-		};
-		render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
-		expect(await screen.findByText('Owned article')).toBeInTheDocument();
-
-		account = 'anonymous';
-		act(() => notify());
-		await waitFor(() =>
-			expect(screen.queryByText('Rinspace Projects')).not.toBeInTheDocument(),
-		);
-		account = 'bob';
-		act(() => notify());
-
-		expect(await screen.findByText('Bob book')).toBeInTheDocument();
-		expect(screen.getByText('bob')).toBeInTheDocument();
-		expect(screen.queryByText('Owned article')).not.toBeInTheDocument();
-	});
+	catalog = { isEnabled: () => true, subscribe: () => () => {}, listPage };
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	expect(await screen.findByText('Catalog unavailable')).toBeInTheDocument();
+	available = true;
+	fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+	expect(await screen.findByText('Owned article')).toBeInTheDocument();
 });

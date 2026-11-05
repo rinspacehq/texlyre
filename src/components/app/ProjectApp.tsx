@@ -85,6 +85,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	} = useDiskBackup();
 	const backupRootHandle = getRootHandle();
 	const projectHomeSource = pluginRegistry.getWorkspaceExtensions().projectHome;
+	const projectCatalog = pluginRegistry.getWorkspaceExtensions().catalog;
 	const [hasRemoteProjects, setHasRemoteProjects] = useState(
 		() => Boolean(onOpenManagedProject && projectHomeSource?.isEnabled()),
 	);
@@ -150,6 +151,17 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 			setRemoteSearchQuery('');
 		});
 	}, [onOpenManagedProject, projectHomeSource]);
+
+	useEffect(() => {
+		if (!projectCatalog?.isEnabled() || !projectCatalog.prefetch) return;
+		const warm = () => projectCatalog.prefetch?.();
+		if ('requestIdleCallback' in window) {
+			const idle = window.requestIdleCallback(warm, { timeout: 1200 });
+			return () => window.cancelIdleCallback(idle);
+		}
+		const timer = globalThis.setTimeout(warm, 250);
+		return () => globalThis.clearTimeout(timer);
+	}, [projectCatalog]);
 
 	const loadProjects = useCallback(async () => {
 		try {
@@ -510,7 +522,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 			<QuotaBanner />
 			<header data-role='projects'>
 				<div className='header-left ui-actions'>
-					<h1>{t('All Projects')}</h1>
+					<h1>{t('Projects')}</h1>
 				</div>
 
 				<div className='header-center'>
@@ -600,11 +612,12 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 							className='sidebar-container'
 						>
 							{visibleProjectSource === 'remote' ? (
-								projectHomeSource && <projectHomeSource.Sidebar
+								projectHomeSource && onOpenManagedProject && <projectHomeSource.Sidebar
 									searchQuery={remoteSearchQuery}
 									onSearch={setRemoteSearchQuery}
 									onCreate={() => { setRemoteCreateRequested(true); setMobileSidebarOpen(false); }}
 									onRefresh={() => setRemoteRefreshEpoch((epoch) => epoch + 1)}
+									onOpenProject={onOpenManagedProject}
 								/>
 							) : (
 								<ProjectPanel

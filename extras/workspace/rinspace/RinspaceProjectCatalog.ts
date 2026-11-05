@@ -15,9 +15,26 @@ import {
 
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const CATALOG_SCHEMA = 'rinspace-editor-projects/v2';
+const ACCOUNT_CACHE_MS = 60_000;
+const CATALOG_CACHE_MS = 120_000;
+
+function withSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener('abort', abort, { once: true });
+		promise
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener('abort', abort));
+	});
+}
 
 function validCursor(value: unknown): value is string {
-	return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
+	return (
+		typeof value === 'string' &&
+		/^[1-9][0-9]{0,18}$/.test(value) &&
+		BigInt(value) <= 9223372036854775807n
+	);
 }
 
 interface CatalogAccount {
@@ -35,6 +52,8 @@ interface ProjectWire {
 	defaultBranch: string;
 	objectFormat: 'sha1' | 'sha256';
 	updatedAt?: string;
+	createdAt?: string;
+	tags?: string[];
 	rinspaceTitle?: string;
 	rinspaceContentType?: string;
 	rinspaceProjectionVersion?: number;
@@ -91,7 +110,10 @@ function catalogProject(
 		!SAFE_COORDINATE.test(parts[0]) ||
 		!SAFE_COORDINATE.test(parts[1]) ||
 		!repository.permissions?.pull ||
-		(repository.creationState !== undefined && !['ready', 'preparing', 'attention'].includes(repository.creationState)) ||
+		(repository.creationState !== undefined &&
+			!['ready', 'preparing', 'attention'].includes(
+				repository.creationState,
+			)) ||
 		!['owner', 'collaborator'].includes(repository.access)
 	) {
 		return null;
@@ -101,6 +123,18 @@ function catalogProject(
 	const updatedAt = repository.updatedAt
 		? Date.parse(repository.updatedAt)
 		: Number.NaN;
+	const createdAt = repository.createdAt
+		? Date.parse(repository.createdAt)
+		: Number.NaN;
+	if (
+		repository.tags !== undefined &&
+		(!Array.isArray(repository.tags) ||
+			repository.tags.length > 24 ||
+			repository.tags.some(
+				(tag) => typeof tag !== 'string' || !tag.trim() || tag.length > 256,
+			))
+	)
+		return null;
 	return {
 		id: String(repository.id),
 		name: repository.rinspaceTitle?.trim() || repository.fullName,
@@ -109,9 +143,15 @@ function catalogProject(
 		contentType,
 		defaultRef,
 		...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
+		...(Number.isFinite(createdAt) ? { createdAt } : {}),
+		...(repository.tags
+			? { tags: repository.tags.map((tag) => tag.trim()) }
+			: {}),
 		private: repository.private,
 		access: repository.access,
-		...(repository.creationState ? { readiness: repository.creationState } : {}),
+		...(repository.creationState
+			? { readiness: repository.creationState }
+			: {}),
 		openIntent: {
 			mode: 'managed',
 			owner: parts[0],
@@ -126,6 +166,18 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 	private readonly listeners = new Set<() => void>();
 	private readonly unsubscribeRuntime: () => void;
 	private accountActor: string | null | undefined;
+	private accountCache:
+		| { value: WorkspaceAccountIdentity | null; expires: number }
+		| undefined;
+	private accountInFlight: Promise<WorkspaceAccountIdentity | null> | undefined;
+	private readonly pageCache = new Map<
+		string,
+		{ value: WorkspaceCatalogPage; expires: number }
+	>();
+	private readonly pageInFlight = new Map<
+		string,
+		Promise<WorkspaceCatalogPage>
+	>();
 
 	constructor(
 		private readonly runtime: RinspaceManagedWorkspaceRuntime,
@@ -137,7 +189,12 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 			const next = runtime.isEnabled();
 			if (next === enabled) return;
 			enabled = next;
-			if (!next) { this.abortAll(); this.accountActor = undefined; }
+			if (!next) {
+				this.abortAll();
+				this.accountActor = undefined;
+				this.invalidate();
+				this.accountCache = undefined;
+			}
 			for (const listener of this.listeners) listener();
 		});
 	}
@@ -146,26 +203,74 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 		return this.runtime.isEnabled();
 	}
 
-	async getAccount(signal: AbortSignal): Promise<WorkspaceAccountIdentity | null> {
+	async getAccount(
+		signal: AbortSignal,
+	): Promise<WorkspaceAccountIdentity | null> {
 		if (!this.isEnabled()) return null;
-		try {
-			const account = await loadRinspaceAccount(this.fetcher, signal);
-			signal.throwIfAborted();
-			this.updateAccountActor(account.actorId);
-			return account;
-		} catch (error) {
-			if (error instanceof RinspaceSignInRequiredError && !signal.aborted) {
-				this.updateAccountActor(null);
-				return null;
-			}
-			throw error;
+		if (this.accountCache && this.accountCache.expires > Date.now())
+			return this.accountCache.value;
+		if (!this.accountInFlight) {
+			const controller = new AbortController();
+			this.controllers.add(controller);
+			this.accountInFlight = (async () => {
+				try {
+					const account = await loadRinspaceAccount(
+						this.fetcher,
+						controller.signal,
+					);
+					this.updateAccountActor(account.actorId);
+					this.accountCache = {
+						value: account,
+						expires: Date.now() + ACCOUNT_CACHE_MS,
+					};
+					return account;
+				} catch (error) {
+					if (
+						error instanceof RinspaceSignInRequiredError &&
+						!controller.signal.aborted
+					) {
+						this.updateAccountActor(null);
+						this.accountCache = {
+							value: null,
+							expires: Date.now() + ACCOUNT_CACHE_MS,
+						};
+						return null;
+					}
+					throw error;
+				} finally {
+					this.controllers.delete(controller);
+					this.accountInFlight = undefined;
+				}
+			})();
 		}
+		return withSignal(this.accountInFlight, signal);
 	}
 
 	private updateAccountActor(actor: string | null): void {
-		const changed = this.accountActor !== undefined && this.accountActor !== actor;
+		const changed =
+			this.accountActor !== undefined && this.accountActor !== actor;
 		this.accountActor = actor;
-		if (changed) for (const listener of this.listeners) listener();
+		if (changed) {
+			this.invalidate();
+			for (const listener of this.listeners) listener();
+		}
+	}
+
+	invalidate(): void {
+		this.pageCache.clear();
+		this.accountCache = undefined;
+	}
+
+	prefetch(): void {
+		if (!this.isEnabled()) return;
+		const controller = new AbortController();
+		void this.getAccount(controller.signal)
+			.then((account) =>
+				account
+					? this.listPage({ page: 1, pageSize: 50 }, controller.signal)
+					: undefined,
+			)
+			.catch(() => {});
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -174,6 +279,37 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 	}
 
 	async listPage(
+		request: {
+			readonly page: number;
+			readonly pageSize: number;
+			readonly query?: string;
+			readonly cursor?: string;
+		},
+		externalSignal: AbortSignal,
+	): Promise<WorkspaceCatalogPage> {
+		const query = request.query?.trim() || '';
+		const key = `${this.accountActor ?? 'pending'}:${request.page}:${request.pageSize}:${query}:${request.cursor ?? ''}`;
+		const cached = this.pageCache.get(key);
+		if (cached && cached.expires > Date.now()) return cached.value;
+		let pending = this.pageInFlight.get(key);
+		if (!pending) {
+			const controller = new AbortController();
+			pending = this.loadPageNetwork(request, controller.signal)
+				.then((value) => {
+					if (value.status === 'authenticated')
+						this.pageCache.set(key, {
+							value,
+							expires: Date.now() + CATALOG_CACHE_MS,
+						});
+					return value;
+				})
+				.finally(() => this.pageInFlight.delete(key));
+			this.pageInFlight.set(key, pending);
+		}
+		return withSignal(pending, externalSignal);
+	}
+
+	private async loadPageNetwork(
 		request: {
 			readonly page: number;
 			readonly pageSize: number;
@@ -240,26 +376,49 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 				!Array.isArray(catalog.projects) ||
 				catalog.projects.length > request.pageSize ||
 				typeof catalog.hasMore !== 'boolean' ||
-				(catalog.hasMore ? !validCursor(catalog.nextCursor) : catalog.nextCursor !== undefined) ||
-				(catalog.nextCursor !== undefined && request.cursor !== undefined && BigInt(catalog.nextCursor) >= BigInt(request.cursor))
+				(catalog.hasMore
+					? !validCursor(catalog.nextCursor)
+					: catalog.nextCursor !== undefined) ||
+				(catalog.nextCursor !== undefined &&
+					request.cursor !== undefined &&
+					BigInt(catalog.nextCursor) >= BigInt(request.cursor))
 			) {
 				throw new Error('Rinspace project catalog is invalid');
 			}
-			let previousId = request.cursor === undefined ? undefined : BigInt(request.cursor);
+			let previousId =
+				request.cursor === undefined ? undefined : BigInt(request.cursor);
 			const projects = catalog.projects.map((repository) => {
 				const project = catalogProject(repository);
-				const tagNamespace = typeof repository?.fullName === 'string' && repository.fullName.toLowerCase().startsWith('tags/');
-				const isTag = tagNamespace || repository?.rinspaceContentType === 'tag-wiki';
-				if (!project || (previousId !== undefined && BigInt(repository.id) >= previousId) ||
-					(catalog.nextCursor !== undefined && BigInt(repository.id) < BigInt(catalog.nextCursor)) ||
-					(query === '' && isTag) || (isTag && (!tagNamespace || repository.private || repository.archived))) {
-					throw new Error('Rinspace project catalog scope or ordering is invalid');
+				const tagNamespace =
+					typeof repository?.fullName === 'string' &&
+					repository.fullName.toLowerCase().startsWith('tags/');
+				const isTag =
+					tagNamespace || repository?.rinspaceContentType === 'tag-wiki';
+				if (
+					!project ||
+					(previousId !== undefined && BigInt(repository.id) >= previousId) ||
+					(catalog.nextCursor !== undefined &&
+						BigInt(repository.id) < BigInt(catalog.nextCursor)) ||
+					(query === '' && isTag) ||
+					(isTag &&
+						(!tagNamespace || repository.private || repository.archived))
+				) {
+					throw new Error(
+						'Rinspace project catalog scope or ordering is invalid',
+					);
 				}
 				previousId = BigInt(repository.id);
 				return project;
 			});
-			if (catalog.hasMore && (projects.length === 0 || previousId !== BigInt(catalog.nextCursor!))) {
-				throw new Error('Rinspace project catalog cursor does not match its final row');
+			if (
+				catalog.hasMore &&
+				(projects.length === 0 ||
+					catalog.nextCursor === undefined ||
+					previousId !== BigInt(catalog.nextCursor))
+			) {
+				throw new Error(
+					'Rinspace project catalog cursor does not match its final row',
+				);
 			}
 			return {
 				status: 'authenticated',
@@ -267,7 +426,9 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 				projects,
 				page: request.page,
 				hasMore: catalog.hasMore,
-				...(catalog.nextCursor !== undefined ? { nextCursor: catalog.nextCursor } : {}),
+				...(catalog.nextCursor !== undefined
+					? { nextCursor: catalog.nextCursor }
+					: {}),
 			};
 		} finally {
 			externalSignal.removeEventListener('abort', abort);
