@@ -47,7 +47,7 @@ function validateReleaseConfig(config = releaseConfig) {
 	assert.equal(config.artifact.includesDependencyNotices, true);
 	assert.equal(config.artifact.includesExternalNotices, true);
 	checkedRelative(config.artifact.filename);
-	assert.equal(config.releaseNotes.sourcePath, 'docs/rinspace/RELEASE_V26.md');
+	assert.equal(config.releaseNotes.sourcePath, 'docs/rinspace/RELEASE_V27.md');
 	checkedRelative(config.releaseNotes.sourcePath);
 	assert.equal(
 		config.releaseNotes.artifactFilename,
