@@ -837,7 +837,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 										setShowNewTag(true);
 									}}
 								>
-									{t('Create “{name}”', { name: tagQuery.trim() })}
+									{t('Create')} “{tagQuery.trim()}”
 								</button>
 							)}
 						{capability.tagCreationEnabled && showNewTag && (
