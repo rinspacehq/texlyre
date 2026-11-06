@@ -24,6 +24,22 @@ const refreshKey = 'rinspace-refresh-request-id';
 const leaseKey = 'rinspace-refresh-lease';
 let inMemoryRefreshId = '';
 let inMemoryDeviceId = '';
+const sessionFlights = new WeakMap<typeof fetch, Promise<RinspaceNativeSession>>();
+
+function waitForSession(
+	promise: Promise<RinspaceNativeSession>,
+	signal?: AbortSignal,
+): Promise<RinspaceNativeSession> {
+	if (!signal) return promise;
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener('abort', abort, { once: true });
+		promise
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener('abort', abort));
+	});
+}
 
 function storeValue(storage: Storage, key: string, value: string): boolean {
 	try {
@@ -184,14 +200,12 @@ export function validateRinspaceSession(
 	return value;
 }
 
-export async function loadRinspaceSession(
-	fetcher: typeof fetch = fetch,
-	signal?: AbortSignal,
+async function loadRinspaceSessionNetwork(
+	fetcher: typeof fetch,
 ): Promise<RinspaceNativeSession> {
 	if (localStorage.getItem('rinspace-logout-pending'))
 		throw new RinspaceSignInRequiredError();
-	const envelope = await sessionEnvelope(fetcher, signal);
-	signal?.throwIfAborted();
+	const envelope = await sessionEnvelope(fetcher);
 	const pendingRefresh =
 		localStorage.getItem(refreshKey) || sessionStorage.getItem(refreshKey) || inMemoryRefreshId;
 	if (
@@ -201,9 +215,21 @@ export async function loadRinspaceSession(
 		return authenticated(envelope);
 	// Once rotation starts, let its bounded request complete; an aborted caller
 	// must not interrupt credential rotation or discard its idempotency proof.
-	const session = await refreshSession(fetcher, signal);
-	signal?.throwIfAborted();
-	return session;
+	return refreshSession(fetcher);
+}
+
+export function loadRinspaceSession(
+	fetcher: typeof fetch = fetch,
+	signal?: AbortSignal,
+): Promise<RinspaceNativeSession> {
+	let pending = sessionFlights.get(fetcher);
+	if (!pending) {
+		pending = loadRinspaceSessionNetwork(fetcher).finally(() => {
+			if (sessionFlights.get(fetcher) === pending) sessionFlights.delete(fetcher);
+		});
+		sessionFlights.set(fetcher, pending);
+	}
+	return waitForSession(pending, signal);
 }
 
 export async function ensureRinspaceGitSession(

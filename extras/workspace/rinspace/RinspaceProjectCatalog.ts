@@ -12,6 +12,7 @@ import {
 	loadRinspaceSession,
 	RinspaceSignInRequiredError,
 } from './RinspaceSession';
+import { invalidateProjectCreationCapability, prefetchProjectCreationCapability } from './RinspaceProjectCreation';
 
 const SAFE_COORDINATE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const CATALOG_SCHEMA = 'rinspace-editor-projects/v2';
@@ -60,6 +61,16 @@ interface ProjectWire {
 	access: 'owner' | 'collaborator';
 	creationState?: 'ready' | 'preparing' | 'attention';
 	permissions: { pull: boolean; push: boolean; admin: boolean };
+	management?: {
+		contentId: string;
+		slug: string;
+		excerpt: string;
+		coverUrl: string;
+		sourceFormat: 'latex' | 'markdown' | 'typst';
+		sourceVisibility: 'private' | 'open';
+		publicationStatus: 'draft' | 'published';
+		tags: { id: string; displayName: string }[];
+	};
 }
 
 interface CatalogWire {
@@ -135,6 +146,16 @@ function catalogProject(
 			))
 	)
 		return null;
+	const management = repository.management;
+	if (management && (repository.access !== 'owner' ||
+		!/^[1-9][0-9]{0,18}$/.test(management.contentId) ||
+		!management.slug?.trim() ||
+		!['latex', 'markdown', 'typst'].includes(management.sourceFormat) ||
+		!['private', 'open'].includes(management.sourceVisibility) ||
+		!['draft', 'published'].includes(management.publicationStatus) ||
+		!Array.isArray(management.tags) || management.tags.length > 24 ||
+		management.tags.some((tag) => !/^[1-9][0-9]{0,18}$/.test(tag.id) || !tag.displayName?.trim())
+	)) return null;
 	return {
 		id: String(repository.id),
 		name: repository.rinspaceTitle?.trim() || repository.fullName,
@@ -158,6 +179,16 @@ function catalogProject(
 			repository: parts[1],
 			ref: defaultRef,
 		},
+		...(management ? { management: {
+			contentId: management.contentId,
+			slug: management.slug.trim(),
+			excerpt: management.excerpt?.trim() || '',
+			coverUrl: management.coverUrl?.trim() || '',
+			sourceFormat: management.sourceFormat,
+			sourceVisibility: management.sourceVisibility,
+			publicationStatus: management.publicationStatus,
+			tags: management.tags.map((tag) => ({ id: tag.id, displayName: tag.displayName.trim() })),
+		} } : {}),
 	};
 }
 
@@ -219,6 +250,7 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 						controller.signal,
 					);
 					this.updateAccountActor(account.actorId);
+					prefetchProjectCreationCapability(account.actorId);
 					this.accountCache = {
 						value: account,
 						expires: Date.now() + ACCOUNT_CACHE_MS,
@@ -259,6 +291,7 @@ export class RinspaceProjectCatalog implements WorkspaceProjectCatalog {
 	invalidate(): void {
 		this.pageCache.clear();
 		this.accountCache = undefined;
+		invalidateProjectCreationCapability(this.accountActor ?? undefined);
 	}
 
 	prefetch(): void {

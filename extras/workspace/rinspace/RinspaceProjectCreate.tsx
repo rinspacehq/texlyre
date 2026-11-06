@@ -5,8 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 
 import { loadRinspaceSession } from './RinspaceSession';
-import RinspaceCoverCrop from './RinspaceCoverCrop';
-import { MAX_COVER_INPUT_BYTES } from './RinspaceCoverCropGeometry';
+import RinspaceCoverField from './RinspaceCoverField';
 import {
 	createProject,
 	createTag,
@@ -17,7 +16,7 @@ import {
 	searchBindableTags,
 	tagCandidates,
 	tagOperation,
-	uploadProjectCover,
+	updateProject,
 	RinspaceRequestError,
 	type BindableTag,
 	type ProjectCreationCapability,
@@ -47,10 +46,6 @@ interface SavedDraft {
 	tagCreationKey?: string;
 }
 
-interface PendingCover {
-	imageURL: string;
-}
-
 function initialIntent(): ProjectCreationIntent {
 	return {
 		kind: 'article',
@@ -58,6 +53,7 @@ function initialIntent(): ProjectCreationIntent {
 		title: '',
 		excerpt: '',
 		visibility: 'private',
+		publicationStatus: 'draft',
 		coverRef: '',
 		tagIds: [],
 		idempotencyKey: crypto.randomUUID(),
@@ -84,6 +80,7 @@ function readDraft(actorId: string): SavedDraft | null {
 			!Array.isArray(value.parentTags)
 		)
 			return null;
+		value.intent.publicationStatus = value.intent.publicationStatus === 'published' ? 'published' : 'draft';
 		return value.step === 1 ? { ...value, step: 2 } : value;
 	} catch {
 		return null;
@@ -129,7 +126,6 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 	const [tagMatches, setTagMatches] = useState<BindableTag[]>([]);
 	const [newTagName, setNewTagName] = useState('');
 	const [showNewTag, setShowNewTag] = useState(false);
-	const [pendingCover, setPendingCover] = useState<PendingCover | null>(null);
 	const [newTagScope, setNewTagScope] = useState('');
 	const [candidates, setCandidates] = useState<TagCandidate[]>([]);
 	const [candidatesReviewed, setCandidatesReviewed] = useState(false);
@@ -145,25 +141,9 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
 	const [creationKeyConflict, setCreationKeyConflict] = useState(false);
+	const [publicationDone, setPublicationDone] = useState(false);
+	const publicationFlight = useRef('');
 	const controllers = useRef(new Set<AbortController>());
-	const pendingCoverURL = useRef<string | null>(null);
-	useEffect(
-		() => () => {
-			if (pendingCoverURL.current) URL.revokeObjectURL(pendingCoverURL.current);
-		},
-		[],
-	);
-	const clearPendingCover = () => {
-		if (pendingCoverURL.current) URL.revokeObjectURL(pendingCoverURL.current);
-		pendingCoverURL.current = null;
-		setPendingCover(null);
-	};
-	const choosePendingCover = (file: File) => {
-		clearPendingCover();
-		const imageURL = URL.createObjectURL(file);
-		pendingCoverURL.current = imageURL;
-		setPendingCover({ imageURL });
-	};
 	const controller = useCallback(() => {
 		const next = new AbortController();
 		controllers.current.add(next);
@@ -423,6 +403,33 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 
 	const updateIntent = (patch: Partial<ProjectCreationIntent>) =>
 		setIntent((current) => ({ ...current, ...patch }));
+	const publishCreatedProject = useCallback(async (next: ProjectCreationOperation) => {
+		if (intent.publicationStatus !== 'published' || !next.repositoryId || !actorId || publicationFlight.current === next.repositoryId) return;
+		publicationFlight.current = next.repositoryId;
+		setBusy(true);
+		setError('');
+		const active = controller();
+		try {
+			await updateProject(next.repositoryId, {
+				title: intent.title.trim(), excerpt: intent.excerpt.trim(),
+				sourceVisibility: intent.visibility, publicationStatus: 'published',
+				coverRef: intent.coverRef, tagIds: selectedTags.map((tag) => tag.id),
+			}, active.signal, actorId);
+			if (!active.signal.aborted) setPublicationDone(true);
+		} catch (cause) {
+			publicationFlight.current = '';
+			if (!active.signal.aborted) setError(cause instanceof Error ? cause.message : t('Project publication unavailable'));
+		} finally {
+			controllers.current.delete(active);
+			setBusy(false);
+		}
+	}, [actorId, controller, intent, selectedTags]);
+
+	useEffect(() => {
+		if (operation?.state !== 'ready' || intent.publicationStatus !== 'published' || publicationDone) return;
+		const timer = window.setTimeout(() => void publishCreatedProject(operation), 0);
+		return () => window.clearTimeout(timer);
+	}, [intent.publicationStatus, operation, publicationDone, publishCreatedProject]);
 	const invalidateTagCandidateReview = () => {
 		setCandidates([]);
 		setCandidatesReviewed(false);
@@ -449,6 +456,8 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 		setBusy(true);
 		setError('');
 		setCreationKeyConflict(false);
+		setPublicationDone(false);
+		publicationFlight.current = '';
 		setStep(3);
 		setSubmitted(true);
 		const active = controller();
@@ -591,7 +600,6 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 			}
 		}
 		setIntent(initialIntent());
-		clearPendingCover();
 		setSelectedTags([]);
 		setParentTags([]);
 		setTagQuery('');
@@ -655,7 +663,6 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								const kind = event.target.value as ProjectKind;
 								if (intent.kind !== kind) {
 									updateIntent({ kind, coverRef: '' });
-									clearPendingCover();
 								}
 							}}
 						>
@@ -689,6 +696,14 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 						</select>
 					</label>
 					<label className='ui-field'>
+						<span className='ui-field-label'>{t('Publication status')}</span>
+						<select className='ui-field-control' value={intent.publicationStatus} onChange={(event) => updateIntent({ publicationStatus: event.target.value as 'draft' | 'published' })}>
+							<option value='draft'>{t('Save as draft')}</option>
+							<option value='published'>{t('Publish after project files are ready')}</option>
+						</select>
+						<small className='ui-meta'>{t('Source visibility and publication are separate settings.')}</small>
+					</label>
+					<label className='ui-field'>
 						<span className='ui-field-label'>{t('Source visibility')}</span>
 						<select
 							className='ui-field-control'
@@ -703,72 +718,10 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 							<option value='open'>{t('Open source')}</option>
 						</select>
 					</label>
-					<label className='ui-field'>
-						<span className='ui-field-label'>
-							{t('Cover image (optional)')}
-						</span>
-						<input
-							className='ui-field-control'
-							type='file'
-							accept='image/png,image/jpeg,image/webp'
-							disabled={busy}
-							onChange={(event) => {
-								const file = event.target.files?.[0];
-								event.target.value = '';
-								if (!file) return;
-								if (
-									!['image/png', 'image/jpeg', 'image/webp'].includes(
-										file.type,
-									) ||
-									file.size === 0 ||
-									file.size > MAX_COVER_INPUT_BYTES
-								) {
-									setError(t('Choose a PNG, JPEG or WebP image under 20 MiB.'));
-									return;
-								}
-								setError('');
-								choosePendingCover(file);
-							}}
-						/>
-					</label>
-					{pendingCover && (
-						<RinspaceCoverCrop
-							key={pendingCover.imageURL}
-							imageURL={pendingCover.imageURL}
-							kind={intent.kind}
-							onCancel={clearPendingCover}
-							onUpload={async (cropped) => {
-								const active = controller();
-								setBusy(true);
-								try {
-									const coverRef = await uploadProjectCover(
-										cropped,
-										active.signal,
-										actorId,
-									);
-									if (!active.signal.aborted) {
-										updateIntent({ coverRef });
-										clearPendingCover();
-									}
-								} finally {
-									controllers.current.delete(active);
-									setBusy(false);
-								}
-							}}
-						/>
-					)}
-					{intent.coverRef && (
-						<p className='ui-meta'>
-							{t('Cover uploaded')}{' '}
-							<button
-								type='button'
-								disabled={busy}
-								onClick={() => updateIntent({ coverRef: '' })}
-							>
-								{t('Remove cover')}
-							</button>
-						</p>
-					)}
+					<div className='ui-field'>
+						<span className='ui-field-label'>{t('Cover image (optional)')}</span>
+						<RinspaceCoverField actorId={actorId} disabled={busy} kind={intent.kind} value={intent.coverRef} onChange={(coverRef) => updateIntent({ coverRef })} onBusyChange={setBusy} />
+					</div>
 					<div className='ui-stack' data-gap='sm'>
 						<label className='ui-field'>
 							<span className='ui-field-label'>{t('Tags')}</span>
@@ -974,8 +927,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 							disabled={
 								!intent.title.trim() ||
 								busy ||
-								Boolean(tagOperationId) ||
-								Boolean(pendingCover)
+								Boolean(tagOperationId)
 							}
 							onClick={() => void submit()}
 						>
@@ -999,11 +951,9 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 							? t('Private source')
 							: t('Open source')}
 					</p>
-					<p>
-						{t(
-							'Draft; no publication or initial rendering job will be created.',
-						)}
-					</p>
+					<p>{intent.publicationStatus === 'draft'
+						? t('Draft; no publication or initial rendering job will be created.')
+						: t('Publish after the initial project files are ready.')}</p>
 					<p>
 						{selectedTags.length
 							? selectedTags.map((tag) => tag.displayName).join(', ')
@@ -1011,7 +961,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 					</p>
 					{operation ? (
 						<div role='status'>
-							<p>{projectStateMessage(operation.state)}</p>
+							<p>{publicationDone ? t('Publication is processing. You can open the project while Rinspace finishes it.') : projectStateMessage(operation.state)}</p>
 							{operation.state === 'ready' && operation.openIntent && (
 								<button
 									type='button'

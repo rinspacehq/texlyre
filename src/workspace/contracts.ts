@@ -56,6 +56,16 @@ export interface WorkspaceCatalogProject {
 	/** A source may retain a catalog row while its initial content is not openable. */
 	readonly readiness?: 'ready' | 'preparing' | 'attention';
 	readonly openIntent: Readonly<Record<string, string>>;
+	readonly management?: {
+		readonly contentId: string;
+		readonly slug: string;
+		readonly excerpt: string;
+		readonly coverUrl: string;
+		readonly sourceFormat: 'latex' | 'markdown' | 'typst';
+		readonly sourceVisibility: 'private' | 'open';
+		readonly publicationStatus: 'draft' | 'published';
+		readonly tags: readonly { readonly id: string; readonly displayName: string }[];
+	};
 }
 
 export type WorkspaceCatalogPage =

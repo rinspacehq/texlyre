@@ -37,6 +37,7 @@ export interface ProjectCreationIntent {
 	title: string;
 	excerpt: string;
 	visibility: 'private' | 'open';
+	publicationStatus: 'draft' | 'published';
 	coverRef: string;
 	tagIds: string[];
 	idempotencyKey: string;
@@ -45,6 +46,7 @@ export interface ProjectCreationIntent {
 export interface ProjectCreationOperation {
 	operationId: string;
 	contentId: string;
+	repositoryId?: string;
 	kind: ProjectKind;
 	sourceFormat: SourceFormat;
 	sourceVisibility: 'private' | 'open';
@@ -64,11 +66,28 @@ export interface TagCreationOperation {
 	retryable?: boolean;
 }
 
+export interface ProjectManagementIntent {
+	title: string;
+	excerpt: string;
+	sourceVisibility: 'private' | 'open';
+	publicationStatus: 'draft' | 'published';
+	coverRef: string;
+	tagIds: string[];
+}
+
 export class RinspaceRequestError extends Error {
 	constructor(public readonly status: number, public readonly code: string, label: string) {
 		super(`${label} (${status})`);
 	}
 }
+
+const CAPABILITY_CACHE_MS = 60_000;
+let capabilityCache:
+	| { actorId: string; value: ProjectCreationCapability; expires: number }
+	| undefined;
+let capabilityFlight:
+	| { actorId: string; promise: Promise<ProjectCreationCapability> }
+	| undefined;
 
 async function jsonResponse<T>(response: Response, label: string): Promise<T> {
 	if (!response.ok) {
@@ -101,13 +120,46 @@ async function request<T>(path: string, signal: AbortSignal, body?: unknown, exp
 	return jsonResponse<T>(response, 'Rinspace request');
 }
 
-export async function projectCreationCapability(signal: AbortSignal): Promise<ProjectCreationCapability> {
-	const value = await request<ProjectCreationCapability>(`${ROOT}/capability`, signal);
+export async function projectCreationCapability(signal: AbortSignal, expectedActorId?: string): Promise<ProjectCreationCapability> {
+	const session = await loadRinspaceSession(globalThis.fetch, signal);
+	const actorId = session.user.id;
+	if (expectedActorId && actorId !== expectedActorId) throw new Error('Rinspace account changed. Reopen project creation for the current account.');
+	if (capabilityCache?.actorId === actorId && capabilityCache.expires > Date.now()) return capabilityCache.value;
+	let pending = capabilityFlight?.actorId === actorId ? capabilityFlight.promise : undefined;
+	if (!pending) {
+		pending = request<ProjectCreationCapability>(`${ROOT}/capability`, new AbortController().signal, undefined, actorId)
+			.then((value) => {
+				if (value.schemaVersion !== 'rinspace-editor-project-creation/v1' || !Array.isArray(value.kinds) || !Array.isArray(value.sourceFormats) ||
+					value.maxTags !== 6 || value.defaultVisibility !== 'private') {
+					throw new Error('Rinspace project creation capability is incompatible');
+				}
+				capabilityCache = { actorId, value, expires: Date.now() + CAPABILITY_CACHE_MS };
+				return value;
+			})
+			.finally(() => {
+				if (capabilityFlight?.promise === pending) capabilityFlight = undefined;
+			});
+		capabilityFlight = { actorId, promise: pending };
+	}
+	if (signal.aborted) throw signal.reason;
+	const value = await Promise.race([
+		pending,
+		new Promise<ProjectCreationCapability>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
+	]);
 	if (value.schemaVersion !== 'rinspace-editor-project-creation/v1' || !Array.isArray(value.kinds) || !Array.isArray(value.sourceFormats) ||
 		value.maxTags !== 6 || value.defaultVisibility !== 'private') {
 		throw new Error('Rinspace project creation capability is incompatible');
 	}
 	return value;
+}
+
+export function prefetchProjectCreationCapability(actorId: string): void {
+	const controller = new AbortController();
+	void projectCreationCapability(controller.signal, actorId).catch(() => {});
+}
+
+export function invalidateProjectCreationCapability(actorId?: string): void {
+	if (!actorId || capabilityCache?.actorId === actorId) capabilityCache = undefined;
 }
 
 export async function searchBindableTags(query: string, signal: AbortSignal, actorId?: string): Promise<BindableTag[]> {
@@ -176,4 +228,27 @@ export async function uploadProjectCover(file: File, signal: AbortSignal, actorI
 	const value = await jsonResponse<unknown>(response, 'Rinspace cover upload');
 	if (typeof value !== 'string' || !value || value.length > 4096) throw new Error('Rinspace cover reference is invalid');
 	return value;
+}
+
+async function managementMutation<T>(repositoryId: string, method: 'PUT' | 'DELETE', body: unknown, signal: AbortSignal, actorId?: string): Promise<T> {
+	if (!/^[1-9][0-9]{0,18}$/.test(repositoryId)) throw new Error('Rinspace project identity is invalid');
+	const session = await loadRinspaceSession(globalThis.fetch, signal);
+	if (actorId && session.user.id !== actorId) throw new Error('Rinspace account changed. Reopen project management for the current account.');
+	const response = await fetch(`${ROOT.replace('/project-creations', '/project-management')}/${repositoryId}`, {
+		method, credentials: 'include', cache: 'no-store', signal,
+		headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Rinspace-CSRF': session.csrfToken },
+		body: JSON.stringify(body),
+	});
+	return jsonResponse<T>(response, 'Rinspace project management');
+}
+
+export function updateProject(repositoryId: string, input: ProjectManagementIntent, signal: AbortSignal, actorId?: string): Promise<{ repositoryId: string; publicationPending?: boolean }> {
+	return managementMutation(repositoryId, 'PUT', input, signal, actorId);
+}
+
+export function deleteProject(repositoryId: string, signal: AbortSignal, actorId?: string): Promise<{ repositoryId: string; deleted: true }> {
+	return managementMutation(repositoryId, 'DELETE', {
+		confirmation: `DELETE ${repositoryId}`,
+		idempotencyKey: `editor-delete-${crypto.randomUUID()}`,
+	}, signal, actorId);
 }
