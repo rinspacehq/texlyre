@@ -121,6 +121,15 @@ it('uses compact project choices without instructional helper copy', async () =>
 });
 
 it('renders the project form immediately while capability loading remains read-only', async () => {
+	localStorage.setItem('rinspace-project-create-v1:actor-1', JSON.stringify({
+		step: 2,
+		intent: {
+			kind: 'article', sourceFormat: 'latex', title: 'Recovered draft', excerpt: '',
+			visibility: 'private', publicationStatus: 'draft', coverRef: '', tagIds: [],
+			idempotencyKey: '12345678-1234-4234-8234-123456789abc',
+		},
+		selectedTags: [], parentTags: [], submitted: false,
+	}));
 	let resolveCapability: ((value: Awaited<ReturnType<typeof projectCreationCapability>>) => void) | undefined;
 	jest.mocked(projectCreationCapability).mockImplementationOnce(
 		() => new Promise((resolve) => { resolveCapability = resolve; }),
@@ -135,5 +144,6 @@ it('renders the project form immediately while capability loading remains read-o
 		kinds: ['article', 'book'], sourceFormats: ['latex', 'markdown', 'typst'],
 		maxTags: 6, defaultVisibility: 'private', tagCreationEnabled: true,
 	}));
+	expect(screen.getByLabelText('Project Name')).toHaveValue('Immediate draft');
 	await waitFor(() => expect(screen.getByRole('button', { name: 'Create Project' })).toBeEnabled());
 });

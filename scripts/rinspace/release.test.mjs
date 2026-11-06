@@ -15,11 +15,11 @@ test('formal release config binds route, source, artifact and complete notice fi
 	releaseModule.validateReleaseConfig(config);
 	assert.equal(config.routeBase, '/editor/');
 	assert.equal(config.productionAccepted, true);
-	assert.equal(config.releaseTag, 'v0.13.2-rinspace.29');
-	assert.equal(config.releaseNotes.sourcePath, 'docs/rinspace/RELEASE_V29.md');
+	assert.equal(config.releaseTag, 'v0.13.2-rinspace.30');
+	assert.equal(config.releaseNotes.sourcePath, 'docs/rinspace/RELEASE_V30.md');
 	assert.equal(
 		config.releaseNotes.artifactFilename,
-		'MIGRATION_AND_ROLLBACK-v0.13.2-rinspace.29.md',
+		'MIGRATION_AND_ROLLBACK-v0.13.2-rinspace.30.md',
 	);
 	assert.equal(config.texliveRuntime.runtimeId, 'texlive-2026-rinspace.1');
 	assert.equal(config.texliveRuntime.endpointBasePath, '/editor/texlive/2026');
