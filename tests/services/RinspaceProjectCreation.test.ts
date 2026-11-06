@@ -30,6 +30,7 @@ it('shares and caches the account-scoped creation capability', async () => {
 	await expect(Promise.all([projectCreationCapability(signal, 'alice'), projectCreationCapability(signal, 'alice')])).resolves.toEqual([capability, capability]);
 	await projectCreationCapability(signal, 'alice');
 	expect(fetcher).toHaveBeenCalledTimes(1);
+	expect(session).toHaveBeenCalledTimes(3);
 });
 
 it('blocks a project mutation after the Rinspace account changes', async () => {

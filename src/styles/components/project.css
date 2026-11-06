@@ -53,11 +53,11 @@
 }
 
 :where(
-		[data-role="project-panel"],
-		[data-role="workspace-catalog-panel"],
-		[data-role="project-list"],
-		[data-role="workspace-project-catalog"]
-	) {
+	[data-role="project-panel"],
+	[data-role="workspace-catalog-panel"],
+	[data-role="project-list"],
+	[data-role="workspace-project-catalog"]
+) {
 	font-size: var(--ui-project-font-size, var(--font-size-small));
 	--ui-panel-title-body-font-size: var(
 		--ui-project-title-font-size,
@@ -100,22 +100,6 @@
 	min-height: 0;
 }
 
-.rinspace-create-tag-results {
-	max-height: 260px;
-	overflow-y: auto;
-}
-
-.rinspace-create-tag-results > li {
-	display: flex;
-	align-items: center;
-	gap: var(--space-sm);
-	padding-block: var(--space-xs);
-}
-
-.rinspace-create-tag-results > li > span {
-	flex: 1 1 auto;
-}
-
 .rinspace-cover-crop {
 	display: grid;
 	gap: var(--space-md);
@@ -128,10 +112,16 @@
 .rinspace-cover-crop-preview {
 	position: relative;
 	width: min(100%, 520px);
+	min-height: 0;
+	margin: 0;
+	padding: 0;
 	overflow: hidden;
 	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-sm);
 	background: var(--pico-secondary-background);
+	color: inherit;
 	cursor: grab;
+	text-align: start;
 	touch-action: none;
 	user-select: none;
 }
@@ -159,19 +149,23 @@
 	inset: 0;
 	pointer-events: none;
 	background:
-		linear-gradient(to right, transparent 33.2%, color-mix(in srgb, currentColor 32%, transparent) 33.2% 33.6%, transparent 33.6% 66.4%, color-mix(in srgb, currentColor 32%, transparent) 66.4% 66.8%, transparent 66.8%),
-		linear-gradient(to bottom, transparent 33.2%, color-mix(in srgb, currentColor 32%, transparent) 33.2% 33.6%, transparent 33.6% 66.4%, color-mix(in srgb, currentColor 32%, transparent) 66.4% 66.8%, transparent 66.8%);
+		linear-gradient(
+			to right,
+			transparent 33.2%,
+			color-mix(in srgb, currentColor 32%, transparent) 33.2% 33.6%,
+			transparent 33.6% 66.4%,
+			color-mix(in srgb, currentColor 32%, transparent) 66.4% 66.8%,
+			transparent 66.8%
+		),
+		linear-gradient(
+			to bottom,
+			transparent 33.2%,
+			color-mix(in srgb, currentColor 32%, transparent) 33.2% 33.6%,
+			transparent 33.6% 66.4%,
+			color-mix(in srgb, currentColor 32%, transparent) 66.4% 66.8%,
+			transparent 66.8%
+		);
 	box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
-}
-
-.rinspace-cover-crop-controls {
-	display: grid;
-	gap: var(--space-sm);
-}
-
-.rinspace-cover-crop-controls > label {
-	display: grid;
-	gap: var(--space-xs);
 }
 
 .rinspace-cover-file-input {
@@ -199,11 +193,6 @@
 .rinspace-cover-dropzone[data-dragging="true"] {
 	border-style: solid;
 	background: var(--accent-hover);
-}
-
-.rinspace-cover-dropzone > span {
-	color: var(--muted-color);
-	font-size: var(--font-size-meta);
 }
 
 .rinspace-cover-current {

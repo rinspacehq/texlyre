@@ -49,8 +49,10 @@ beforeEach(() => {
 it('shows canonical matches before allowing an intentional Tag creation', async () => {
 	startTagFlow();
 	await fillTag();
+	expect(screen.queryByText('No Tag selected. General will be attached automatically.')).not.toBeInTheDocument();
 	fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 	await screen.findByText('Matching Tags already exist. Choose one:');
+	expect(screen.getByRole('button', { name: /Related Tag/ })).toHaveClass('ui-list-item');
 	expect(createTag).not.toHaveBeenCalled();
 	fireEvent.click(screen.getByRole('button', { name: 'Create tag' }));
 	await waitFor(() => expect(createTag).toHaveBeenCalledWith(
@@ -93,7 +95,7 @@ it('does not stage a cover when the user cancels the crop', async () => {
 	Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: jest.fn() });
 	try {
 		startTagFlow();
-		fireEvent.change(await screen.findByLabelText('Cover image (optional)'), {
+		fireEvent.change(await screen.findByLabelText('Cover image'), {
 			target: { files: [new File(['picture'], 'cover.png', { type: 'image/png' })] },
 		});
 		expect(screen.getByText('Crop project cover')).toBeInTheDocument();
@@ -105,4 +107,15 @@ it('does not stage a cover when the user cancels the crop', async () => {
 		if (oldCreateURL) Object.defineProperty(URL, 'createObjectURL', oldCreateURL); else Reflect.deleteProperty(URL, 'createObjectURL');
 		if (oldRevokeURL) Object.defineProperty(URL, 'revokeObjectURL', oldRevokeURL); else Reflect.deleteProperty(URL, 'revokeObjectURL');
 	}
+});
+
+it('uses compact project choices without instructional helper copy', async () => {
+	startTagFlow();
+	await screen.findByLabelText('Project Name');
+	expect(screen.getByRole('option', { name: 'Draft' })).toBeInTheDocument();
+	expect(screen.getByRole('option', { name: 'Published' })).toBeInTheDocument();
+	expect(screen.getByRole('option', { name: 'Private' })).toBeInTheDocument();
+	expect(screen.getByRole('option', { name: 'Public' })).toBeInTheDocument();
+	expect(screen.queryByText('Source visibility and publication are separate settings.')).not.toBeInTheDocument();
+	expect(screen.queryByText('Click, drop, or paste PNG, JPEG, or WebP (max 20 MiB)')).not.toBeInTheDocument();
 });

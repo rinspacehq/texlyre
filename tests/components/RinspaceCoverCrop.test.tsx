@@ -13,7 +13,7 @@ it('exports the previewed 16:9 rectangle as a bounded JPEG only after confirmati
 		const onUpload = jest.fn(async (_cropped: File) => {});
 		const view = render(<RinspaceCoverCrop imageURL='blob:cover-fixture' kind='article' onCancel={jest.fn()} onUpload={onUpload} />);
 		const image = await waitFor(() => {
-			const element = screen.getByRole('img', { name: 'Cover crop preview' }).querySelector('img');
+			const element = screen.getByRole('button', { name: 'Cover crop preview' }).querySelector('img');
 			if (!element) throw new Error('preview is loading');
 			return element;
 		});

@@ -16,6 +16,19 @@ const ownedProject: WorkspaceCatalogProject = {
 	id: '41', name: 'Owned article', description: 'Source project', repositoryLabel: 'a/41', contentType: 'article',
 	defaultRef: 'main', private: false, access: 'owner', openIntent: { mode: 'managed', owner: 'a', repository: '41', ref: 'main' },
 };
+const managedProject: WorkspaceCatalogProject = {
+	...ownedProject,
+	management: {
+		contentId: '41',
+		slug: 'owned-article',
+		excerpt: 'Source project',
+		coverUrl: '',
+		sourceFormat: 'latex',
+		sourceVisibility: 'open',
+		publicationStatus: 'draft',
+		tags: [],
+	},
+};
 
 function fakeCatalog(result: WorkspaceCatalogPage): WorkspaceProjectCatalog {
 	return { isEnabled: () => true, subscribe: () => () => {}, listPage: jest.fn(async () => result) };
@@ -41,6 +54,26 @@ test('loads the bounded full catalog so native sorting and filters are not page-
 		[{ page: 2, pageSize: 50, cursor: '73' }, expect.any(AbortSignal)],
 	]);
 	expect(screen.queryByRole('button', { name: 'Next →' })).not.toBeInTheDocument();
+});
+
+test('warms account-scoped create capability while the Rinspace project home is visible', async () => {
+	const getAccount = jest.fn(async () => ({
+		actorId: 'native-1',
+		displayName: 'Alice',
+	}));
+	catalog = {
+		...fakeCatalog({
+			status: 'authenticated',
+			accountLabel: 'alice',
+			page: 1,
+			hasMore: false,
+			projects: [ownedProject],
+		}),
+		getAccount,
+	};
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	await screen.findByText('Owned article');
+	await waitFor(() => expect(getAccount).toHaveBeenCalledWith(expect.any(AbortSignal)));
 });
 
 test('an explicit refresh starts from page one and invalidates provider caches', async () => {
@@ -112,6 +145,22 @@ test('renders native cards and delegates opening without Local-only actions', as
 	expect(screen.queryByText('Delete Project')).not.toBeInTheDocument();
 	fireEvent.click(screen.getByRole('button', { name: 'Open' }));
 	await waitFor(() => expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: '41' })));
+});
+
+test('uses the native TeXlyre warning, list, and danger-action pattern for deletion', async () => {
+	catalog = fakeCatalog({
+		status: 'authenticated',
+		accountLabel: 'alice',
+		page: 1,
+		hasMore: false,
+		projects: [managedProject],
+	});
+	render(<RinspaceProjectHomeContent onOpenProject={jest.fn()} />);
+	fireEvent.click(await screen.findByTitle('Delete Project'));
+	const warning = screen.getByText('Delete “Owned article” and its managed repository?').closest('.ui-message');
+	expect(warning).toHaveAttribute('data-tone', 'warning');
+	expect(document.querySelector('.modal-overlay .ui-list-item')).toHaveTextContent('a/41');
+	expect(screen.getByRole('button', { name: 'Delete project' })).toHaveClass('button', 'danger');
 });
 
 test('keeps preparing projects visible but not openable', async () => {

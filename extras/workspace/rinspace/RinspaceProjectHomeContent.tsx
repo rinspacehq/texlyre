@@ -9,7 +9,10 @@ import { pluginRegistry } from '@/plugins/PluginRegistry';
 import type { WorkspaceCatalogProject } from '@/workspace/contracts';
 import RinspaceProjectCreate from './RinspaceProjectCreate';
 import RinspaceProjectEdit from './RinspaceProjectEdit';
-import { deleteProject, type ProjectCreationOperation } from './RinspaceProjectCreation';
+import {
+	deleteProject,
+	type ProjectCreationOperation,
+} from './RinspaceProjectCreation';
 import {
 	publishRinspaceProjects,
 	useRinspaceProjectHomeSnapshot,
@@ -44,8 +47,10 @@ const RinspaceProjectHomeContent: React.FC<Props> = ({
 		'disabled' | 'loading' | 'anonymous' | 'authenticated' | 'error'
 	>(catalog?.isEnabled() ? 'loading' : 'disabled');
 	const [error, setError] = useState('');
-	const [editProject, setEditProject] = useState<WorkspaceCatalogProject | null>(null);
-	const [deleteTarget, setDeleteTarget] = useState<WorkspaceCatalogProject | null>(null);
+	const [editProject, setEditProject] =
+		useState<WorkspaceCatalogProject | null>(null);
+	const [deleteTarget, setDeleteTarget] =
+		useState<WorkspaceCatalogProject | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	const [deleteError, setDeleteError] = useState('');
 	const query = searchQuery.trim();
@@ -123,6 +128,16 @@ const RinspaceProjectHomeContent: React.FC<Props> = ({
 		};
 	}, [catalog, loadCatalog, query, refreshEpoch]);
 
+	useEffect(() => {
+		if (!catalog?.getAccount || !catalog.isEnabled()) return;
+		const controller = new AbortController();
+		// Warm the account-scoped creation capability while the project home is
+		// already visible. This does not authorize writes; submit still performs
+		// the normal Native session and backend permission checks.
+		void catalog.getAccount(controller.signal).catch(() => {});
+		return () => controller.abort();
+	}, [catalog]);
+
 	const visibleProjects = useMemo(
 		() =>
 			projects.filter(
@@ -188,7 +203,10 @@ const RinspaceProjectHomeContent: React.FC<Props> = ({
 					}
 				}}
 				onEditProject={setEditProject}
-				onDeleteProject={(project) => { setDeleteError(''); setDeleteTarget(project); }}
+				onDeleteProject={(project) => {
+					setDeleteError('');
+					setDeleteTarget(project);
+				}}
 			/>
 			<Modal
 				isOpen={createRequested}
@@ -202,20 +220,106 @@ const RinspaceProjectHomeContent: React.FC<Props> = ({
 					onOpen={openCreatedProject}
 				/>
 			</Modal>
-			<Modal isOpen={Boolean(editProject)} onClose={() => setEditProject(null)} title={t('Edit project')} size='large' closeOnClickOutside={false}>
-				{editProject && <RinspaceProjectEdit project={editProject} onClose={() => setEditProject(null)} onSaved={() => { setEditProject(null); catalog.invalidate?.(); void loadCatalog(); }} />}
+			<Modal
+				isOpen={Boolean(editProject)}
+				onClose={() => setEditProject(null)}
+				title={t('Edit project')}
+				size='large'
+				closeOnClickOutside={false}
+			>
+				{editProject && (
+					<RinspaceProjectEdit
+						project={editProject}
+						onClose={() => setEditProject(null)}
+						onSaved={() => {
+							setEditProject(null);
+							catalog.invalidate?.();
+							void loadCatalog();
+						}}
+					/>
+				)}
 			</Modal>
-			<Modal isOpen={Boolean(deleteTarget)} onClose={() => { if (!deleting) setDeleteTarget(null); }} title={t('Delete project')} size='small' closeOnClickOutside={false}>
-				{deleteTarget && <div className='ui-stack' data-gap='md'>
-					{deleteError && <p className='ui-message' data-tone='error' role='alert'>{deleteError}</p>}
-					<div className='ui-message' data-tone='error'><p>{t('Delete “{name}” and its managed repository?', { name: deleteTarget.name })}</p><p className='ui-meta'>{deleteTarget.repositoryLabel}</p></div>
-					<p>{t('This removes the project from Rinspace. This action cannot be undone from the editor.')}</p>
-					<div className='ui-actions' data-variant='modal'><button type='button' className='button secondary' disabled={deleting} onClick={() => setDeleteTarget(null)}>{t('Cancel')}</button><button type='button' className='button danger' disabled={deleting} onClick={() => {
-						setDeleting(true); setDeleteError('');
-						const controller = new AbortController();
-						void deleteProject(deleteTarget.id, controller.signal).then(() => { setDeleteTarget(null); catalog.invalidate?.(); return loadCatalog(); }).catch((cause: unknown) => setDeleteError(cause instanceof Error ? cause.message : t('Project deletion unavailable'))).finally(() => setDeleting(false));
-					}}>{deleting ? t('Deleting...') : t('Delete project')}</button></div>
-				</div>}
+			<Modal
+				isOpen={Boolean(deleteTarget)}
+				onClose={() => {
+					if (!deleting) setDeleteTarget(null);
+				}}
+				title={t('Delete project')}
+				size='small'
+				closeOnClickOutside={false}
+			>
+				{deleteTarget && (
+					<div className='ui-stack' data-gap='md'>
+						{deleteError && (
+							<p className='ui-message' data-tone='error' role='alert'>
+								{deleteError}
+							</p>
+						)}
+						<div className='ui-message' data-tone='warning'>
+							<p>
+								{t('Delete “{name}” and its managed repository?', {
+									name: deleteTarget.name,
+								})}
+							</p>
+						</div>
+						<div className='ui-list' data-scroll='short'>
+							<div
+								className='ui-list-item'
+								data-appearance='flat'
+								data-padding='sm'
+							>
+								<strong>{deleteTarget.name}</strong>
+								<div className='ui-note'>{deleteTarget.repositoryLabel}</div>
+							</div>
+						</div>
+						<div className='ui-message' data-tone='warning'>
+							{t(
+								'This removes the project from Rinspace. This action cannot be undone from the editor.',
+							)}
+						</div>
+						<div
+							className='ui-actions'
+							data-variant='modal'
+							data-align='end'
+							data-cross='stretch'
+						>
+							<button
+								type='button'
+								className='button secondary'
+								disabled={deleting}
+								onClick={() => setDeleteTarget(null)}
+							>
+								{t('Cancel')}
+							</button>
+							<button
+								type='button'
+								className='button danger'
+								disabled={deleting}
+								onClick={() => {
+									setDeleting(true);
+									setDeleteError('');
+									const controller = new AbortController();
+									void deleteProject(deleteTarget.id, controller.signal)
+										.then(() => {
+											setDeleteTarget(null);
+											catalog.invalidate?.();
+											return loadCatalog();
+										})
+										.catch((cause: unknown) =>
+											setDeleteError(
+												cause instanceof Error
+													? cause.message
+													: t('Project deletion unavailable'),
+											),
+										)
+										.finally(() => setDeleting(false));
+								}}
+							>
+								{deleting ? t('Deleting...') : t('Delete project')}
+							</button>
+						</div>
+					</div>
+				)}
 			</Modal>
 		</>
 	);

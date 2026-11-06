@@ -94,22 +94,8 @@ export default function WorkspaceAccountIndicator({
 				<span>{account.displayName}</span>
 			</span>
 		);
-	if (unavailable)
-		return (
-			<span
-				data-role='workspace-account-error'
-				title={t('Rinspace account unavailable')}
-			>
-				<UserIcon />!
-			</span>
-		);
-	if (!resolved)
-		return (
-			<span data-role='workspace-account-loading' aria-busy='true'>
-				<UserIcon />
-				<span>{t('Loading account...')}</span>
-			</span>
-		);
+	if (unavailable) return <>{fallback}</>;
+	if (!resolved) return <>{fallback}</>;
 	return (
 		<span data-role='workspace-account-anonymous'>
 			<UserIcon />
