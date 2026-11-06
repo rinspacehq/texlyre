@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import RinspaceProjectCreate from '@extras/workspace/rinspace/RinspaceProjectCreate';
-import { createProject, createTag, RinspaceRequestError, tagCandidates, tagOperation, uploadProjectCover } from '@extras/workspace/rinspace/RinspaceProjectCreation';
+import { createProject, createTag, projectCreationCapability, RinspaceRequestError, tagCandidates, tagOperation, uploadProjectCover } from '@extras/workspace/rinspace/RinspaceProjectCreation';
 
 jest.mock('@/i18n', () => ({
 	t: (key: string, values?: Record<string, unknown>) => values
@@ -118,4 +118,22 @@ it('uses compact project choices without instructional helper copy', async () =>
 	expect(screen.getByRole('option', { name: 'Public' })).toBeInTheDocument();
 	expect(screen.queryByText('Source visibility and publication are separate settings.')).not.toBeInTheDocument();
 	expect(screen.queryByText('Click, drop, or paste PNG, JPEG, or WebP (max 20 MiB)')).not.toBeInTheDocument();
+});
+
+it('renders the project form immediately while capability loading remains read-only', async () => {
+	let resolveCapability: ((value: Awaited<ReturnType<typeof projectCreationCapability>>) => void) | undefined;
+	jest.mocked(projectCreationCapability).mockImplementationOnce(
+		() => new Promise((resolve) => { resolveCapability = resolve; }),
+	);
+	const view = startTagFlow();
+	expect(screen.getByLabelText('Project Name')).toBeInTheDocument();
+	expect(view.container.querySelector('.loading-spinner')).not.toBeInTheDocument();
+	fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Immediate draft' } });
+	expect(screen.getByRole('button', { name: 'Create Project' })).toBeDisabled();
+	await act(async () => resolveCapability?.({
+		schemaVersion: 'rinspace-editor-project-creation/v1', enabled: true,
+		kinds: ['article', 'book'], sourceFormats: ['latex', 'markdown', 'typst'],
+		maxTags: 6, defaultVisibility: 'private', tagCreationEnabled: true,
+	}));
+	await waitFor(() => expect(screen.getByRole('button', { name: 'Create Project' })).toBeEnabled());
 });

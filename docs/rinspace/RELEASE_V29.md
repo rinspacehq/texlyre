@@ -13,6 +13,11 @@ and fixed-ratio crop behavior are unchanged; the crop surface now uses a real
 keyboard-focusable control and the visible upload/crop instructions are
 reduced to the native field and action labels.
 
+The create dialog renders its native form immediately instead of blocking the
+whole modal on the account-scoped capability request. Until that read finishes,
+write and upload actions remain disabled; the resolved capability still controls
+the available choices and every mutation remains server-authorized.
+
 The existing user-dropdown content remains stable while Native profile data is
 loading or temporarily unavailable. Opening the Rinspace Project Home warms
 the account-scoped creation capability, reuses a five-minute presentation
