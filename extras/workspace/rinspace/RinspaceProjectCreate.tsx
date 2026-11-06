@@ -3,6 +3,7 @@ import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
+import { CloseIcon } from '@/components/common/Icons';
 
 import { loadRinspaceSession } from './RinspaceSession';
 import RinspaceCoverField from './RinspaceCoverField';
@@ -80,7 +81,8 @@ function readDraft(actorId: string): SavedDraft | null {
 			!Array.isArray(value.parentTags)
 		)
 			return null;
-		value.intent.publicationStatus = value.intent.publicationStatus === 'published' ? 'published' : 'draft';
+		value.intent.publicationStatus =
+			value.intent.publicationStatus === 'published' ? 'published' : 'draft';
 		return value.step === 1 ? { ...value, step: 2 } : value;
 	} catch {
 		return null;
@@ -403,33 +405,68 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 
 	const updateIntent = (patch: Partial<ProjectCreationIntent>) =>
 		setIntent((current) => ({ ...current, ...patch }));
-	const publishCreatedProject = useCallback(async (next: ProjectCreationOperation) => {
-		if (intent.publicationStatus !== 'published' || !next.repositoryId || !actorId || publicationFlight.current === next.repositoryId) return;
-		publicationFlight.current = next.repositoryId;
-		setBusy(true);
-		setError('');
-		const active = controller();
-		try {
-			await updateProject(next.repositoryId, {
-				title: intent.title.trim(), excerpt: intent.excerpt.trim(),
-				sourceVisibility: intent.visibility, publicationStatus: 'published',
-				coverRef: intent.coverRef, tagIds: selectedTags.map((tag) => tag.id),
-			}, active.signal, actorId);
-			if (!active.signal.aborted) setPublicationDone(true);
-		} catch (cause) {
-			publicationFlight.current = '';
-			if (!active.signal.aborted) setError(cause instanceof Error ? cause.message : t('Project publication unavailable'));
-		} finally {
-			controllers.current.delete(active);
-			setBusy(false);
-		}
-	}, [actorId, controller, intent, selectedTags]);
+	const publishCreatedProject = useCallback(
+		async (next: ProjectCreationOperation) => {
+			if (
+				intent.publicationStatus !== 'published' ||
+				!next.repositoryId ||
+				!actorId ||
+				publicationFlight.current === next.repositoryId
+			)
+				return;
+			publicationFlight.current = next.repositoryId;
+			setBusy(true);
+			setError('');
+			const active = controller();
+			try {
+				await updateProject(
+					next.repositoryId,
+					{
+						title: intent.title.trim(),
+						excerpt: intent.excerpt.trim(),
+						sourceVisibility: intent.visibility,
+						publicationStatus: 'published',
+						coverRef: intent.coverRef,
+						tagIds: selectedTags.map((tag) => tag.id),
+					},
+					active.signal,
+					actorId,
+				);
+				if (!active.signal.aborted) setPublicationDone(true);
+			} catch (cause) {
+				publicationFlight.current = '';
+				if (!active.signal.aborted)
+					setError(
+						cause instanceof Error
+							? cause.message
+							: t('Project publication unavailable'),
+					);
+			} finally {
+				controllers.current.delete(active);
+				setBusy(false);
+			}
+		},
+		[actorId, controller, intent, selectedTags],
+	);
 
 	useEffect(() => {
-		if (operation?.state !== 'ready' || intent.publicationStatus !== 'published' || publicationDone) return;
-		const timer = window.setTimeout(() => void publishCreatedProject(operation), 0);
+		if (
+			operation?.state !== 'ready' ||
+			intent.publicationStatus !== 'published' ||
+			publicationDone
+		)
+			return;
+		const timer = window.setTimeout(
+			() => void publishCreatedProject(operation),
+			0,
+		);
 		return () => window.clearTimeout(timer);
-	}, [intent.publicationStatus, operation, publicationDone, publishCreatedProject]);
+	}, [
+		intent.publicationStatus,
+		operation,
+		publicationDone,
+		publishCreatedProject,
+	]);
 	const invalidateTagCandidateReview = () => {
 		setCandidates([]);
 		setCandidatesReviewed(false);
@@ -627,7 +664,11 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 					{error}
 				</div>
 			)}
-			{!capability && !error && <p>{t('Loading project capability...')}</p>}
+			{!capability && !error && (
+				<div className='ui-empty-state' aria-busy='true'>
+					<div className='loading-spinner' />
+				</div>
+			)}
 			{capability && !capability.enabled && (
 				<p>{t('Project creation is unavailable for this account.')}</p>
 			)}
@@ -697,11 +738,20 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 					</label>
 					<label className='ui-field'>
 						<span className='ui-field-label'>{t('Publication status')}</span>
-						<select className='ui-field-control' value={intent.publicationStatus} onChange={(event) => updateIntent({ publicationStatus: event.target.value as 'draft' | 'published' })}>
-							<option value='draft'>{t('Save as draft')}</option>
-							<option value='published'>{t('Publish after project files are ready')}</option>
+						<select
+							className='ui-field-control'
+							value={intent.publicationStatus}
+							onChange={(event) =>
+								updateIntent({
+									publicationStatus: event.target.value as
+										| 'draft'
+										| 'published',
+								})
+							}
+						>
+							<option value='draft'>{t('Draft')}</option>
+							<option value='published'>{t('Published')}</option>
 						</select>
-						<small className='ui-meta'>{t('Source visibility and publication are separate settings.')}</small>
 					</label>
 					<label className='ui-field'>
 						<span className='ui-field-label'>{t('Source visibility')}</span>
@@ -714,13 +764,20 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								})
 							}
 						>
-							<option value='private'>{t('Private source')}</option>
-							<option value='open'>{t('Open source')}</option>
+							<option value='private'>{t('Private')}</option>
+							<option value='open'>{t('Public')}</option>
 						</select>
 					</label>
 					<div className='ui-field'>
-						<span className='ui-field-label'>{t('Cover image (optional)')}</span>
-						<RinspaceCoverField actorId={actorId} disabled={busy} kind={intent.kind} value={intent.coverRef} onChange={(coverRef) => updateIntent({ coverRef })} onBusyChange={setBusy} />
+						<span className='ui-field-label'>{t('Cover image')}</span>
+						<RinspaceCoverField
+							actorId={actorId}
+							disabled={busy}
+							kind={intent.kind}
+							value={intent.coverRef}
+							onChange={(coverRef) => updateIntent({ coverRef })}
+							onBusyChange={setBusy}
+						/>
 					</div>
 					<div className='ui-stack' data-gap='sm'>
 						<label className='ui-field'>
@@ -737,11 +794,19 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 							/>
 						</label>
 						{tagQuery.trim().length >= 2 && tagMatches.length > 0 && (
-							<ul className='rinspace-create-tag-results'>
+							<div className='ui-list' data-gap='xs' data-scroll='short'>
 								{tagMatches.map((tag) => (
-									<li key={tag.id}>
-										<span>
-											{tag.displayName} <small>{tag.usageScope}</small>
+									<div
+										key={tag.id}
+										className='ui-list-item'
+										data-align='center'
+										data-justify='between'
+										data-gap='sm'
+										data-padding='sm'
+									>
+										<span className='ui-list-content' data-grow='true'>
+											<strong>{tag.displayName}</strong>
+											<span className='ui-meta'>{tag.usageScope}</span>
 										</span>
 										<button
 											type='button'
@@ -753,9 +818,9 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 										>
 											{t('Add')}
 										</button>
-									</li>
+									</div>
 								))}
-							</ul>
+							</div>
 						)}
 						<div className='ui-tags'>
 							{selectedTags.map((tag) => (
@@ -770,15 +835,11 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 										)
 									}
 								>
-									{tag.displayName} ×
+									<span>{tag.displayName}</span>
+									<CloseIcon />
 								</button>
 							))}
 						</div>
-						{selectedTags.length === 0 && (
-							<p className='ui-meta'>
-								{t('No Tag selected. General will be attached automatically.')}
-							</p>
-						)}
 						{capability.tagCreationEnabled &&
 							!showNewTag &&
 							tagQuery.trim() && (
@@ -806,7 +867,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 										aria-label={t('Cancel')}
 										onClick={() => setShowNewTag(false)}
 									>
-										×
+										<CloseIcon />
 									</button>
 								</div>
 								<label className='ui-field'>
@@ -836,24 +897,29 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 									/>
 								</label>
 								{parentTags.length > 0 && (
-									<p>
-										{t('Parents')}:{' '}
-										{parentTags.map((tag) => (
-											<button
-												type='button'
-												key={tag.id}
-												disabled={Boolean(tagOperationId)}
-												onClick={() => {
-													setParentTags((current) =>
-														current.filter((item) => item.id !== tag.id),
-													);
-													invalidateTagCandidateReview();
-												}}
-											>
-												{tag.displayName} ×
-											</button>
-										))}
-									</p>
+									<div className='ui-stack' data-gap='xs'>
+										<span className='ui-field-label'>{t('Parents')}</span>
+										<div className='ui-tags'>
+											{parentTags.map((tag) => (
+												<button
+													type='button'
+													key={tag.id}
+													className='ui-badge'
+													data-variant='tag'
+													disabled={Boolean(tagOperationId)}
+													onClick={() => {
+														setParentTags((current) =>
+															current.filter((item) => item.id !== tag.id),
+														);
+														invalidateTagCandidateReview();
+													}}
+												>
+													<span>{tag.displayName}</span>
+													<CloseIcon />
+												</button>
+											))}
+										</div>
+									</div>
 								)}
 								<button
 									type='button'
@@ -870,21 +936,26 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 									{candidatesReviewed ? t('Create tag') : t('Continue')}
 								</button>
 								{candidates.length > 0 && (
-									<div role='status'>
+									<div className='ui-stack' data-gap='sm' role='status'>
 										<p>{t('Matching Tags already exist. Choose one:')}</p>
-										{candidates.map((candidate) => (
-											<button
-												type='button'
-												key={candidate.id}
-												disabled={Boolean(tagOperationId)}
-												onClick={() => void chooseCandidate(candidate)}
-											>
-												{candidate.displayName} · {candidate.usageScope}
-												{candidate.parentTagIds.length > 0
-													? ` · ${candidate.parentTagIds.length} ${t('parent Tags')}`
-													: ''}
-											</button>
-										))}
+										<div className='ui-list' data-gap='xs' data-scroll='short'>
+											{candidates.map((candidate) => (
+												<button
+													type='button'
+													className='ui-list-item'
+													data-interactive='true'
+													data-padding='sm'
+													key={candidate.id}
+													disabled={Boolean(tagOperationId)}
+													onClick={() => void chooseCandidate(candidate)}
+												>
+													{candidate.displayName} · {candidate.usageScope}
+													{candidate.parentTagIds.length > 0
+														? ` · ${candidate.parentTagIds.length} ${t('parent Tags')}`
+														: ''}
+												</button>
+											))}
+										</div>
 									</div>
 								)}
 								{tagOperationId && (
@@ -902,6 +973,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 											tagStatus.retryable && (
 												<button
 													type='button'
+													className='button secondary'
 													disabled={busy}
 													onClick={() => void retryTag()}
 												>
@@ -924,11 +996,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 						<button
 							type='button'
 							className='button primary'
-							disabled={
-								!intent.title.trim() ||
-								busy ||
-								Boolean(tagOperationId)
-							}
+							disabled={!intent.title.trim() || busy || Boolean(tagOperationId)}
 							onClick={() => void submit()}
 						>
 							{busy ? t('Creating...') : t('Create Project')}
@@ -946,22 +1014,29 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 							: intent.sourceFormat === 'markdown'
 								? 'Markdown'
 								: 'Typst'}{' '}
-						·{' '}
-						{intent.visibility === 'private'
-							? t('Private source')
-							: t('Open source')}
+						· {intent.visibility === 'private' ? t('Private') : t('Public')}
 					</p>
-					<p>{intent.publicationStatus === 'draft'
-						? t('Draft; no publication or initial rendering job will be created.')
-						: t('Publish after the initial project files are ready.')}</p>
-					<p>
-						{selectedTags.length
-							? selectedTags.map((tag) => tag.displayName).join(', ')
-							: t('General (automatic)')}
-					</p>
+					<div className='ui-tags'>
+						<span className='ui-badge' data-variant='label'>
+							{intent.publicationStatus === 'draft'
+								? t('Draft')
+								: t('Published')}
+						</span>
+						{selectedTags.map((tag) => (
+							<span key={tag.id} className='ui-badge' data-variant='tag'>
+								{tag.displayName}
+							</span>
+						))}
+					</div>
 					{operation ? (
 						<div role='status'>
-							<p>{publicationDone ? t('Publication is processing. You can open the project while Rinspace finishes it.') : projectStateMessage(operation.state)}</p>
+							<p>
+								{publicationDone
+									? t(
+											'Publication is processing. You can open the project while Rinspace finishes it.',
+										)
+									: projectStateMessage(operation.state)}
+							</p>
 							{operation.state === 'ready' && operation.openIntent && (
 								<button
 									type='button'
@@ -984,6 +1059,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								operation.retryable && (
 									<button
 										type='button'
+										className='button secondary'
 										onClick={() => void submit()}
 										disabled={busy}
 									>

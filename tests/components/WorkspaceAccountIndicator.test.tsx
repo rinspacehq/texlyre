@@ -31,11 +31,11 @@ test('shows Native nickname and avatar independently of local account ownership'
 	expect(screen.getByLabelText('真实昵称')).toHaveTextContent('真实昵称');
 });
 
-test('does not flash the browser-local fallback while Native identity is loading', () => {
+test('keeps the native user-dropdown content stable while Native identity is loading', () => {
 	getAccount.mockImplementation(() => new Promise(() => {}));
 	render(<WorkspaceAccountIndicator fallback={<span>Browser profile</span>} />);
-	expect(screen.getByText('Loading account...')).toBeInTheDocument();
-	expect(screen.queryByText('Browser profile')).not.toBeInTheDocument();
+	expect(screen.getByText('Browser profile')).toBeInTheDocument();
+	expect(screen.queryByText('Loading account...')).not.toBeInTheDocument();
 });
 
 test('keeps the last verified Native identity visible during a background refresh', async () => {
@@ -73,9 +73,10 @@ test('does not display a late account response after a newer anonymous result', 
 	expect(screen.queryByLabelText('真实昵称')).not.toBeInTheDocument();
 });
 
-test('reports an unavailable platform profile instead of showing a stale identity', async () => {
+test('keeps the native user-dropdown content when the platform profile is unavailable', async () => {
 	getAccount.mockRejectedValue(new Error('Synthetic profile service unavailable'));
-	render(<WorkspaceAccountIndicator />);
-	expect(await screen.findByTitle('Rinspace account unavailable')).toBeInTheDocument();
+	render(<WorkspaceAccountIndicator fallback={<span>Browser profile</span>} />);
+	expect(await screen.findByText('Browser profile')).toBeInTheDocument();
 	expect(screen.queryByLabelText('真实昵称')).not.toBeInTheDocument();
+	expect(screen.queryByText('!')).not.toBeInTheDocument();
 });
