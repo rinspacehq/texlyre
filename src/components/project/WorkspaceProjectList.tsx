@@ -12,12 +12,16 @@ type SortKey = 'name' | 'createdAt' | 'updatedAt';
 interface Props {
 	projects: readonly WorkspaceCatalogProject[];
 	onOpenProject(project: WorkspaceCatalogProject): Promise<void>;
+	onEditProject?(project: WorkspaceCatalogProject): void;
+	onDeleteProject?(project: WorkspaceCatalogProject): void;
 	loading?: boolean;
 }
 
 const WorkspaceProjectList: React.FC<Props> = ({
 	projects,
 	onOpenProject,
+	onEditProject,
+	onDeleteProject,
 	loading = false,
 }) => {
 	const [sortBy, setSortBy] = useState<SortKey>('updatedAt');
@@ -195,6 +199,8 @@ const WorkspaceProjectList: React.FC<Props> = ({
 										<FolderIcon />
 										{openingId === project.id ? t('Opening...') : t('Open')}
 									</button>
+									{project.management && onEditProject && <button type='button' className='button secondary' disabled={Boolean(openingId)} onClick={() => onEditProject(project)}>{t('Edit')}</button>}
+									{project.management && onDeleteProject && <button type='button' className='button secondary danger' disabled={Boolean(openingId)} onClick={() => onDeleteProject(project)}>{t('Delete')}</button>}
 								</div>
 								{project.tags && project.tags.length > 0 && (
 									<div className='ui-tags' data-role='project-tags'>

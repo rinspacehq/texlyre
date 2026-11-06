@@ -143,6 +143,16 @@ describe('Rinspace project catalog', () => {
 		await expect(new RinspaceProjectCatalog(enabledRuntime(), malformed).listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
 	});
 
+	it('accepts owner management metadata and rejects it on collaborator rows', async () => {
+		const management = { contentId: '9', slug: 'article-9', excerpt: 'Summary', coverUrl: '', sourceFormat: 'latex', sourceVisibility: 'private', publicationStatus: 'draft', tags: [{ id: '7', displayName: 'Algebra' }] };
+		const owner = { ...project(41, 'a'), access: 'owner', management } as ReturnType<typeof project> & { access: 'owner'; management: typeof management };
+		const request = jest.fn(async () => response(wire([owner]))) as jest.MockedFunction<typeof fetch>;
+		const result = await new RinspaceProjectCatalog(enabledRuntime(), request).listPage({page:1,pageSize:24},new AbortController().signal);
+		expect(result).toEqual(expect.objectContaining({ projects: [expect.objectContaining({ management: expect.objectContaining({ contentId: '9', tags: [{ id: '7', displayName: 'Algebra' }] }) })] }));
+		const collaborator = jest.fn(async () => response(wire([{ ...project(42, 'a'), management }]))) as jest.MockedFunction<typeof fetch>;
+		await expect(new RinspaceProjectCatalog(enabledRuntime(), collaborator).listPage({page:1,pageSize:24},new AbortController().signal)).rejects.toThrow('scope or ordering');
+	});
+
 	it('does not request the platform while disabled', async () => {
 		const runtime = new RinspaceManagedWorkspaceRuntime(
 			{ fetch: jest.fn(), materialize: jest.fn() },

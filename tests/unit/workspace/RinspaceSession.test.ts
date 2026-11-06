@@ -122,10 +122,17 @@ describe('Rinspace browser session', () => {
 		expect(request.mock.calls.filter(([path]) => path === '/api/identity/v1/session/refresh')).toHaveLength(1);
 	});
 
-	it('does not start refresh for an aborted integration request', async () => {
+	it('lets an aborted caller leave without interrupting the shared credential rotation', async () => {
 		const controller = new AbortController();
-		const request = jest.fn(async () => { controller.abort(); return response({status:'restoring',csrfToken:'proof'}); }) as jest.MockedFunction<typeof fetch>;
+		let checks = 0;
+		const request = jest.fn(async (path) => {
+			if (path === '/api/identity/v1/session/refresh') return response(null);
+			checks += 1;
+			if (checks === 1) { controller.abort(); return response({status:'restoring',csrfToken:'proof'}); }
+			return checks < 3 ? response({status:'restoring',csrfToken:'proof'}) : response(session);
+		}) as jest.MockedFunction<typeof fetch>;
 		await expect(loadRinspaceSession(request, controller.signal)).rejects.toThrow();
-		expect(request).toHaveBeenCalledTimes(1);
+		await expect(loadRinspaceSession(request)).resolves.toEqual(session);
+		expect(request.mock.calls.filter(([path]) => path === '/api/identity/v1/session/refresh')).toHaveLength(1);
 	});
 });
