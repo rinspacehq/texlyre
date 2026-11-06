@@ -159,6 +159,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 	const [creationKeyConflict, setCreationKeyConflict] = useState(false);
 	const [publicationDone, setPublicationDone] = useState(false);
 	const publicationFlight = useRef('');
+	const editedBeforeDraftHydration = useRef(false);
 	const formCapability = capability ?? PROJECT_FORM_DEFAULTS;
 	const controllers = useRef(new Set<AbortController>());
 	const controller = useCallback(() => {
@@ -179,7 +180,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 				setActorId(session.user.id);
 				setCapability(available);
 				const saved = readDraft(session.user.id);
-				if (saved) {
+				if (saved && !editedBeforeDraftHydration.current) {
 					setStep(saved.step);
 					setIntent(saved.intent);
 					setSelectedTags(saved.selectedTags);
@@ -418,8 +419,10 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 		controller,
 	]);
 
-	const updateIntent = (patch: Partial<ProjectCreationIntent>) =>
+	const updateIntent = (patch: Partial<ProjectCreationIntent>) => {
+		editedBeforeDraftHydration.current = true;
 		setIntent((current) => ({ ...current, ...patch }));
+	};
 	const publishCreatedProject = useCallback(
 		async (next: ProjectCreationOperation) => {
 			if (
