@@ -13,6 +13,12 @@ import { useTheme } from '../../hooks/useTheme';
 import type { Project, ProjectType, ProjectGroup } from '../../types/projects';
 import type { WorkspaceCatalogProject } from '../../workspace/contracts';
 import {
+	canSelectRemoteProjectSource,
+	resolveVisibleProjectSource,
+	type ProjectSource,
+	type ProjectSourceAccountState,
+} from '../../workspace/ProjectSourcePolicy';
+import {
 	isValidYjsUrl,
 	buildUrlWithFragments,
 	parseUrlFragments,
@@ -45,8 +51,6 @@ import QuotaBanner from '../common/QuotaBanner';
 
 const moduleLog = createNamedLogger('ProjectApp');
 const PROJECT_SOURCE_STORAGE_KEY = 'texlyre-project-source-tab';
-
-type ProjectSource = 'remote' | 'local';
 
 interface ProjectManagerProps {
 	onOpenProject: (
@@ -89,13 +93,25 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	const [hasRemoteProjects, setHasRemoteProjects] = useState(
 		() => Boolean(onOpenManagedProject && projectHomeSource?.isEnabled()),
 	);
+	const [remoteAccountState, setRemoteAccountState] =
+		useState<ProjectSourceAccountState>(() =>
+			projectCatalog?.getAccount ? 'checking' : 'authenticated',
+		);
 	const [activeProjectSource, setActiveProjectSource] = useState<ProjectSource>(
 		() => {
 			if (!onOpenManagedProject || !projectHomeSource?.isEnabled()) return 'local';
 			try { return localStorage.getItem(PROJECT_SOURCE_STORAGE_KEY) === 'local' ? 'local' : 'remote'; } catch { return 'remote'; }
 		},
 	);
-	const visibleProjectSource: ProjectSource = hasRemoteProjects ? activeProjectSource : 'local';
+	const remoteSourceAvailable = canSelectRemoteProjectSource(
+		hasRemoteProjects,
+		remoteAccountState,
+	);
+	const visibleProjectSource = resolveVisibleProjectSource(
+		hasRemoteProjects,
+		activeProjectSource,
+		remoteAccountState,
+	);
 
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -151,6 +167,31 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 			setRemoteSearchQuery('');
 		});
 	}, [onOpenManagedProject, projectHomeSource]);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		const accountState =
+			!onOpenManagedProject || !projectHomeSource?.isEnabled()
+				? Promise.resolve<ProjectSourceAccountState>('anonymous')
+				: !projectCatalog?.getAccount
+					? Promise.resolve<ProjectSourceAccountState>('authenticated')
+					: projectCatalog
+							.getAccount(controller.signal)
+							.then<ProjectSourceAccountState>((account) =>
+								account ? 'authenticated' : 'anonymous',
+							);
+		void accountState
+			.then((state) => {
+				if (!controller.signal.aborted)
+					setRemoteAccountState(state);
+			})
+			.catch((cause: unknown) => {
+				if (controller.signal.aborted) return;
+				moduleLog.warn('Failed to determine the managed project account:', cause);
+				setRemoteAccountState('unavailable');
+			});
+		return () => controller.abort();
+	}, [onOpenManagedProject, projectCatalog, projectHomeSource]);
 
 	useEffect(() => {
 		if (!projectCatalog?.isEnabled() || !projectCatalog.prefetch) return;
@@ -493,7 +534,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 	};
 
 	const selectProjectSource = (source: ProjectSource) => {
-		if (source === 'remote' && !hasRemoteProjects) return;
+		if (source === 'remote' && !remoteSourceAvailable) return;
 		setActiveProjectSource(source);
 		setMobileSidebarOpen(false);
 		try { localStorage.setItem(PROJECT_SOURCE_STORAGE_KEY, source); } catch { /* Optional preference. */ }
@@ -506,7 +547,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 		event.preventDefault();
 		const nextSource: ProjectSource = source === 'remote' ? 'local' : 'remote';
-		if (nextSource === 'remote' && !hasRemoteProjects) return;
+		if (nextSource === 'remote' && !remoteSourceAvailable) return;
 		selectProjectSource(nextSource);
 		document.getElementById(`project-source-tab-${nextSource}`)?.focus();
 	};
@@ -559,7 +600,7 @@ const ProjectApp: React.FC<ProjectManagerProps> = ({
 						role='tablist'
 						aria-label={t('Projects')}
 					>
-						{hasRemoteProjects && (
+						{remoteSourceAvailable && (
 							<button
 								id='project-source-tab-remote'
 								type='button'

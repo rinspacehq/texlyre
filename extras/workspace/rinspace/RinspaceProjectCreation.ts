@@ -102,6 +102,32 @@ let capabilityFlight:
 	| { actorId: string; promise: Promise<ProjectCreationCapability> }
 	| undefined;
 
+async function fetchCreationCapability(
+	actorId: string,
+): Promise<ProjectCreationCapability> {
+	const fetchCapability = () =>
+		fetch(`${ROOT}/capability`, {
+			method: 'GET',
+			credentials: 'include',
+			cache: 'no-store',
+			headers: { Accept: 'application/json' },
+		});
+	let response = await fetchCapability();
+	if (response.status === 401) {
+		// Native restoration can rotate the session cookie between the identity
+		// check above and this safe metadata GET. Recheck the official session and
+		// retry only this idempotent request; writes are never replayed here.
+		await new Promise((resolve) => globalThis.setTimeout(resolve, 200));
+		const recovered = await loadRinspaceSession(globalThis.fetch);
+		if (recovered.user.id !== actorId)
+			throw new Error(
+				'Rinspace account changed. Reopen project creation for the current account.',
+			);
+		response = await fetchCapability();
+	}
+	return jsonResponse<ProjectCreationCapability>(response, 'Rinspace request');
+}
+
 async function jsonResponse<T>(response: Response, label: string): Promise<T> {
 	if (!response.ok) {
 		let code = '';
@@ -171,15 +197,7 @@ export async function projectCreationCapability(
 			? capabilityFlight.promise
 			: undefined;
 	if (!pending) {
-		pending = fetch(`${ROOT}/capability`, {
-			method: 'GET',
-			credentials: 'include',
-			cache: 'no-store',
-			headers: { Accept: 'application/json' },
-		})
-			.then((response) =>
-				jsonResponse<ProjectCreationCapability>(response, 'Rinspace request'),
-			)
+		pending = fetchCreationCapability(actorId)
 			.then((value) => {
 				if (
 					value.schemaVersion !== 'rinspace-editor-project-creation/v1' ||
