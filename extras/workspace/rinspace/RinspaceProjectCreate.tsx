@@ -34,6 +34,20 @@ interface Props {
 	onOpen: (operation: ProjectCreationOperation) => Promise<void>;
 }
 
+// The creation contract currently exposes these choices for every enabled
+// account. Render them immediately while the account-scoped capability is
+// loading; the resolved capability still controls submission and can replace
+// these presentation defaults before any write is allowed.
+const PROJECT_FORM_DEFAULTS: ProjectCreationCapability = {
+	schemaVersion: 'rinspace-editor-project-creation/v1',
+	enabled: true,
+	kinds: ['article', 'book'],
+	sourceFormats: ['latex', 'markdown', 'typst'],
+	maxTags: 6,
+	defaultVisibility: 'private',
+	tagCreationEnabled: true,
+};
+
 interface SavedDraft {
 	step: 1 | 2 | 3;
 	intent: ProjectCreationIntent;
@@ -145,6 +159,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 	const [creationKeyConflict, setCreationKeyConflict] = useState(false);
 	const [publicationDone, setPublicationDone] = useState(false);
 	const publicationFlight = useRef('');
+	const formCapability = capability ?? PROJECT_FORM_DEFAULTS;
 	const controllers = useRef(new Set<AbortController>());
 	const controller = useCallback(() => {
 		const next = new AbortController();
@@ -664,16 +679,15 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 					{error}
 				</div>
 			)}
-			{!capability && !error && (
-				<div className='ui-empty-state' aria-busy='true'>
-					<div className='loading-spinner' />
-				</div>
-			)}
 			{capability && !capability.enabled && (
 				<p>{t('Project creation is unavailable for this account.')}</p>
 			)}
-			{capability?.enabled && step === 2 && (
-				<div className='ui-stack' data-gap='md'>
+			{capability?.enabled !== false && step === 2 && (
+				<div
+					className='ui-stack'
+					data-gap='md'
+					aria-busy={capability ? undefined : true}
+				>
 					<label className='ui-field'>
 						<span className='ui-field-label'>{t('Project Name')}</span>
 						<input
@@ -707,7 +721,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								}
 							}}
 						>
-							{capability.kinds.map((kind: ProjectKind) => (
+							{formCapability.kinds.map((kind: ProjectKind) => (
 								<option key={kind} value={kind}>
 									{kind === 'article' ? t('Article') : t('Book')}
 								</option>
@@ -725,15 +739,17 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								})
 							}
 						>
-							{capability.sourceFormats.map((sourceFormat: SourceFormat) => (
-								<option key={sourceFormat} value={sourceFormat}>
-									{sourceFormat === 'latex'
-										? 'LaTeX'
-										: sourceFormat === 'markdown'
-											? 'Markdown'
-											: 'Typst'}
-								</option>
-							))}
+							{formCapability.sourceFormats.map(
+								(sourceFormat: SourceFormat) => (
+									<option key={sourceFormat} value={sourceFormat}>
+										{sourceFormat === 'latex'
+											? 'LaTeX'
+											: sourceFormat === 'markdown'
+												? 'Markdown'
+												: 'Typst'}
+									</option>
+								),
+							)}
 						</select>
 					</label>
 					<label className='ui-field'>
@@ -772,7 +788,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 						<span className='ui-field-label'>{t('Cover image')}</span>
 						<RinspaceCoverField
 							actorId={actorId}
-							disabled={busy}
+							disabled={busy || !capability?.enabled || !actorId}
 							kind={intent.kind}
 							value={intent.coverRef}
 							onChange={(coverRef) => updateIntent({ coverRef })}
@@ -840,7 +856,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 								</button>
 							))}
 						</div>
-						{capability.tagCreationEnabled &&
+						{capability?.tagCreationEnabled &&
 							!showNewTag &&
 							tagQuery.trim() && (
 								<button
@@ -854,7 +870,7 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 									{t('Create')} “{tagQuery.trim()}”
 								</button>
 							)}
-						{capability.tagCreationEnabled && showNewTag && (
+						{capability?.tagCreationEnabled && showNewTag && (
 							<div className='ui-card ui-stack' data-padding='md' data-gap='sm'>
 								<div className='ui-toolbar' data-justify='between'>
 									<h3 className='ui-panel-title' data-size='body'>
@@ -996,7 +1012,13 @@ const RinspaceProjectCreate: React.FC<Props> = ({ onClose, onOpen }) => {
 						<button
 							type='button'
 							className='button primary'
-							disabled={!intent.title.trim() || busy || Boolean(tagOperationId)}
+							disabled={
+								!capability?.enabled ||
+								!actorId ||
+								!intent.title.trim() ||
+								busy ||
+								Boolean(tagOperationId)
+							}
 							onClick={() => void submit()}
 						>
 							{busy ? t('Creating...') : t('Create Project')}
