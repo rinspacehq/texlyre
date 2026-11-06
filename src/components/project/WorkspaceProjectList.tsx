@@ -5,7 +5,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { t } from '@/i18n';
 import type { WorkspaceCatalogProject } from '@/workspace/contracts';
 import { formatDate, formatLastModified } from '@/utils/dateUtils';
-import { FolderIcon, GridIcon, ListIcon } from '../common/Icons';
+import {
+	EditIcon,
+	FolderIcon,
+	GridIcon,
+	ListIcon,
+	TrashIcon,
+} from '../common/Icons';
 
 type SortKey = 'name' | 'createdAt' | 'updatedAt';
 
@@ -199,8 +205,28 @@ const WorkspaceProjectList: React.FC<Props> = ({
 										<FolderIcon />
 										{openingId === project.id ? t('Opening...') : t('Open')}
 									</button>
-									{project.management && onEditProject && <button type='button' className='button secondary' disabled={Boolean(openingId)} onClick={() => onEditProject(project)}>{t('Edit')}</button>}
-									{project.management && onDeleteProject && <button type='button' className='button secondary danger' disabled={Boolean(openingId)} onClick={() => onDeleteProject(project)}>{t('Delete')}</button>}
+									{project.management && onEditProject && (
+										<button
+											type='button'
+											className='button'
+											disabled={Boolean(openingId)}
+											onClick={() => onEditProject(project)}
+											title={t('Edit Project')}
+										>
+											<EditIcon />
+										</button>
+									)}
+									{project.management && onDeleteProject && (
+										<button
+											type='button'
+											className='button danger'
+											disabled={Boolean(openingId)}
+											onClick={() => onDeleteProject(project)}
+											title={t('Delete Project')}
+										>
+											<TrashIcon />
+										</button>
+									)}
 								</div>
 								{project.tags && project.tags.length > 0 && (
 									<div className='ui-tags' data-role='project-tags'>

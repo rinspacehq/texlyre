@@ -38,10 +38,18 @@ it('shows owner-only native card management actions', () => {
 	const edit = jest.fn();
 	const remove = jest.fn();
 	render(<WorkspaceProjectList projects={[project, { ...project, id: '42', access: 'collaborator', management: undefined }]} onOpenProject={async () => {}} onEditProject={edit} onDeleteProject={remove} />);
-	expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
-	expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
-	fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+	const editButton = screen.getByTitle('Edit Project');
+	const deleteButton = screen.getByTitle('Delete Project');
+	expect(editButton).toHaveClass('button');
+	expect(editButton).not.toHaveClass('secondary');
+	expect(deleteButton).toHaveClass('button', 'danger');
+	expect(deleteButton).not.toHaveClass('secondary');
+	expect(editButton).not.toHaveTextContent('Edit');
+	expect(deleteButton).not.toHaveTextContent('Delete');
+	fireEvent.click(editButton);
 	expect(edit).toHaveBeenCalledWith(project);
+	fireEvent.click(deleteButton);
+	expect(remove).toHaveBeenCalledWith(project);
 });
 
 it('keeps type and format fixed while saving editable metadata', async () => {
