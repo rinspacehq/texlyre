@@ -193,13 +193,24 @@ function MessageContent({
 					return <p key={`${part.type}-${index}`}>{part.text}</p>;
 				}
 				if (part.type === 'tool-call') {
+					const result = resultById.get(part.toolCallId);
+					const label = TOOL_LABELS[part.toolName] ?? part.toolName;
 					return (
 						<AgentToolView
 							key={`call-${part.toolCallId}`}
-							label={TOOL_LABELS[part.toolName] ?? part.toolName}
+							label={result ? `${label}${result.isError ? '失败' : '完成'}` : label}
 							status={toolStatus(part, resultById, pendingToolCalls)}
 						>
-							<pre>{boundedJson(part.input)}</pre>
+							{result ? (
+								<>
+									<ToolDiffs output={result.output} />
+									<pre>{boundedJson(result.output)}</pre>
+									<details>
+										<summary>调用参数</summary>
+										<pre>{boundedJson(part.input)}</pre>
+									</details>
+								</>
+							) : <pre>{boundedJson(part.input)}</pre>}
 						</AgentToolView>
 					);
 				}
@@ -249,6 +260,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 		onCollapsedChange?.(next);
 	};
 	const [prompt, setPrompt] = useState('');
+	const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
 	const [config, setConfig] = useState<RinspaceAgentConfig | null>(null);
 	const [controller, setController] = useState<RinspaceAgentController | null>(null);
 	const [view, setView] = useState<RinspaceAgentViewState | null>(null);
@@ -256,6 +268,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 	const [billingStale, setBillingStale] = useState(false);
 	const [restoring, setRestoring] = useState(savedState !== null);
 	const [starting, setStarting] = useState(false);
+	const [stopped, setStopped] = useState(false);
 	const [error, setError] = useState('');
 	const [markdownDiagnostic, setMarkdownDiagnostic] =
 		useState<RinspaceAgentDiagnosticSource>({
@@ -271,6 +284,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 	const startPending = useRef(false);
 	const taskGeneration = useRef(0);
 	const composing = useRef(false);
+	const composerRef = useRef<HTMLTextAreaElement>(null);
 	const restoreStarted = useRef(false);
 	const restoredBillRun = useRef<string | null>(null);
 	const pageUnloading = useRef(false);
@@ -659,32 +673,43 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 			string,
 			Extract<AgentMessagePart, { type: 'tool-result' }>
 		>();
+		const callIds = new Set<string>();
 		for (const message of source) {
 			for (const part of message.content) {
+				if (part.type === 'tool-call') callIds.add(part.toolCallId);
 				if (part.type === 'tool-result') resultById.set(part.toolCallId, part);
 			}
 		}
 		const pendingToolCalls = new Set(snapshot?.pendingToolCalls ?? []);
-		return source.map((message) => ({
-			id: message.id,
-			role: message.role === 'tool' ? 'status' : message.role,
-			content: (
-				<MessageContent
-					message={message}
-					pendingToolCalls={pendingToolCalls}
-					resultById={resultById}
-				/>
-			),
-		}));
+		return source.flatMap((message) => {
+			const content = message.content.filter((part) => part.type !== 'tool-result' || !callIds.has(part.toolCallId));
+			if (content.length === 0) return [];
+			return [{
+				id: message.id,
+				role: message.role === 'tool' ? 'status' : message.role,
+				content: (
+					<MessageContent
+						message={{ ...message, content }}
+						pendingToolCalls={pendingToolCalls}
+						resultById={resultById}
+					/>
+				),
+			}];
+		});
 	}, [view?.snapshot]);
+
+	const running = starting || view?.snapshot.status === 'running';
+	const approval = view?.pendingApproval;
+	const canSend = config && !restoring && !running && !approval && !stopped;
 
 	const start = async () => {
 		const lifecycle = lifecycleAbort.current;
+		const draft = prompt;
+		const input = draft.trim();
 		if (
 			!managed ||
-			!config ||
-			restoring ||
-			!prompt.trim() ||
+			!canSend ||
+			!input ||
 			!lifecycle ||
 			lifecycle.signal.aborted ||
 			startPending.current
@@ -694,8 +719,12 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 		startPending.current = true;
 		const generation = taskGeneration.current;
 		setError('');
+		setPrompt('');
+		setPendingPrompt(input);
 		setStarting(true);
+		composerRef.current?.focus();
 		let createAbort: AbortController | null = null;
+		let submitted = false;
 		try {
 			let active = controllerRef.current;
 			if (!active) {
@@ -729,8 +758,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 					setController(created);
 				}
 			}
-			const input = prompt.trim();
-			setPrompt('');
+			submitted = true;
+			setPendingPrompt(null);
 			await active.run(input);
 		} catch (reason) {
 			if (
@@ -738,18 +767,19 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 				!lifecycle.signal.aborted &&
 				generation === taskGeneration.current
 			) {
+				if (!submitted) setPrompt((current) => current || draft);
 				setError(reason instanceof Error ? reason.message : '琳任务失败');
 			}
 		} finally {
 			if (createAbort && pendingCreateAbort.current === createAbort) {
 				pendingCreateAbort.current = null;
 			}
-			startPending.current = false;
 			if (
 				mounted.current &&
 				!lifecycle.signal.aborted &&
 				generation === taskGeneration.current
 			) {
+				startPending.current = false;
 				setStarting(false);
 			}
 		}
@@ -757,29 +787,45 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 
 	const stop = () => {
 		taskGeneration.current += 1;
+		startPending.current = false;
 		pendingCreateAbort.current?.abort();
 		pendingCreateAbort.current = null;
+		setStopped(controllerRef.current !== null);
 		controllerRef.current?.abort();
+		if (pendingPrompt) setPrompt((current) => current || pendingPrompt);
 		setStarting(false);
+		composerRef.current?.focus();
 	};
 
 	const reset = () => {
-		stop();
+		if (restoring || running || approval || startPending.current) return;
+		controllerRef.current?.abort();
 		controllerRef.current = null;
 		setController(null);
 		setView(null);
+		setStopped(false);
+		setPendingPrompt(null);
 		setBilling(null);
 		setBillingStale(false);
 		setError('');
 		if (managed) clearAgentState(managed.identity.actorId, projectId);
+		composerRef.current?.focus();
 	};
 
-	const running = starting || view?.snapshot.status === 'running';
-	const runtimeError = !running ? view?.snapshot.lastError : undefined;
+	const runtimeError = !running && !stopped ? view?.snapshot.lastError : undefined;
 	const visibleError = error || (runtimeError?.startsWith('Agent runtime exceeded maxIterations')
 		? '已达到本任务的最大回合数，请检查结果后开始新任务。'
 		: runtimeError);
-	const approval = view?.pendingApproval;
+	const shownMessages: AgentMessageView[] = pendingPrompt === null ? messages : [...messages, {
+		id: 'pending-prompt',
+		role: 'user',
+		content: (
+			<div className='rinspace-agent-message-parts'>
+				<p>{pendingPrompt}</p>
+				{!starting && <small>未发送</small>}
+			</div>
+		),
+	}];
 	return (
 		<section
 			className={`rinspace-agent rinspace-cline-embed ui-panel ${collapsed ? 'collapsed' : 'expanded'}`}
@@ -789,15 +835,15 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 			<div className='ui-panel-header' data-role='agent'>
 				<div className='ui-panel-heading'>
 					<span className='ui-panel-title'>琳</span>
-					<span className='ui-badge' data-variant='label'>
-						{running ? '运行中' : restoring ? '恢复中' : config ? '就绪' : '连接中'}
+					<span className='ui-badge' data-variant='label' role='status'>
+						{approval ? '等待确认' : starting && !controller ? '正在启动' : running ? '运行中' : stopped ? '已停止' : restoring ? '恢复中' : config ? '就绪' : error ? '连接失败' : '连接中'}
 					</span>
 				</div>
 				<div className='ui-toolbar-actions' data-gap='xs'>
-					<button type='button' className='button secondary' onClick={reset}>
+					<button type='button' className='button secondary' onClick={reset} disabled={restoring || running || Boolean(approval)}>
 						新任务
 					</button>
-					{running && (
+					{collapsed && running && (
 						<button type='button' className='button secondary' onClick={stop}>
 							停止
 						</button>
@@ -814,7 +860,7 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 			</div>
 			{!collapsed && (
 				<div className='ui-panel-content' data-role='agent'>
-					<AgentMessageList empty={<></>} messages={messages} />
+					<AgentMessageList empty={<></>} messages={shownMessages} />
 					{approval && (
 						<AgentApprovalCard
 							title='确认 Push'
@@ -825,8 +871,10 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 						/>
 					)}
 					{visibleError && <div className='ui-message' data-tone='error'>{visibleError}</div>}
+					{stopped && !running && <div className='ui-message'>开始新任务后可发送草稿。</div>}
 					<div className='rinspace-agent-composer ui-toolbar'>
 						<textarea
+							ref={composerRef}
 							className='ui-field-control'
 							value={prompt}
 							onChange={(event) => setPrompt(event.target.value)}
@@ -839,6 +887,8 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 							onKeyDown={(event) => {
 								if (
 									event.key === 'Enter' &&
+									canSend &&
+									!event.repeat &&
 									!event.shiftKey &&
 									!composing.current &&
 									!event.nativeEvent.isComposing &&
@@ -849,12 +899,18 @@ const RinspaceAgentPanel: React.FC<AgentPanelProps> = ({
 								}
 							}}
 							placeholder='让琳阅读、修改、编译或提交当前项目…'
-							disabled={!config || restoring || running}
+							disabled={!config || restoring}
 							rows={3}
 						/>
-						<button type='button' className='button primary' onClick={() => void start()} disabled={!config || restoring || running || !prompt.trim()}>
-							发送
-						</button>
+						{running ? (
+							<button key='stop' type='button' className='button primary' onClick={stop}>
+								停止
+							</button>
+						) : (
+							<button key='send' type='button' className='button primary' onClick={() => void start()} disabled={!canSend || !prompt.trim()}>
+								发送
+							</button>
+						)}
 					</div>
 					<RinspaceAgentBill bill={billing} stale={billingStale} />
 				</div>

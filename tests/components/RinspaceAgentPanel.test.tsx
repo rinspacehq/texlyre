@@ -201,10 +201,20 @@ test('single-flights run creation and rejects a controller returned after Stop',
 	fireEvent.click(send);
 
 	expect(mockCreate).toHaveBeenCalledTimes(1);
+	expect(composer).toHaveValue('');
+	expect(composer).toHaveFocus();
+	expect(screen.getByTestId('messages')).toHaveTextContent('继续修改');
+	expect(screen.getByRole('button', { name: '新任务' })).toBeDisabled();
+	fireEvent.change(composer, { target: { value: '下一条草稿\n保留第二行' } });
+	fireEvent.keyDown(composer, { key: 'Enter', keyCode: 13 });
+	expect(mockCreate).toHaveBeenCalledTimes(1);
 	const signal = mockCreate.mock.calls[0]?.[5] as AbortSignal;
 	expect(signal.aborted).toBe(false);
-	fireEvent.click(screen.getByRole('button', { name: '停止' }));
+	const stop = screen.getByRole('button', { name: '停止' });
+	expect(stop.closest('.rinspace-agent-composer')).not.toBeNull();
+	fireEvent.click(stop);
 	expect(signal.aborted).toBe(true);
+	expect(composer).toHaveValue('下一条草稿\n保留第二行');
 
 	await act(async () => {
 		resolveCreate?.(lateController);
@@ -212,6 +222,7 @@ test('single-flights run creation and rejects a controller returned after Stop',
 	});
 	expect(lateController.abort).toHaveBeenCalledTimes(1);
 	expect(lateController.run).not.toHaveBeenCalled();
+	expect(composer).toHaveValue('下一条草稿\n保留第二行');
 });
 
 test('aborts pending run creation when the ownership-scoped panel unmounts', async () => {
@@ -483,8 +494,7 @@ test('renders Cline tool cards and bounded project diff cards', async () => {
 		});
 	});
 
-	expect(screen.getAllByTestId('tool-card')).toHaveLength(2);
-	expect(screen.getByText('检查 Git 状态')).toBeInTheDocument();
+	expect(screen.getAllByTestId('tool-card')).toHaveLength(1);
 	expect(screen.getByText('检查 Git 状态完成')).toBeInTheDocument();
 	const diff = screen.getByTestId('diff-file');
 	expect(diff).toHaveAttribute('data-path', 'main.tex');
