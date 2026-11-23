@@ -25,29 +25,51 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({
 		registerProperty,
 	} = useProperties();
 	const plugin = pluginRegistry.getAvailableAgents(context)[0];
-	const storedOpen = arePropertiesReady
+	const openOnProjectLoad = plugin?.openPanelOnProjectLoad !== false;
+	const panelKey =
+		context.mode === 'managed'
+			? JSON.stringify([
+					plugin?.id,
+					projectId,
+					context.identity.actorId,
+					context.identity.permissionEpoch,
+					context.binding.workspaceId,
+					context.binding.generation,
+				])
+			: JSON.stringify([plugin?.id, projectId, 'local']);
+	const storedOpen = openOnProjectLoad && arePropertiesReady
 		? getProperty('agent-panel-visible', {
 				scope: 'project',
 				projectId,
 			})
 		: undefined;
-	const [openOverride, setOpenOverride] = useState<boolean | null>(null);
+	const [visibility, setVisibility] = useState<{
+		panelKey: string;
+		open: boolean;
+		opened: boolean;
+	} | null>(null);
+	const current = visibility?.panelKey === panelKey ? visibility : null;
 	const open =
-		openOverride ?? (storedOpen === undefined ? true : storedOpen === true);
+		current?.open ??
+		(openOnProjectLoad && (storedOpen === undefined || storedOpen === true));
 	const setOpen = useCallback(
 		(nextOpen: boolean) => {
-			setOpenOverride(nextOpen);
-			if (!arePropertiesReady) return;
+			setVisibility((previous) => ({
+				panelKey,
+				open: nextOpen,
+				opened: nextOpen || (previous?.panelKey === panelKey && previous.opened),
+			}));
+			if (!openOnProjectLoad || !arePropertiesReady) return;
 			setProperty('agent-panel-visible', nextOpen, {
 				scope: 'project',
 				projectId,
 			});
 		},
-		[arePropertiesReady, projectId, setProperty],
+		[arePropertiesReady, openOnProjectLoad, panelKey, projectId, setProperty],
 	);
 
 	useEffect(() => {
-		if (!plugin || propertiesRegistered.current) return;
+		if (!plugin || !openOnProjectLoad || propertiesRegistered.current) return;
 		propertiesRegistered.current = true;
 		registerProperty({
 			id: 'agent-panel-visible',
@@ -55,20 +77,10 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({
 			subcategory: 'Editor',
 			defaultValue: true,
 		});
-	}, [plugin, registerProperty]);
+	}, [openOnProjectLoad, plugin, registerProperty]);
 
 	if (!plugin) return null;
 	const Panel = plugin.renderPanel;
-	const panelKey =
-		context.mode === 'managed'
-			? JSON.stringify([
-					projectId,
-					context.identity.actorId,
-					context.identity.permissionEpoch,
-					context.binding.workspaceId,
-					context.binding.generation,
-				])
-			: `${projectId}:local`;
 	return (
 		<AuxiliaryPanelPortal
 			id='agent'
@@ -78,23 +90,25 @@ const AgentPanelHost: React.FC<AgentPanelHostProps> = ({
 			open={open}
 			onOpenChange={setOpen}
 		>
-			<div className='agent-panel-container'>
-				<Suspense
-					fallback={
-						<div className='ui-loading-state' data-role='agent'>
-							<div className='loading-spinner' />
-						</div>
-					}
-				>
-					<Panel
-						key={panelKey}
-						context={context}
-						projectId={projectId}
-						collapsed={!open}
-						onCollapsedChange={(collapsed) => setOpen(!collapsed)}
-					/>
-				</Suspense>
-			</div>
+			{(openOnProjectLoad || current?.opened) && (
+				<div className='agent-panel-container'>
+					<Suspense
+						fallback={
+							<div className='ui-loading-state' data-role='agent'>
+								<div className='loading-spinner' />
+							</div>
+						}
+					>
+						<Panel
+							key={panelKey}
+							context={context}
+							projectId={projectId}
+							collapsed={!open}
+							onCollapsedChange={(collapsed) => setOpen(!collapsed)}
+						/>
+					</Suspense>
+				</div>
+			)}
 		</AuxiliaryPanelPortal>
 	);
 };

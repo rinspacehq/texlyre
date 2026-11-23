@@ -30,6 +30,8 @@ export interface AgentPanelProps {
 /** Generic assistant surface. Product models, tools and policy stay in extras. */
 export interface AgentPlugin extends Plugin {
 	type: 'agent';
+	/** Set to false to wait for the user to open the panel each time they enter a project. */
+	openPanelOnProjectLoad?: boolean;
 	isAvailable(context: HostContext): boolean;
 	renderPanel: React.ComponentType<AgentPanelProps>;
 }

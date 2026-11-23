@@ -1,7 +1,7 @@
 {
   "schema": "rinspace-texlyre-release/v1",
-  "releaseTag": "v0.13.2-rinspace.31",
-  "version": "0.13.2-rinspace.31",
+  "releaseTag": "v0.13.2-rinspace.32",
+  "version": "0.13.2-rinspace.32",
   "canonicalRepository": "rinspacehq/texlyre",
   "routeBase": "/editor/",
   "license": "AGPL-3.0-or-later",
@@ -13,14 +13,14 @@
     "sourceArchiveRequired": true
   },
   "artifact": {
-    "filename": "texlyre-editor-v0.13.2-rinspace.31.tar.gz",
+    "filename": "texlyre-editor-v0.13.2-rinspace.32.tar.gz",
     "archiveRoot": "editor",
     "includesDependencyNotices": true,
     "includesExternalNotices": true
   },
   "releaseNotes": {
-    "sourcePath": "docs/rinspace/RELEASE_V31.md",
-    "artifactFilename": "MIGRATION_AND_ROLLBACK-v0.13.2-rinspace.31.md"
+    "sourcePath": "docs/rinspace/RELEASE_V32.md",
+    "artifactFilename": "MIGRATION_AND_ROLLBACK-v0.13.2-rinspace.32.md"
   },
   "texliveRuntime": {
     "runtimeId": "texlive-2026-rinspace.1",
