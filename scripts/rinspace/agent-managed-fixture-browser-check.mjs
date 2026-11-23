@@ -1202,6 +1202,39 @@ async function apiResponse(repository, agentFixture, request, url) {
 	return null;
 }
 
+async function openAgentFromRail(client, interceptionErrors, requests, requestOffset, previousDocument) {
+	const deadline = Date.now() + timeoutMs;
+	const selector = '[role="tab"][aria-controls="auxiliary-panel-agent"]';
+	while (Date.now() < deadline) {
+		if (interceptionErrors.length) throw new Error(interceptionErrors.join('\n'));
+		const entry = await evaluate(client, `(() => {
+			const tab = document.querySelector(${JSON.stringify(selector)});
+			return tab && {
+				documentTime: performance.timeOrigin,
+				selected: tab.getAttribute('aria-selected'),
+				mounted: Boolean(document.querySelector('section[data-role="agent"]')),
+			};
+		})()`).catch(() => null);
+		if (entry && entry.documentTime !== previousDocument) {
+			assert.equal(entry.selected, 'false', 'Agent was open before selection');
+			assert.equal(entry.mounted, false, 'Agent mounted before selection');
+			assert.equal(requests.slice(requestOffset).some(
+				(request) => request.includes('/rinspace/api/editor/v1/agent/'),
+			), false, 'Agent contacted its API before selection');
+			await evaluate(client, `document.querySelector(${JSON.stringify(selector)}).click()`);
+			return;
+		}
+		await wait(100);
+	}
+	throw new Error('The editor did not display a closed Agent entry in the activity rail');
+}
+
+async function reloadAndOpenAgent(client, interceptionErrors, requests, requestOffset) {
+	const previousDocument = await evaluate(client, 'performance.timeOrigin');
+	await client.send('Page.reload', { ignoreCache: true });
+	await openAgentFromRail(client, interceptionErrors, requests, requestOffset, previousDocument);
+}
+
 async function waitForManagedProject(
 	client,
 	scenario,
@@ -1211,7 +1244,9 @@ async function waitForManagedProject(
 ) {
 	const requestOffset = requests.length;
 	const targetUrl = `https://rinspace.com/editor/?mode=managed&owner=${scenario.owner}&repository=${scenario.repository}`;
+	const previousDocument = await evaluate(client, 'performance.timeOrigin');
 	await client.send('Page.navigate', { url: targetUrl });
+	await openAgentFromRail(client, interceptionErrors, requests, requestOffset, previousDocument);
 	const deadline = Date.now() + timeoutMs;
 	let pageState;
 	while (Date.now() < deadline) {
@@ -2551,7 +2586,7 @@ try {
 	const readsBeforeReload = recoveryRun.recoveryReads;
 	assert.ok(readsBeforeReload > 0, 'completed task never refreshed its bill');
 	let recoveryRequestOffset = requests.length;
-	await client.send('Page.reload', { ignoreCache: true });
+	await reloadAndOpenAgent(client, interceptionErrors, requests, recoveryRequestOffset);
 	await waitForObservedRequest(
 		requests,
 		recoveryRequestOffset,
@@ -2612,7 +2647,7 @@ try {
 	);
 	agentFixture.failNextRecovery = true;
 	recoveryRequestOffset = requests.length;
-	await recoveryClient.send('Page.reload', { ignoreCache: true });
+	await reloadAndOpenAgent(recoveryClient, interceptionErrors, requests, recoveryRequestOffset);
 	await waitForObservedRequest(
 		requests,
 		recoveryRequestOffset,
@@ -2625,7 +2660,7 @@ try {
 	assert.equal(recoveryRun.abortCount, beforeRecovery.aborts);
 
 	recoveryRequestOffset = requests.length;
-	await recoveryClient.send('Page.reload', { ignoreCache: true });
+	await reloadAndOpenAgent(recoveryClient, interceptionErrors, requests, recoveryRequestOffset);
 	await waitForObservedRequest(
 		requests,
 		recoveryRequestOffset,

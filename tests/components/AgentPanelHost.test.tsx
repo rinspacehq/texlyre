@@ -7,6 +7,9 @@ import type { AgentPlugin } from '@src/plugins/PluginInterface';
 import type { HostContext } from '@src/workspace/contracts';
 
 const mockGetAvailableAgents = jest.fn();
+const mockGetProperty = jest.fn();
+const mockSetProperty = jest.fn();
+const mockRegisterProperty = jest.fn();
 
 jest.mock('@src/plugins/PluginRegistry', () => ({
 	pluginRegistry: { getAvailableAgents: (...args: unknown[]) => mockGetAvailableAgents(...args) },
@@ -14,10 +17,10 @@ jest.mock('@src/plugins/PluginRegistry', () => ({
 
 jest.mock('@src/hooks/useProperties', () => ({
 	useProperties: () => ({
-		isReady: false,
-		getProperty: jest.fn(),
-		setProperty: jest.fn(),
-		registerProperty: jest.fn(),
+		isReady: true,
+		getProperty: mockGetProperty,
+		setProperty: mockSetProperty,
+		registerProperty: mockRegisterProperty,
 	}),
 }));
 
@@ -71,6 +74,9 @@ const managedContext = (overrides: {
 
 beforeEach(() => {
 	nextInstance = 0;
+	mockGetProperty.mockReset();
+	mockSetProperty.mockClear();
+	mockRegisterProperty.mockClear();
 	const Panel: AgentPlugin['renderPanel'] = ({
 		context,
 		projectId,
@@ -99,6 +105,33 @@ test('shares collapse state between the Agent header and the resizable shell', (
 	expect(shell).toHaveAttribute('data-collapsed', 'true');
 	fireEvent.click(screen.getByRole('button', { name: 'shell-collapse' }));
 	expect(shell).toHaveAttribute('data-collapsed', 'false');
+});
+
+test('waits for a click before mounting a manual Agent in every project', () => {
+	mockGetProperty.mockReturnValue(true);
+	const [plugin] = mockGetAvailableAgents();
+	mockGetAvailableAgents.mockReturnValue([{ ...plugin, openPanelOnProjectLoad: false }]);
+	const { rerender } = render(
+		<AgentPanelHost context={managedContext()} projectId='project-1' />,
+	);
+	const shell = screen.getByTestId('agent-panel-shell');
+	const toggle = screen.getByRole('button', { name: 'shell-collapse' });
+	expect(shell).toHaveAttribute('data-collapsed', 'true');
+	expect(screen.queryByTestId('agent-panel')).not.toBeInTheDocument();
+	expect(mockGetProperty).not.toHaveBeenCalled();
+
+	fireEvent.click(toggle);
+	expect(shell).toHaveAttribute('data-collapsed', 'false');
+	const instance = screen.getByTestId('agent-panel').dataset.instance;
+	fireEvent.click(toggle);
+	expect(shell).toHaveAttribute('data-collapsed', 'true');
+	fireEvent.click(toggle);
+	expect(screen.getByTestId('agent-panel').dataset.instance).toBe(instance);
+	expect(mockSetProperty).not.toHaveBeenCalled();
+
+	rerender(<AgentPanelHost context={managedContext()} projectId='project-2' />);
+	expect(shell).toHaveAttribute('data-collapsed', 'true');
+	expect(screen.queryByTestId('agent-panel')).not.toBeInTheDocument();
 });
 
 test('preserves one panel across equivalent contexts and remounts at every ownership boundary', () => {

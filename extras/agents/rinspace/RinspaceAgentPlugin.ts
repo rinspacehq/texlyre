@@ -10,6 +10,7 @@ const rinspaceAgentPlugin: AgentPlugin = {
 	name: '琳',
 	version: '0.1.0',
 	type: 'agent',
+	openPanelOnProjectLoad: false,
 	isAvailable: (context) => context.mode === 'managed',
 	renderPanel: RinspaceAgentPanel,
 };
